@@ -1,0 +1,80 @@
+name: release
+
+on:
+  # Publishing a release on the public mirror builds the dmg and attaches it to
+  # that same release. Users download it from the mirror's releases page.
+  release:
+    types: [published]
+  # Manual runs build the same dmg but upload it as a workflow artifact instead
+  # of touching any release — a dry run for the packaging itself.
+  workflow_dispatch:
+
+# Only to attach the dmg to the release that triggered this run.
+permissions:
+  contents: write
+
+jobs:
+  dist-mac:
+    # This file reaches the private repository too — the mirror's content is a
+    # snapshot of it, so the same workflow exists in both places. Releases are
+    # cut on the mirror alone, and a stray private one must not spend half an
+    # hour of macOS runner on a dmg nobody can reach.
+    if: github.repository == 'hrusoft/tabs'
+    # macos-latest is Apple Silicon, matching the arm64-only target in
+    # electron-builder.yml; identity: null / notarize: false there means no
+    # signing secrets are needed.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # Asset filenames come from package.json's version, so a mismatched tag
+      # would publish a vX release containing a vY-named dmg.
+      - name: Verify tag matches package.json version
+        if: github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $pkg" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - run: npm run dist:mac
+
+      - name: Attach the dmg to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg --clobber
+
+      # So a download can be verified against the release that claims it.
+      # Guarded so a re-run of the same release does not append it twice.
+      - name: Record the dmg checksum in the release notes
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          dmg="$(ls dist/*.dmg | head -1)"
+          sum="$(shasum -a 256 "$dmg" | cut -d' ' -f1)"
+          body="$(gh release view "$TAG" --json body --jq .body)"
+          case "$body" in
+            *"$sum"*) echo "checksum already recorded"; exit 0 ;;
+          esac
+          printf '%s\n\n---\n\nSHA-256 of `%s`\n\n`%s`\n' \
+            "$body" "$(basename "$dmg")" "$sum" | gh release edit "$TAG" --notes-file -
+
+      - name: Upload dmg as a workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabs-mac
+          path: dist/*.dmg

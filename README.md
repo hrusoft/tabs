@@ -38,8 +38,8 @@ way around.
 
 Tabs currently ships for **macOS on Apple Silicon** (M1 and later).
 
-1. Go to the [Downloads page](https://github.com/hrusoft/downloads/tree/main/apps/tabs)
-   and download the latest `.dmg`.
+1. Go to the [latest release](https://github.com/hrusoft/tabs/releases/latest) and
+   download the `.dmg`. Each release lists the file's SHA-256 if you want to verify it.
 2. Open the downloaded file and drag **Tabs** into your **Applications** folder.
 3. Launch Tabs from Applications (or Spotlight).
 
