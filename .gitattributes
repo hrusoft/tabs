@@ -12,9 +12,11 @@ tui/                            export-ignore
 .claude/                        export-ignore
 CLAUDE.md                       export-ignore
 
-# Names RELEASE_PUBLISH_TOKEN and the hrusoft/downloads pipeline, and would try
-# to run on the public repo, where it has neither the secret nor a reason to.
-.github/workflows/release.yml   export-ignore
+# .github/workflows/release.yml is deliberately NOT excluded: the dmg is built
+# on the mirror, from a release cut there, so the workflow has to reach it. It
+# guards itself with `if: github.repository` so it never runs here. Note that a
+# file cannot be added to the mirror directly — a snapshot replaces its whole
+# tree — so anything that must exist there has to be published from here.
 
 # The mirror machinery itself.
 scripts/sync-public.sh          export-ignore
