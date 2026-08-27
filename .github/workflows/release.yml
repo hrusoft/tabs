@@ -33,8 +33,9 @@ jobs:
           node-version: 24
           cache: npm
 
-      # Asset filenames come from package.json's version, so a mismatched tag
-      # would publish a vX release containing a vY-named dmg.
+      # The build reads package.json out of the snapshot, so a tag cut before the
+      # version bump was mirrored would publish a release of the previous
+      # version's source. Fail early rather than ship it.
       - name: Verify tag matches package.json version
         if: github.event_name == 'release'
         run: |
@@ -49,11 +50,21 @@ jobs:
 
       - run: npm run dist:mac
 
+      # electron-builder derives the filename from package.json's version parsed
+      # as semver, which strips a date version's leading zero (2026.08.23 ->
+      # 2026.8.23). Rename to the tag, so the asset a release offers is named
+      # after the release it hangs off rather than a version that appears
+      # nowhere else.
       - name: Attach the dmg to the release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg --clobber
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          src="$(ls dist/*.dmg | head -1)"
+          dst="dist/tabs-${TAG#v}-arm64.dmg"
+          [ "$src" = "$dst" ] || mv "$src" "$dst"
+          gh release upload "$TAG" "$dst" --clobber
 
       # So a download can be verified against the release that claims it.
       # Guarded so a re-run of the same release does not append it twice.
