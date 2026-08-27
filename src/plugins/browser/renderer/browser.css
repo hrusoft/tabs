@@ -1,0 +1,76 @@
+/* The browser pane's own styles, side-effect imported by BrowserRenderer.tsx
+   so they load with the renderer that uses them and nowhere else. That module
+   is reached only through registerBuiltins (main.tsx), so the Settings window
+   — which registers page defs, never renderers — never ships these rules.
+
+   The toolbar is app chrome and follows the theme; the guest's page content is
+   someone else's site and doesn't (see CLAUDE.md). Tokens come from
+   installTheme, not from here. */
+
+.browser-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.browser-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-address-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  height: 20px;
+}
+
+.browser-address-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.browser-content {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Electron's <webview> defaults to display:inline-flex, so it won't fill
+   .browser-content the way an ordinary flex child would without this
+   explicit sizing (documented by Electron itself). */
+.browser-webview {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+/* A <webview> guest is a separate WebContents: the embedder hit-tests this
+   element and routes the raw input to the guest, so a host gesture dragged
+   across one stops receiving pointermove and — worse — never sees the
+   pointerup at all. Neutralizing every guest for the gesture's duration costs
+   nothing, since a guest can't be interacted with mid-drag anyway, and it is
+   what lets a pane be dropped *onto* a browser pane: without it the host never
+   learns the pointer is over one, so no dock zone ever previews there. Set on
+   <body> by core for both gesture owners (pane/tab drags and floating
+   move/resize) — see pointerGesture.ts.
+
+   Lives here rather than in global.css even though .pointer-gesture is core's:
+   the reason this rule exists at all is a <webview> fact, and a window with no
+   browser panes has nothing to neutralize. Core raises the flag; the type that
+   cares reacts to it. */
+.pointer-gesture .browser-webview {
+  pointer-events: none;
+}

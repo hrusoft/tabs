@@ -1,0 +1,279 @@
+/* The About window's own chrome.
+
+   Co-located and side-effect imported from AboutWindow.tsx rather than added
+   to global.css, which every window entry loads: these rules serve one window
+   and would otherwise ship into the pane and Settings windows too. Same
+   arrangement, and the same reason, as the terminal's two stylesheets — see
+   CLAUDE.md's "global.css is core chrome only" entry.
+
+   That import is invisible to typecheck and lint (a missing side-effect
+   import renders an unstyled page, not an error), so e2e/about.spec.ts
+   asserts a computed value these rules provide and the UA default does not. */
+
+.about-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* .settings-titlebar's twin — both windows hide the native title bar (see
+   hiddenTitleBar in src/main/windows.ts) and so draw their own, keyed off the
+   same --window-titlebar-height so they cannot drift apart. The traffic-light
+   gutter (padding-left) is balanced by an equal padding-right, which lands the
+   title on the window's true center. */
+.about-titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--window-titlebar-height);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  padding-left: 78px;
+  padding-right: 78px;
+  -webkit-app-region: drag;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* The window is not resizable (its content is a fixed column of prose), so
+   everything past the fold scrolls here rather than growing the window. */
+.about-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 28px 28px;
+}
+
+.about-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+}
+
+.about-icon {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 10px;
+}
+
+.about-name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.about-version {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  /* The version is the one thing here anyone ever needs to quote into a bug
+     report, so it is selectable even though the rest of the identity block
+     reads as chrome. */
+  user-select: text;
+}
+
+.about-tagline {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.about-copyright {
+  margin: 10px 0 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+.about-section {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.about-section-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.about-section-desc {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* --- Attributions --- */
+
+.about-credits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A three-column grid rather than a flex row, so the licenses line up down the
+   right edge whatever the package names do — the column reads as a list of
+   licenses that way, which is the part that has to be legible for the notice
+   to do its job. The middle column is empty for every npm package (only the
+   three runtimes carry a version) and collapses to nothing when so. */
+.about-credit {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+/* A button, not a link: an <a href> would navigate this window away from the
+   About page (see the comment in AboutWindow.tsx). Styled as a link because
+   that is what it does — opens a URL — and the affordance should not lie. */
+.about-credit-name {
+  justify-self: start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.about-credit-name:hover {
+  text-decoration: underline;
+}
+
+.about-credit-version,
+.about-credit-license {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Donation tiers --- */
+
+.about-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.about-tier {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.about-tier:hover {
+  background: rgb(var(--hover-rgb) / 0.06);
+  border-color: var(--accent);
+}
+
+.about-tier-amount {
+  grid-row: 1 / span 2;
+  /* Wide enough for the largest tier so all three labels start on the same
+     x — sized to "$200 CAD", the widest string this column can hold. A tier
+     larger than four digits would need this retuned. */
+  min-width: 86px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.about-tier-label {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.about-tier-flavor {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+/* --- Crypto addresses --- */
+
+.about-addresses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about-address {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+}
+
+.about-address-label {
+  grid-column: 1;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.about-address-symbol {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* Wrapped rather than truncated: an address the user can read in full is what
+   makes the copy button trustworthy — a clipped one has to be taken on faith.
+   `anywhere` because these have no break opportunities of their own. */
+.about-address-value {
+  grid-column: 1;
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  /* Spelled out rather than tokenized because the rest of the app does too
+     (.settings-shortcut-chip in global.css) — there is no --mono-font token
+     to follow, and minting one here would leave two spellings. */
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  user-select: text;
+}
+
+.about-copy {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  /* Fixed so the button does not resize when its label becomes "Copied",
+     which would shift the address column mid-interaction. */
+  min-width: 58px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.about-copy:hover {
+  background: rgb(var(--hover-rgb) / 0.06);
+  color: var(--text);
+}
+
+.about-copy[data-copied] {
+  border-color: var(--accent);
+  color: var(--accent);
+}

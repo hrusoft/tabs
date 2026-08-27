@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Tabs app icon</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E2F8C" />
+      <stop offset="1" stop-color="#0A123F" />
+    </linearGradient>
+    <filter id="fanShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#3B2E4A" flood-opacity="0.16" />
+    </filter>
+    <filter id="frontLift" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#2E2530" flood-opacity="0.35" />
+    </filter>
+    <filter id="castShadow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="34" />
+    </filter>
+    <clipPath id="bgClip">
+      <rect x="0" y="0" width="1024" height="1024" rx="225" ry="225" />
+    </clipPath>
+  </defs>
+
+  <!-- background squircle -->
+  <rect x="0" y="0" width="1024" height="1024" rx="225" ry="225" fill="url(#bg)" />
+
+  <!-- faint spiral texture, clipped to the squircle -->
+  <g clip-path="url(#bgClip)">
+    <path fill="none" stroke="#000000" stroke-width="78" stroke-opacity="0.16" stroke-linecap="round"
+          d="M 512.0,512.0 L 515.5,512.4 L 518.8,513.7 L 521.8,515.7 L 524.4,518.5 L 526.4,521.9 L 527.8,525.8 L 528.3,530.2 L 528.0,534.9 L 526.8,539.7 L 524.7,544.5 L 521.5,549.2 L 517.5,553.5 L 512.5,557.4 L 506.7,560.6 L 500.1,563.0 L 492.9,564.5 L 485.2,565.0 L 477.1,564.3 L 468.8,562.4 L 460.5,559.2 L 452.4,554.7 L 444.6,548.9 L 437.5,541.9 L 431.0,533.7 L 425.6,524.3 L 421.2,514.0 L 418.2,502.7 L 416.5,490.8 L 416.5,478.4 L 418.0,465.6 L 421.3,452.8 L 426.4,440.1 L 433.2,427.9 L 441.8,416.2 L 452.1,405.5 L 463.9,395.8 L 477.2,387.5 L 491.9,380.8 L 507.6,375.9 L 524.2,372.8 L 541.5,371.9 L 559.2,373.1 L 577.0,376.6 L 594.6,382.4 L 611.7,390.6 L 628.1,401.0 L 643.3,413.6 L 657.2,428.2 L 669.4,444.9 L 679.7,463.2 L 687.7,483.1 L 693.4,504.2 L 696.5,526.2 L 696.9,548.9 L 694.5,571.8 L 689.2,594.7 L 681.0,617.2 L 669.9,638.9 L 656.0,659.4 L 639.5,678.3 L 620.4,695.4 L 599.1,710.2 L 575.8,722.6 L 550.7,732.1 L 524.2,738.7 L 496.8,742.0 L 468.7,741.9 L 440.5,738.4 L 412.4,731.4 L 385.1,720.9 L 358.8,707.0 L 334.1,689.7 L 311.3,669.3 L 291.0,645.9 L 273.4,619.9 L 258.8,591.6 L 247.7,561.4 L 240.2,529.6 L 236.5,496.8 L 236.9,463.3 L 241.4,429.7 L 250.0,396.5 L 262.7,364.2 L 279.4,333.2 L 300.0,304.2 L 324.2,277.6 L 351.7,253.9 L 382.3,233.4 L 415.5,216.5 L 450.9,203.7 L 488.0,195.1 L 526.3,191.0 L 565.2,191.6 L 604.1,196.9 L 642.5,207.0 L 679.9,221.8 L 715.5,241.2 L 748.9,265.0 L 779.4,292.9 L 806.7,324.6 L 830.2,359.7 L 849.4,397.8 L 864.1,438.3 L 873.8,480.7 L 878.5,524.3 L 877.8,568.6 L 871.8,613.0 L 860.3,656.7 L 843.5,699.0 L 821.6,739.4 L 794.7,777.3 L 763.1,811.9 L 727.3,842.7 L 687.7,869.2 L 644.9,891.0 L 599.3,907.6 L 551.6,918.7 L 502.6,924.0 L 452.8,923.4 L 403.1,916.7 L 354.1,904.0 L 306.7,885.3 L 261.4,860.9 L 219.1,831.0 L 180.4,795.9 L 145.9,756.1 L 116.2,712.1 L 91.8,664.4 L 73.1,613.8 L 60.6,560.9 L 54.5,506.5 L 55.0,451.3 L 62.2,396.2 L 76.0,341.9 L 96.5,289.3 L 123.3,239.1 L 156.1,192.2 L 194.7,149.3 L 238.4,111.0 L 286.8,78.0 L 339.1,50.9 L 394.7,30.2 L 452.8,16.1 L 512.6,9.1 L 573.2,9.3 L 633.8,16.9 L 693.4,31.8 L 751.2,53.8 L 806.3,82.9 L 857.9,118.6 L 905.1,160.5 L 947.2,208.1 L 983.6,260.7 L 1013.5,317.7 L 1036.5,378.3 L 1052.2,441.6 L 1060.3,506.8 L 1060.4,572.8 L 1052.6,638.8 L 1036.8,703.8 L 1013.2,766.9 L 982.0,827.0 L 943.5,883.2 L 898.3,934.8 L 847.0,980.9 L 790.1,1020.7 L 728.5,1053.5 L 663.0,1078.9 L 594.6,1096.4 L 524.1,1105.6 L 452.6,1106.2 L 381.1,1098.2 L 310.7,1081.7 L 242.4,1056.6 L 177.3,1023.3 L 116.2,982.2 L 60.2,933.9 L 10.1,878.8 L -33.2,817.8 L -69.1,751.7 L -97.0,681.3 L -116.4,607.7 L -126.8,531.9" />
+  </g>
+
+  <!-- fanned tabs -->
+  <g filter="url(#fanShadow)">
+    <!-- back-left tab: cream/pink -->
+    <g transform="translate(420 520) rotate(-12) scale(1 0.9) translate(-420 -520)">
+      <rect x="190" y="268" width="460" height="504" rx="70" ry="70"
+            fill="#FFFBF5" stroke="#E3A9C4" stroke-width="8" />
+      <rect x="218" y="296" width="404" height="90" rx="36" ry="36" fill="#FFC9DE" />
+    </g>
+
+    <!-- back-right tab: mint -->
+    <g transform="translate(604 520) rotate(12) scale(1 0.9) translate(-604 -520)">
+      <rect x="374" y="268" width="460" height="504" rx="70" ry="70"
+            fill="#C9F5E4" stroke="#8FDDC0" stroke-width="8" />
+      <rect x="402" y="296" width="404" height="90" rx="36" ry="36" fill="#7FD1B3" />
+    </g>
+
+    <!-- shadow the front tab casts onto the tabs behind it — sized to the fanned pair's
+         own rotated footprint (not just the front tab) so the falloff reaches their tips -->
+    <rect x="170" y="214" width="684" height="612" rx="88" ry="88"
+          fill="#120D1C" opacity="0.68" filter="url(#castShadow)"
+          transform="translate(0 30)" />
+
+    <!-- front-center tab: peach, active — bolder, darker border + its own lift shadow so it
+         reads as the clearly topmost tab even once downscaled to small icon sizes;
+         scaled taller than wide so it stands proud of the fanned pair behind it -->
+    <g filter="url(#frontLift)" transform="translate(512 512) scale(1.08 1.071) translate(-512 -512)">
+      <rect x="282" y="260" width="460" height="504" rx="70" ry="70"
+            fill="#FFE3C2" stroke="#5C4B57" stroke-width="18" />
+      <rect x="310" y="288" width="404" height="90" rx="36" ry="36" fill="#F2A73D" />
+
+      <!-- terminal-prompt chevron in the content area -->
+      <polyline points="350,410 462,490 350,570"
+                fill="none" stroke="#F2A73D" stroke-width="44"
+                stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+  </g>
+</svg>

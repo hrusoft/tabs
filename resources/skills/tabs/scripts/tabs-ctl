@@ -1,0 +1,1183 @@
+#!/usr/bin/env node
+'use strict'
+
+// Deliberately no top-level `require`/`import` for node:net: once installed,
+// this file is symlinked into an agent's own skills directory (see
+// src/main/skills.ts), where whether Node treats an extension-less script as
+// CommonJS or ESM depends on the nearest ancestor package.json — which
+// varies by install location and isn't under this project's control. Dynamic
+// `import()` inside an async function works under both module systems, so
+// module-type detection can't break this script wherever it ends up.
+
+/**
+ * Every command, as data rather than as a chain of hand-written branches.
+ *
+ * This table *is* the parser — `buildRequest` below walks it to validate flags
+ * and assemble the wire request — which is what keeps `describe` honest. A
+ * schema emitted alongside a separate hand-rolled parser would just be a
+ * fourth thing to keep in sync (after the ControlRequest union, the two
+ * process-side switches, and SKILL.md); a schema the parser is derived from
+ * cannot disagree with what the command actually accepts.
+ *
+ * Per-flag fields:
+ *   wire        field name in the protocol request (defaults to the flag name)
+ *   required    reject the call when absent
+ *   type        string (default) | number | boolean | json | csv
+ *   enum        allowed values, checked before sending
+ *   min         numeric floor, rejected below it before sending (only for
+ *               floors the app doesn't own — documented app-side clamps like
+ *               --timeout's carry none)
+ *   default     applied when the flag is absent
+ *   schema      JSON Schema for the wire value, when it isn't a plain scalar
+ *   placeholder usage-string stand-in, when `<flagname>` reads badly
+ *
+ * `target: true` marks the verbs taking an `ElementTarget` — a union of
+ * `{ref}` and `{x,y}` that flat flags can't express, and the one shape here
+ * that needs its own builder.
+ */
+const TARGET_SCHEMA = {
+  oneOf: [
+    {
+      type: 'object',
+      properties: { ref: { type: 'string' } },
+      required: ['ref'],
+      additionalProperties: false
+    },
+    {
+      type: 'object',
+      properties: { x: { type: 'number' }, y: { type: 'number' } },
+      required: ['x', 'y'],
+      additionalProperties: false
+    },
+    {
+      // Semantic: matched in the page against the same role/accessible-name
+      // extraction read-page reports, and/or a CSS selector. Criteria
+      // AND-combine; ambiguity fails listing candidates; nth (0-based,
+      // document order) picks among them.
+      type: 'object',
+      properties: {
+        role: { type: 'string' },
+        name: { type: 'string' },
+        selector: { type: 'string' },
+        nth: { type: 'number' }
+      },
+      anyOf: [{ required: ['role'] }, { required: ['name'] }, { required: ['selector'] }],
+      additionalProperties: false
+    }
+  ]
+}
+
+/**
+ * Wire caps restated from src/shared (externalControl.ts and
+ * content/browser/externalControl.ts) — the app enforces them, this file only
+ * states them. `describe` emits them under `limits`, and
+ * tabsCtlDescribe.test.ts pins each against the shared constant, so a cap
+ * changed in the app fails a test instead of leaving this CLI (and the
+ * SKILL.md prose quoting it) quietly wrong.
+ */
+const LIMITS = {
+  maxBatchRequests: 50,
+  pageTextDefaultMax: 50000,
+  pageTextHardMax: 200000,
+  waitDefaultTimeoutMs: 10000,
+  waitMaxTimeoutMs: 300000,
+  waitIdleQuietMs: 500,
+  waitDefaultPollMs: 250,
+  networkBodyMax: 16384,
+  networkBodyHardMax: 2000000,
+  networkRequestCapacity: 500,
+  executeResultMax: 50000
+}
+
+/**
+ * Fragments the command table below shares. Stated once each because the table
+ * is the parser *and* the documentation: a field added to one copy of a
+ * repeated result shape and not the others is a `describe` payload that lies
+ * about the verbs it missed, with nothing to catch it. Spread (`...`) rather
+ * than nested, so each verb's key order — and therefore its `describe` output —
+ * stays exactly what it was.
+ */
+
+/** The pane flag every verb that targets one takes. */
+const PANE_FLAG = { wire: 'targetPaneId', required: true, placeholder: 'paneId' }
+
+/** A viewport rect, as every verb that reports one reports it. */
+const RECT = { x: 'number', y: 'number', width: 'number', height: 'number' }
+
+/** What every read verb reports about how far along the page is (see the readiness fields in SKILL.md). */
+const PAGE_STATE = {
+  isLoading: 'boolean',
+  readyState: 'string',
+  settled: 'boolean',
+  frames: 'number',
+  shadowRoots: 'number'
+}
+
+/**
+ * Where a navigation verb's page ended up. Each verb states its own
+ * `loaded`/`loadError` before these and its own `redirected`/`retried` after,
+ * because which of those it reports differs — navigate fails outright on a load
+ * error where reload reports one.
+ */
+const SETTLED_PAGE = {
+  url: 'string',
+  title: 'string',
+  titleFromUrl: 'boolean',
+  status: 'number',
+  statusText: 'string'
+}
+
+/**
+ * The filter vocabularies read-network accepts, restated from
+ * src/plugins/browser/main/networkLog.ts (NETWORK_METHODS /
+ * NETWORK_RESOURCE_TYPES) — the app enforces them, this file only names them
+ * in the docs an agent reads. Pinned against the app's own lists by
+ * tabsCtlDescribe.test.ts, exactly like LIMITS, so adding a resource type in
+ * the app fails a test instead of leaving this CLI quietly wrong.
+ */
+/** "a, b, or c" — how the docs above list an accepted vocabulary. */
+function listOf(values) {
+  return `${values.slice(0, -1).join(', ')}, or ${values[values.length - 1]}`
+}
+
+/**
+ * Restated from EDITING_COMMANDS in
+ * src/plugins/browser/shared/externalControl.ts — the app enforces the list,
+ * this file only offers it. Pinned against the app's own by
+ * tabsCtlDescribe.test.ts, like LIMITS and the network vocabularies.
+ */
+const EDITING_COMMANDS = ['select-all', 'undo', 'redo', 'delete']
+
+const NETWORK_METHODS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'DELETE',
+  'OPTIONS',
+  'PATCH',
+  'CONNECT',
+  'TRACE'
+]
+
+const NETWORK_RESOURCE_TYPES = [
+  'mainFrame',
+  'subFrame',
+  'stylesheet',
+  'script',
+  'image',
+  'font',
+  'object',
+  'xhr',
+  'ping',
+  'cspReport',
+  'media',
+  'webSocket',
+  'other'
+]
+
+const COMMANDS = {
+  ping: {
+    request: 'ping',
+    summary: 'Check that the control socket is reachable.'
+  },
+
+  'create-browser-pane': {
+    request: 'createBrowserPane',
+    summary:
+      'Open a browser pane and wait for its first page. It always opens as a new tab alongside whatever is already in the pane you are running in. The returned paneId is the only pane you may target.',
+    flags: {
+      url: { required: true, doc: 'http://, https://, or about:blank.' }
+    },
+    result: {
+      paneId: 'string',
+      loaded: 'boolean',
+      loadError: 'string',
+      ...SETTLED_PAGE,
+      redirected: 'boolean'
+    }
+  },
+
+  'list-panes': {
+    request: 'listOwnedPanes',
+    summary: 'List the browser panes you created. Never includes the user’s own panes.',
+    result: { panes: [{ paneId: 'string', url: 'string', title: 'string' }] }
+  },
+
+  'close-pane': {
+    request: 'closePane',
+    summary: 'Close a pane you own and give up ownership of it.',
+    flags: { pane: PANE_FLAG }
+  },
+
+  navigate: {
+    request: 'navigate',
+    summary: 'Load a URL into a pane you own and wait for it to settle. Reports where the pane actually ended up. Fails with the ERR_* code if the page cannot load.',
+    flags: {
+      pane: PANE_FLAG,
+      url: { required: true, doc: 'http://, https://, or about:blank.' },
+      'retry-on-redirect': {
+        wire: 'retryOnRedirect',
+        type: 'boolean',
+        doc: 'Re-issue the navigation once if it lands somewhere other than the requested URL (an auth bounce). The result then carries retried and firstUrl.'
+      }
+    },
+    result: {
+      loaded: 'boolean',
+      ...SETTLED_PAGE,
+      redirected: 'boolean',
+      retried: 'boolean',
+      firstUrl: 'string'
+    }
+  },
+
+  reload: {
+    request: 'reload',
+    summary: 'Reload the current page and wait for it to settle.',
+    flags: { pane: PANE_FLAG },
+    result: {
+      loaded: 'boolean',
+      loadError: 'string',
+      ...SETTLED_PAGE
+    }
+  },
+
+  'go-back': {
+    request: 'goBack',
+    summary: 'Go back one page in the pane’s history and wait for it to settle.',
+    flags: { pane: PANE_FLAG },
+    result: {
+      loaded: 'boolean',
+      loadError: 'string',
+      ...SETTLED_PAGE
+    }
+  },
+
+  'go-forward': {
+    request: 'goForward',
+    summary: 'Go forward one page in the pane’s history and wait for it to settle.',
+    flags: { pane: PANE_FLAG },
+    result: {
+      loaded: 'boolean',
+      loadError: 'string',
+      ...SETTLED_PAGE
+    }
+  },
+
+  'activate-pane': {
+    request: 'activatePane',
+    summary: 'Bring a pane you own to the front of its tab group without capturing it. screenshot does this itself when needed.',
+    flags: { pane: PANE_FLAG }
+  },
+
+  'pane-info': {
+    request: 'getPaneInfo',
+    summary:
+      'URL, title, load state, and the pane’s CSS-pixel viewport. Reports showingErrorPage when the pane is on a network-error page, and hidden instead of a viewport when it is not the active tab.',
+    flags: { pane: PANE_FLAG },
+    result: {
+      paneId: 'string',
+      url: 'string',
+      title: 'string',
+      isLoading: 'boolean',
+      canGoBack: 'boolean',
+      canGoForward: 'boolean',
+      showingErrorPage: 'boolean',
+      loadError: 'string',
+      hidden: 'boolean',
+      viewport: { width: 'number', height: 'number' }
+    }
+  },
+
+  'get-page-text': {
+    request: 'getPageText',
+    summary: 'Rendered page text (innerText — no script or style bodies).',
+    flags: {
+      pane: PANE_FLAG,
+      'max-length': {
+        wire: 'maxLength',
+        type: 'number',
+        min: 1,
+        placeholder: 'n',
+        doc: `Default ${LIMITS.pageTextDefaultMax}, capped at ${LIMITS.pageTextHardMax}.`
+      }
+    },
+    result: {
+      text: 'string',
+      truncated: 'boolean',
+      ...PAGE_STATE
+    }
+  },
+
+  screenshot: {
+    request: 'screenshot',
+    summary:
+      'Capture the pane, bringing it to the front first if it’s backgrounded (reported as activated: true). Returns a PNG path to read, never inline image data.',
+    flags: {
+      pane: PANE_FLAG,
+      'no-activate': {
+        wire: 'noActivate',
+        type: 'boolean',
+        doc: 'Fail on a backgrounded pane instead of bringing it to the front.'
+      },
+      selector: {
+        placeholder: 'css',
+        doc: 'Clip the capture to this element instead of the whole viewport. Scrolled into view first; clamped to what the guest is showing.'
+      },
+      ref: { doc: 'Clip to a read-page/find ref, like --selector.' }
+    },
+    // Not `oneOf`: both are optional, and passing neither is the ordinary
+    // whole-viewport capture. The app refuses the both-at-once case.
+    result: {
+      path: 'string',
+      width: 'number',
+      height: 'number',
+      viewport: { width: 'number', height: 'number' },
+      scaleFactor: 'number',
+      clipped: RECT,
+      element: { role: 'string', name: 'string', tag: 'string' },
+      activated: 'boolean'
+    }
+  },
+
+  'read-page': {
+    request: 'readPage',
+    summary:
+      'Interactive elements and headings, each with a ref for click/type. Capped at 200 per call — narrow with --selector/--role or page with --offset.',
+    flags: {
+      pane: PANE_FLAG,
+      selector: {
+        placeholder: 'css',
+        doc: 'Extract this selector\'s matches instead of the default interactive set — the way to reach elements it never lists, images (img[alt]) especially.'
+      },
+      role: {
+        doc: 'Only elements with this role (button, link, textbox, combobox, checkbox, heading, …). A hard filter: it never widens on its own.'
+      },
+      offset: {
+        type: 'number',
+        min: 0,
+        placeholder: 'n',
+        doc: 'Skip this many matches before the page returned. Use with total/truncated to walk a long page.'
+      }
+    },
+    result: {
+      elements: [
+        {
+          ref: 'string',
+          role: 'string',
+          name: 'string',
+          tag: 'string',
+          rect: RECT,
+          value: 'string'
+        }
+      ],
+      total: 'number',
+      offset: 'number',
+      truncated: 'boolean',
+      ...PAGE_STATE
+    }
+  },
+
+  find: {
+    request: 'find',
+    summary: 'Best-effort search over read-page’s elements. Heuristic, not semantic.',
+    flags: {
+      pane: PANE_FLAG,
+      description: { required: true, placeholder: 'text' },
+      'max-results': { wire: 'maxResults', type: 'number', min: 1, placeholder: 'n' }
+    },
+    result: {
+      matches: [
+        {
+          ref: 'string',
+          name: 'string',
+          role: 'string',
+          tag: 'string',
+          rect: RECT,
+          score: 'number'
+        }
+      ],
+      ...PAGE_STATE
+    }
+  },
+
+  click: {
+    request: 'click',
+    summary:
+      'Click an element or a viewport coordinate, with real mouse events. A ref is re-checked at dispatch time and the result reports the element hit.',
+    flags: { pane: PANE_FLAG },
+    target: true,
+    result: {
+      x: 'number',
+      y: 'number',
+      element: { role: 'string', name: 'string', tag: 'string' }
+    }
+  },
+
+  hover: {
+    request: 'hover',
+    summary:
+      'Move the pointer onto an element without pressing it — for a menu that opens on hover but navigates on click. Read the page afterwards to see what appeared.',
+    flags: { pane: PANE_FLAG },
+    target: true,
+    result: {
+      x: 'number',
+      y: 'number',
+      element: { role: 'string', name: 'string', tag: 'string' }
+    }
+  },
+
+  type: {
+    request: 'type',
+    summary: 'Type text at the target. Appends — use form-input to replace a value.',
+    flags: {
+      pane: PANE_FLAG,
+      text: {
+        required: true,
+        doc: 'Printable text only — a newline/tab/control character is refused (keystrokes cannot carry it); use form-input for multiline values.'
+      },
+      submit: { type: 'boolean', doc: 'Press Enter after the text.' }
+    },
+    target: true
+  },
+
+  key: {
+    request: 'key',
+    summary:
+      'Send one key (Enter, Escape, Tab, ArrowLeft, a), or run one of the browser\'s own editing commands with --command. A modifier chord cannot reach those — see --command.',
+    flags: {
+      pane: PANE_FLAG,
+      key: { doc: 'The key to press, e.g. Enter, Escape, Tab, ArrowLeft, a.' },
+      modifiers: {
+        type: 'csv',
+        placeholder: 'shift,control,alt,meta',
+        schema: { type: 'array', items: { enum: ['shift', 'control', 'alt', 'meta'] } }
+      },
+      command: {
+        enum: EDITING_COMMANDS,
+        doc: 'Run an editing command through the browser itself, which a synthesized Cmd+A/Cmd+Z cannot reach. Acts on whatever the page has focused. Clipboard commands are deliberately not offered.'
+      }
+    },
+    oneOf: ['key', 'command'],
+    result: { command: 'string', note: 'string' }
+  },
+
+  scroll: {
+    request: 'scroll',
+    summary:
+      'Scroll the page and report where it landed. Instantaneous even on a smooth-scrolling page, so the reported position is the settled one. Does not scroll a nested scrollable container.',
+    flags: {
+      pane: PANE_FLAG,
+      direction: { default: 'down', enum: ['up', 'down', 'left', 'right'] },
+      amount: { type: 'number', min: 1, placeholder: 'px', doc: 'Defaults to about one screen.' }
+    },
+    result: { position: { x: 'number', y: 'number' } }
+  },
+
+  'form-input': {
+    request: 'formInput',
+    summary:
+      'Set field values verbatim (multiline safe), replacing existing contents. Exits non-zero when any field failed.',
+    flags: {
+      pane: PANE_FLAG,
+      // JSON rather than repeated flags: a form is a list of (target, value)
+      // pairs, and each target is itself a ref or a coordinate — not a shape
+      // flat CLI arguments express well.
+      fields: {
+        type: 'json',
+        required: true,
+        placeholder: 'json',
+        schema: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { target: TARGET_SCHEMA, value: { type: 'string' } },
+            required: ['target', 'value'],
+            additionalProperties: false
+          }
+        }
+      }
+    },
+    result: {
+      filled: 'number',
+      fields: [{ index: 'number', length: 'number' }],
+      errors: [{ index: 'number', error: 'string' }]
+    }
+  },
+
+  'read-console': {
+    request: 'readConsoleMessages',
+    summary: 'Captured console output for the current page. Cleared on navigation.',
+    flags: {
+      pane: PANE_FLAG,
+      pattern: {
+        placeholder: 'regex',
+        doc: 'Regular expression; a pattern that fails to parse is refused rather than matched as literal text.'
+      },
+      'since-seq': {
+        wire: 'sinceSeq',
+        type: 'number',
+        min: 0,
+        placeholder: 'n',
+        doc: 'Return only messages after this seq.'
+      }
+    },
+    result: {
+      messages: [
+        {
+          seq: 'number',
+          level: 'string',
+          text: 'string',
+          timestamp: 'number',
+          sourceURL: 'string',
+          line: 'number'
+        }
+      ]
+    }
+  },
+
+  'read-network': {
+    request: 'readNetworkRequests',
+    summary:
+      'Request metadata for the current page; response bodies too, once capture-bodies is on and --with-bodies is passed.',
+    flags: {
+      pane: PANE_FLAG,
+      pattern: {
+        placeholder: 'regex',
+        doc: 'Regular expression; a pattern that fails to parse is refused rather than matched as literal text.'
+      },
+      method: {
+        placeholder: 'verb',
+        doc: `Only this HTTP method (case-insensitive): ${listOf(NETWORK_METHODS)}.`
+      },
+      status: {
+        placeholder: 'spec',
+        doc: 'Only these statuses: an exact code (404), a class (4xx), or a range (400-499).'
+      },
+      failed: {
+        type: 'boolean',
+        doc: 'Only failures: a 4xx/5xx status or a network error. Start here when something broke.'
+      },
+      'resource-type': {
+        wire: 'resourceType',
+        placeholder: 'type',
+        doc: `Only this resource type: ${listOf(NETWORK_RESOURCE_TYPES)}. fetch and XMLHttpRequest traffic both report as xhr.`
+      },
+      'since-seq': {
+        wire: 'sinceSeq',
+        type: 'number',
+        min: 0,
+        placeholder: 'n',
+        doc: 'Return only requests after this seq.'
+      },
+      unredacted: { type: 'boolean', doc: 'Return credential headers in full. Use sparingly.' },
+      'with-bodies': {
+        wire: 'withBodies',
+        type: 'boolean',
+        doc: 'Attach captured response bodies (needs capture-bodies on first). Combine with --pattern.'
+      },
+      brief: {
+        type: 'boolean',
+        doc: 'Drop the header maps, keeping seq/method/url/resourceType/status/timings. The readable form for "what happened on this page".'
+      },
+      out: {
+        wire: 'outPath',
+        type: 'path',
+        placeholder: 'path',
+        doc: "Write the whole result to a file instead of returning it inline; returns {path, bytes, count}. Resolved against your shell's cwd and never overwritten; bare --out generates a temp file swept after ~10 minutes."
+      },
+      'body-seq': {
+        wire: 'bodySeq',
+        type: 'number',
+        min: 0,
+        placeholder: 'n',
+        doc: 'With --body-out: which entry’s body to write, by its seq from a previous read.'
+      },
+      'body-out': {
+        wire: 'bodyOutPath',
+        type: 'path',
+        placeholder: 'path',
+        doc: 'Write one entry’s full captured response body to a file (needs --body-seq). The way to get a body past the inline cap, and one whose endpoint 404s on the GET save-resource would issue.'
+      }
+    },
+    result: {
+      requests: [
+        {
+          seq: 'number',
+          method: 'string',
+          url: 'string',
+          resourceType: 'string',
+          status: 'number',
+          error: 'string',
+          startedAt: 'number',
+          completedAt: 'number',
+          count: 'number',
+          firstStartedAt: 'number',
+          requestHeaders: 'object',
+          responseHeaders: 'object',
+          responseBody: {
+            body: 'string',
+            truncated: 'boolean',
+            size: 'number',
+            mimeType: 'string',
+            binary: 'boolean'
+          }
+        }
+      ],
+      bodyCapture: 'string',
+      path: 'string',
+      bytes: 'number',
+      count: 'number',
+      seq: 'number'
+    }
+  },
+
+  'capture-bodies': {
+    request: 'captureNetworkBodies',
+    summary:
+      'Start retaining response bodies for a pane, from now on — then act (or reload) and read them with read-network --with-bodies. Attaches a debugger to the pane; --off detaches and stops.',
+    flags: {
+      pane: PANE_FLAG,
+      off: {
+        wire: 'enabled',
+        type: 'boolean',
+        value: false,
+        doc: 'Stop capturing and detach. Already-captured bodies stay readable until the page navigates.'
+      },
+      'max-body': {
+        wire: 'maxBodyChars',
+        type: 'number',
+        min: 1,
+        placeholder: 'chars',
+        doc: `Retain this many characters of each body instead of ${LIMITS.networkBodyMax} (ceiling ${LIMITS.networkBodyHardMax}). Applies from now on — a body is capped as it arrives and cannot be recovered afterwards — and costs memory for this pane, so raise it when you know a response is large.`
+      }
+    },
+    result: { enabled: 'boolean', maxBodyChars: 'number' }
+  },
+
+  'execute-js': {
+    request: 'executeJavaScript',
+    summary: 'Evaluate one expression in the page. Wrap statements in an IIFE.',
+    flags: {
+      pane: PANE_FLAG,
+      code: { required: true, placeholder: 'expression' },
+      out: {
+        wire: 'outPath',
+        type: 'path',
+        placeholder: 'path',
+        doc: `Write the full result to a file instead of truncating at ${LIMITS.executeResultMax} chars; returns {path, bytes, format}. A string result is written raw, anything else as pretty-printed JSON. With a path it is resolved against your shell's cwd and never overwritten; bare --out generates a temp file swept after ~10 minutes.`
+      }
+    },
+    result: {
+      value: 'object',
+      truncated: 'boolean',
+      path: 'string',
+      bytes: 'number',
+      format: 'string'
+    }
+  },
+
+  'wait-for': {
+    request: 'waitFor',
+    summary:
+      'Wait inside the page until a condition holds — one call in place of a sleep-and-poll loop. Exactly one of --text, --selector, --url-contains, --idle per call.',
+    flags: {
+      pane: PANE_FLAG,
+      text: { placeholder: 'string', doc: 'Resolve when the rendered page text contains this.' },
+      selector: {
+        placeholder: 'css',
+        doc: 'Resolve when this matches a visible element; reports its ref for click/type.'
+      },
+      gone: { type: 'boolean', doc: 'Invert --text/--selector: resolve when it stops holding.' },
+      'url-contains': {
+        wire: 'urlContains',
+        placeholder: 'string',
+        doc: 'Resolve when the pane’s URL contains this. Survives navigation, so it covers auth bounces and SPA routes.'
+      },
+      idle: {
+        type: 'boolean',
+        doc: `Resolve when the DOM stops mutating for ${LIMITS.waitIdleQuietMs}ms — the fallback when nothing specific marks readiness.`
+      },
+      timeout: {
+        wire: 'timeoutMs',
+        type: 'number',
+        placeholder: 'ms',
+        doc: `Default ${LIMITS.waitDefaultTimeoutMs}, capped at ${LIMITS.waitMaxTimeoutMs}. Long waits also need the Bash tool timeout raised.`
+      },
+      poll: {
+        wire: 'pollMs',
+        type: 'number',
+        placeholder: 'ms',
+        doc: `Fallback check interval, default ${LIMITS.waitDefaultPollMs}; mutations are noticed immediately regardless.`
+      }
+    },
+    result: {
+      elapsedMs: 'number',
+      ref: 'string',
+      tag: 'string',
+      rect: RECT,
+      url: 'string'
+    }
+  },
+
+  assert: {
+    request: 'assert',
+    summary:
+      'Check that a condition holds right now, failing (non-zero) when it doesn’t — the self-verifying step for a batch. Exactly one of --text, --selector, --url-contains.',
+    flags: {
+      pane: PANE_FLAG,
+      text: { placeholder: 'string', doc: 'Assert the rendered page text contains this.' },
+      selector: {
+        placeholder: 'css',
+        doc: 'Assert this matches a visible element; reports its ref for click/type.'
+      },
+      gone: { type: 'boolean', doc: 'Invert --text/--selector: assert it does not hold.' },
+      'url-contains': {
+        wire: 'urlContains',
+        placeholder: 'string',
+        doc: 'Assert the pane’s URL contains this.'
+      }
+    },
+    result: {
+      ref: 'string',
+      tag: 'string',
+      rect: RECT,
+      url: 'string'
+    }
+  },
+
+  'save-resource': {
+    request: 'saveResource',
+    summary:
+      'Save a page resource — a blob:/data:/http(s) URL, or an element’s src — to a local file and return the path (never the bytes). The way to get a PDF, image or any binary out of a page: save it, then read the file. Pass exactly one of --url, --ref, --selector.',
+    flags: {
+      pane: PANE_FLAG,
+      url: { doc: 'A blob:, data:, http:, or https: URL to fetch.' },
+      ref: { doc: 'A read-page ref whose element’s src/href is saved.' },
+      selector: { placeholder: 'css', doc: 'A CSS selector whose element’s src/href is saved.' },
+      out: {
+        wire: 'outPath',
+        type: 'path',
+        placeholder: 'path',
+        doc: 'Where to write it, resolved against your shell’s cwd. Default: a temp file swept after ~10 minutes.'
+      }
+    },
+    // Exactly one of these names the resource; the app rejects a mismatch too,
+    // but catching it here keeps a bad call off the socket entirely.
+    oneOf: ['url', 'ref', 'selector'],
+    result: { path: 'string', bytes: 'number', contentType: 'string' }
+  },
+
+  batch: {
+    request: 'batch',
+    summary:
+      'Run several requests in order as one transcript. Stops at the first failure unless --continue-on-error.',
+    flags: {
+      // Raw protocol requests: the one command that isn't a friendlier wrapper
+      // over the wire format, since its whole point is sending several at once.
+      // `describe --command <name>` prints the wire shape for each verb.
+      requests: {
+        type: 'json',
+        required: true,
+        placeholder: 'json',
+        schema: { type: 'array', maxItems: LIMITS.maxBatchRequests, items: { type: 'object' } }
+      },
+      'continue-on-error': {
+        wire: 'continueOnError',
+        type: 'boolean',
+        doc: 'Run every step even after one fails; failures stay visible per step.'
+      }
+    },
+    // `steps` is aligned index-for-index with `requests`; entries after the
+    // failure that stopped the batch are `{"skipped": true}` markers.
+    result: { steps: ['object'], stoppedAt: 'number' }
+  }
+}
+
+/** Version of the `describe` payload itself, so a future shape change is detectable. */
+const DESCRIBE_VERSION = 1
+
+function parseArgs(argv) {
+  const args = {}
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (!arg.startsWith('--')) continue
+    // `--flag=value` binds unambiguously, and is the only way to pass a value
+    // that itself begins with `--` (e.g. typing "--help" into a page).
+    const eq = arg.indexOf('=')
+    if (eq !== -1) {
+      args[arg.slice(2, eq)] = arg.slice(eq + 1)
+      continue
+    }
+    const next = argv[i + 1]
+    // A flag with nothing of its own after it — end of argv, or immediately
+    // followed by another flag — is a boolean switch (`--submit`,
+    // `--unredacted`).
+    if (next === undefined || next.startsWith('--')) {
+      args[arg.slice(2)] = true
+    } else {
+      args[arg.slice(2)] = next
+      i++
+    }
+  }
+  return args
+}
+
+/**
+ * Nothing in this file may call `process.exit()` after writing to stdout —
+ * exitCode + a natural return is the only safe way out. When stdout is a pipe
+ * (`| jq`, or any programmatic caller — i.e. how this script is actually run),
+ * a hard exit drops everything the kernel's ~64KB pipe buffer hasn't drained
+ * yet: the output ends mid-string with exit 0, which for a JSON protocol is
+ * the worst possible failure. Measured: a 122KB get-page-text answered 65536
+ * bytes through a pipe and the full length to a file. `process.exitCode` lets
+ * the event loop live until pending stream writes finish, then exits with the
+ * recorded code.
+ */
+function fail(error) {
+  process.stdout.write(`${JSON.stringify({ ok: false, error })}\n`)
+  process.exitCode = 1
+}
+
+/** Flags a command accepts, including the ones the ElementTarget builder consumes. */
+function flagNames(spec) {
+  return [
+    ...Object.keys(spec.flags ?? {}),
+    ...(spec.target ? ['ref', 'x', 'y', 'role', 'name', 'selector', 'nth'] : [])
+  ]
+}
+
+function usageFor(name, spec) {
+  const parts = [`tabs-ctl ${name}`]
+  for (const [flag, def] of Object.entries(spec.flags ?? {})) {
+    // An enum documents itself in the usage line, so it needs no placeholder
+    // of its own — one less thing to keep in sync with the allowed values.
+    const stand = def.placeholder ?? (def.enum ? def.enum.join('|') : flag)
+    const value = def.type === 'boolean' ? '' : ` <${stand}>`
+    parts.push(def.required ? `--${flag}${value}` : `[--${flag}${value}]`)
+  }
+  if (spec.target) {
+    parts.push('(--role/--name/--selector [--nth <n>] | --ref <ref> | --x <n> --y <n>)')
+  }
+  return parts.join(' ')
+}
+
+/** Expands the shorthand used by `result` above into JSON Schema. */
+function expandSchema(shorthand) {
+  if (Array.isArray(shorthand)) return { type: 'array', items: expandSchema(shorthand[0]) }
+  if (typeof shorthand === 'object') {
+    const properties = {}
+    for (const [key, value] of Object.entries(shorthand)) properties[key] = expandSchema(value)
+    return { type: 'object', properties }
+  }
+  return { type: shorthand }
+}
+
+const WIRE_TYPES = { number: 'number', boolean: 'boolean', string: 'string' }
+
+/**
+ * JSON Schema for a command's protocol request — the shape `batch` takes, and
+ * the shape an MCP tool definition would need if one is ever built.
+ * `paneId` is deliberately absent: the app fills it in from the caller's
+ * environment, and inside a batch it is overwritten regardless.
+ */
+function wireSchemaFor(spec) {
+  const properties = { type: { const: spec.request } }
+  const required = ['type']
+  for (const [flag, def] of Object.entries(spec.flags ?? {})) {
+    const key = def.wire ?? flag
+    properties[key] = def.schema ?? { type: WIRE_TYPES[def.type] ?? 'string' }
+    if (def.min !== undefined) properties[key] = { ...properties[key], minimum: def.min }
+    if (def.enum) properties[key] = { enum: def.enum }
+    if (def.required) required.push(key)
+  }
+  if (spec.target) {
+    properties.target = TARGET_SCHEMA
+    required.push('target')
+  }
+  return { type: 'object', properties, required, additionalProperties: false }
+}
+
+function describe(args) {
+  if (typeof args.command === 'string') {
+    const spec = COMMANDS[args.command]
+    if (!spec) return fail(`unknown command: ${args.command}`)
+    return describeOne(args.command, spec)
+  }
+  const commands = {}
+  for (const [name, spec] of Object.entries(COMMANDS)) {
+    commands[name] = args.full ? describeOne(name, spec) : `${usageFor(name, spec)}  — ${spec.summary}`
+  }
+  return { version: DESCRIBE_VERSION, limits: LIMITS, commands }
+}
+
+function describeOne(name, spec) {
+  const flags = {}
+  for (const [flag, def] of Object.entries(spec.flags ?? {})) {
+    flags[flag] = {
+      required: def.required === true,
+      ...(def.type ? { type: def.type } : {}),
+      ...(def.enum ? { enum: def.enum } : {}),
+      ...(def.min !== undefined ? { min: def.min } : {}),
+      ...(def.default !== undefined ? { default: def.default } : {}),
+      ...(def.doc ? { doc: def.doc } : {})
+    }
+  }
+  return {
+    command: name,
+    summary: spec.summary,
+    usage: usageFor(name, spec),
+    flags,
+    ...(spec.target
+      ? {
+          target:
+            'Pass any of --role/--name/--selector (matched in the page, failing if ambiguous; --nth <n> is a 0-based pick among the matches); or --ref from read-page/find; or both --x and --y (CSS pixels). The three forms do not mix.'
+        }
+      : {}),
+    ...(spec.oneOf ? { oneOf: spec.oneOf.map((flag) => `--${flag}`) } : {}),
+    wire: wireSchemaFor(spec),
+    ...(spec.result ? { result: expandSchema(spec.result) } : {})
+  }
+}
+
+/**
+ * Validates `args` against a command's table entry and assembles its request.
+ * Returns `{ error }` rather than exiting, so the caller owns the output shape.
+ */
+function buildRequest(command, args, paneId) {
+  const spec = COMMANDS[command]
+  if (!spec) {
+    return { error: `unknown command: ${command || '(none)'} — run 'tabs-ctl describe' to list them` }
+  }
+
+  const known = new Set(flagNames(spec))
+  for (const flag of Object.keys(args)) {
+    if (!known.has(flag)) {
+      const valid = [...known].map((f) => `--${f}`).join(', ') || '(none)'
+      return { error: `unknown flag --${flag} for ${command}; accepts: ${valid}` }
+    }
+  }
+
+  const request = { type: spec.request, paneId }
+  for (const [flag, def] of Object.entries(spec.flags ?? {})) {
+    const raw = args[flag] === undefined ? def.default : args[flag]
+    if (raw === undefined) {
+      if (def.required) {
+        return { error: `--${flag} is required${def.type === 'json' ? ' (JSON)' : ''}` }
+      }
+      continue
+    }
+    if (def.enum && !def.enum.includes(raw)) {
+      return { error: `--${flag} must be one of ${def.enum.join(', ')} (got ${raw})` }
+    }
+
+    const key = def.wire ?? flag
+    if (def.type === 'number') {
+      const value = Number(raw)
+      if (Number.isNaN(value)) return { error: `--${flag} must be a number (got ${raw})` }
+      // `min` closes the fail-open hole where garbage below a flag's floor
+      // (--max-length -5) went over the wire and was silently ignored, while
+      // the same garbage spelled non-numerically errored. Only for floors the
+      // app doesn't own: --timeout/--poll have *documented* app-side clamps
+      // and deliberately carry no min here.
+      if (def.min !== undefined && value < def.min) {
+        return { error: `--${flag} must be at least ${def.min} (got ${raw})` }
+      }
+      request[key] = value
+    } else if (def.type === 'boolean') {
+      // `value` lets a flag *invert* onto the wire (capture-bodies --off →
+      // enabled: false); the wire default stays "flag absent, field absent".
+      request[key] = def.value !== undefined ? def.value : true
+    } else if (def.type === 'csv') {
+      request[key] = String(raw).split(',').filter(Boolean)
+    } else if (def.type === 'json') {
+      let value
+      try {
+        value = JSON.parse(raw)
+      } catch (error) {
+        return { error: `--${flag} is not valid JSON: ${error.message}` }
+      }
+      if (def.schema?.type === 'array' && !Array.isArray(value)) {
+        return { error: `--${flag} must be a JSON array` }
+      }
+      request[key] = value
+    } else {
+      request[key] = raw
+    }
+  }
+
+  if (spec.target) {
+    // The three target forms are mutually exclusive, and mixing them is
+    // rejected rather than resolved by precedence: silently ignoring half of
+    // what the caller passed is exactly the guess-not-fail behaviour the
+    // semantic form exists to remove.
+    const semanticFlags = ['role', 'name', 'selector'].filter((flag) => args[flag] !== undefined)
+    const hasCoordFlag = args.x !== undefined || args.y !== undefined
+    const forms = [
+      args.ref !== undefined ? '--ref' : null,
+      hasCoordFlag ? '--x/--y' : null,
+      semanticFlags.length > 0 ? semanticFlags.map((flag) => `--${flag}`).join('/') : null
+    ].filter(Boolean)
+    if (forms.length > 1) {
+      return { error: `${forms.join(' and ')} are different target forms — pass only one` }
+    }
+    if (args.nth !== undefined && semanticFlags.length === 0) {
+      return { error: '--nth only applies to --role/--name/--selector targeting' }
+    }
+
+    if (args.ref !== undefined) request.target = { ref: args.ref }
+    else if (hasCoordFlag) {
+      if (args.x === undefined || args.y === undefined) {
+        return { error: 'a coordinate target needs both --x and --y' }
+      }
+      const x = Number(args.x)
+      const y = Number(args.y)
+      // Same check the table gives every numeric flag: a NaN would serialize
+      // as null on the wire and only fail far away, as an opaque input-event
+      // error inside the app.
+      if (Number.isNaN(x) || Number.isNaN(y)) {
+        return { error: `--x and --y must be numbers (got ${args.x}, ${args.y})` }
+      }
+      request.target = { x, y }
+    } else if (semanticFlags.length > 0) {
+      const target = {}
+      for (const flag of semanticFlags) {
+        // A bare `--name` parses as boolean true; matching the string "true"
+        // is never what that meant.
+        if (typeof args[flag] !== 'string') return { error: `--${flag} needs a value` }
+        target[flag] = args[flag]
+      }
+      if (args.nth !== undefined) {
+        const nth = Number(args.nth)
+        if (!Number.isInteger(nth) || nth < 0) {
+          return { error: `--nth must be a non-negative integer (got ${args.nth})` }
+        }
+        target.nth = nth
+      }
+      request.target = target
+    } else {
+      return { error: '--role/--name/--selector, --ref, or both --x and --y is required' }
+    }
+  }
+
+  // A `oneOf` command names its resource one of several mutually exclusive
+  // ways (save-resource's --url/--ref/--selector) — exactly one, since zero
+  // has nothing to act on and more than one is ambiguous.
+  if (Array.isArray(spec.oneOf)) {
+    const chosen = spec.oneOf.filter((flag) => args[flag] !== undefined)
+    const list = spec.oneOf.map((flag) => `--${flag}`).join(', ')
+    if (chosen.length === 0) return { error: `one of ${list} is required` }
+    if (chosen.length > 1) {
+      return { error: `pass only one of ${list} (got ${chosen.map((flag) => `--${flag}`).join(', ')})` }
+    }
+  }
+
+  // A batch's sub-requests are raw wire JSON the caller assembled by hand —
+  // the one place a typo'd verb name can slip past this parser — so check
+  // each type against the same table before anything goes over the socket.
+  if (spec.request === 'batch' && Array.isArray(request.requests)) {
+    const knownTypes = new Set(Object.values(COMMANDS).map((entry) => entry.request))
+    for (const [index, sub] of request.requests.entries()) {
+      const type = sub && typeof sub === 'object' ? sub.type : undefined
+      if (!knownTypes.has(type)) {
+        return {
+          error: `requests[${index}] has unknown type ${JSON.stringify(type ?? null)} — 'tabs-ctl describe --command <name>' prints each wire shape`
+        }
+      }
+    }
+  }
+
+  return { request }
+}
+
+async function sendRequest(socketPath, request) {
+  const { createConnection } = await import('node:net')
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(socketPath, () => {
+      socket.write(`${JSON.stringify(request)}\n`)
+    })
+    let buffer = ''
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString('utf-8')
+    })
+    socket.on('end', () => {
+      try {
+        resolve(JSON.parse(buffer.trim()))
+      } catch {
+        reject(new Error(`malformed response from Tabs: ${buffer}`))
+      }
+    })
+    socket.on('error', (error) => {
+      reject(new Error(`could not reach Tabs: ${error.message}`))
+    })
+  })
+}
+
+/** Resolves every `path`-typed flag's value against the caller's cwd, in place. */
+async function resolvePathFlags(command, request) {
+  const spec = COMMANDS[command]
+  if (!spec?.flags) return
+  const pathFlags = Object.entries(spec.flags).filter(([, def]) => def.type === 'path')
+  if (pathFlags.length === 0) return
+  const { resolve } = await import('node:path')
+  for (const [flag, def] of pathFlags) {
+    const key = def.wire ?? flag
+    if (typeof request[key] === 'string') request[key] = resolve(request[key])
+  }
+}
+
+async function main() {
+  const [command, ...rest] = process.argv.slice(2)
+  const args = parseArgs(rest)
+
+  // Answered before the environment check below: `describe` is local metadata,
+  // not a socket call, and an agent should be able to learn the surface before
+  // it has established that it's running inside Tabs at all.
+  if (command === 'describe') {
+    process.stdout.write(`${JSON.stringify(describe(args))}\n`)
+    return
+  }
+
+  const paneId = process.env.TABS_PANE_ID
+  const socketPath = process.env.TABS_CONTROL_SOCKET
+  if (!paneId || !socketPath) {
+    fail('not running inside a Tabs terminal pane (TABS_PANE_ID/TABS_CONTROL_SOCKET unset)')
+    return
+  }
+
+  const built = buildRequest(command, args, paneId)
+  if (built.error) return fail(built.error)
+
+  // A `path` flag is a filesystem path in *this* shell's cwd; the app runs
+  // elsewhere, so it can't resolve a relative one. Resolve to absolute here,
+  // where the cwd is the caller's. Dynamic import for the same module-system
+  // reason the socket connection uses one (see the note at the top).
+  await resolvePathFlags(command, built.request)
+
+  try {
+    const response = await sendRequest(socketPath, built.request)
+    process.stdout.write(`${JSON.stringify(response)}\n`)
+    // A batch answers `ok: true` as long as it ran, so that the transcript it
+    // collected survives alongside a failed step. Reflect a failed step in
+    // the exit code anyway — including under --continue-on-error — so `&&` in
+    // a shell still means what it looks like. Skipped steps carry no `ok` and
+    // only ever follow a failed one, so checking `ok === false` covers them.
+    const batchFailed =
+      response.ok && Array.isArray(response.result?.steps)
+        ? response.result.steps.some((step) => step.ok === false)
+        : false
+    // The same rule for a verb reporting per-part failures on an ok:true
+    // response (form-input's errors array — the fields it did fill are the
+    // useful part, batch's exact stance): a non-empty `errors` fails the exit
+    // code too, so `&&` in a shell means every field landed.
+    const partsFailed =
+      response.ok && Array.isArray(response.result?.errors) && response.result.errors.length > 0
+    // exitCode, never process.exit(): the response above may be far bigger
+    // than the pipe buffer, and a hard exit truncates it — see fail()'s doc.
+    process.exitCode = response.ok && !batchFailed && !partsFailed ? 0 : 1
+  } catch (error) {
+    fail(error.message)
+  }
+}
+
+main()

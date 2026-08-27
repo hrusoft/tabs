@@ -1,0 +1,26 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": [
+    "electron.vite.config.*",
+    "vite.harness.config.*",
+    "vitest.config.*",
+    "playwright.config.*",
+    "src/shared/**/*",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/plugins/index.ts",
+    "src/plugins/*/shared/**/*",
+    "src/plugins/*/main/**/*",
+    "e2e/**/*"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "types": ["electron-vite/node", "node"],
+    // The @electron-toolkit base sets strict but forces noImplicitAny back off.
+    "noImplicitAny": true,
+    "noImplicitOverride": true,
+    "noUncheckedSideEffectImports": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true
+  }
+}

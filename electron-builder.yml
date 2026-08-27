@@ -1,0 +1,82 @@
+appId: com.hrusoft.tabs
+productName: Tabs
+copyright: Copyright © 2026 Hrusoft. All rights reserved.
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - package.json
+  # node-pty is a native module (used by src/main/content/terminal/terminal.ts): it can't be
+  # bundled by vite like the rest of main/preload, so its runtime files ship
+  # from node_modules explicitly. Only the macOS pieces are included since
+  # Windows/Linux aren't packaged here (see README); postinstall's
+  # `electron-rebuild` (see package.json) is what actually produces
+  # build/Release for the current arch, and prebuilds/darwin-* ships too as a
+  # fallback.
+  - node_modules/node-pty/package.json
+  - node_modules/node-pty/lib/**/*.js
+  - node_modules/node-pty/build/Release/*.node
+  - node_modules/node-pty/build/Release/spawn-helper
+  - node_modules/node-pty/prebuilds/darwin-arm64/**/*
+  - node_modules/node-pty/prebuilds/darwin-x64/**/*
+asarUnpack:
+  - node_modules/node-pty/**
+asar: true
+npmRebuild: false
+# The bundled "control Tabs" skill (see resources/skills/tabs and
+# src/main/skills.ts): extraResources ships it as real files outside the
+# asar, at Contents/Resources/skills — required since it's symlinked
+# straight into an agent's own skills directory and read by a plain OS
+# process (an agent's shell running tabs-ctl), neither of which can read
+# into an asar archive at all.
+extraResources:
+  - from: resources/skills
+    to: skills
+mac:
+  category: public.app-category.productivity
+  identity: null
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+  target:
+    - target: dmg
+      arch:
+        - arm64
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+  # Explicit contents: the app + Applications link are electron-builder's own defaults
+  # (dmg-builder/out/dmg.js), restated here only because adding install.txt as a third
+  # icon requires overriding the whole array. See build/install.txt for why it exists —
+  # the app isn't signed/notarized (mac.identity: null / mac.notarize: false above), so
+  # Gatekeeper blocks a freshly-dragged copy until the quarantine flag is cleared.
+  #
+  # build/background.png is dmg-builder's own default background.tiff (the dashed
+  # arrow): cropped from 540x380 down to 540x270 (`sips -c 270 540 --cropOffset 100
+  # 0`) to remove the ~190px of dead space that sat above the arrow, then padded
+  # back out to the original 540x380 with the extra height added *only at the
+  # bottom* (a plain `sips -p 380 540` pads evenly on both sides, which shifts the
+  # arrow/icons down again — so the bottom-only version goes through an
+  # over-pad-then-crop dance: pad symmetrically to a much taller canvas, then crop
+  # from the top edge down to 380, which discards the top half of that padding and
+  # keeps only the bottom half). A too-short image made Finder show scroll bars, so
+  # the window keeps the stock, known-good height, while the arrow/icon row stays
+  # anchored where it lands after the crop above (not the original template's
+  # position). dmg.window is *not* respected here: whenever a background image is
+  # present, dmg-builder derives the window size from that image's own pixel
+  # dimensions and ignores dmg.window entirely (see dmg-builder/out/dmgUtil.js) —
+  # so the only way to change the window height is to ship a differently-sized
+  # background image, which is what this is. Coordinates below are relative to
+  # this image, not the original template.
+  contents:
+    - x: 130
+      y: 125
+      type: file
+    - x: 410
+      y: 125
+      type: link
+      path: /Applications
+    - x: 270
+      y: 205
+      type: file
+      path: build/install.txt
+      name: Read Me.txt

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tabs harness</title>
+    <!-- No CSP: this page exists only for the Playwright browser tier (it is
+         never a build input — electron-vite bundles only index.html and
+         settings.html), and vite's dev-mode inline injections (the react
+         plugin's refresh preamble) would trip index.html's script-src 'self'. -->
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/testing/harnessMain.ts"></script>
+  </body>
+</html>

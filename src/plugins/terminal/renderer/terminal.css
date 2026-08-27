@@ -1,0 +1,36 @@
+/* The terminal pane's own styles, side-effect imported by TerminalRenderer.tsx
+   so they load with the renderer that uses them and nowhere else. That module
+   is reached only through registerBuiltins (main.tsx), so the Settings window
+   — which registers page defs, never renderers — never ships these rules.
+   Imported after xterm.css there, so this file always gets the last word.
+
+   Colors come from theme tokens applied by installTheme before first render;
+   this file defines none (see CLAUDE.md). */
+
+.terminal-container {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  padding: 4px 0 0 8px;
+}
+
+/* The detached element xterm.js is opened on (see terminalRegistry.ts) — kept
+   alive and re-parented into whichever .terminal-container mounts next, so it
+   needs to fill that container itself rather than inheriting a size. */
+.terminal-session {
+  height: 100%;
+  width: 100%;
+}
+
+.terminal-container .xterm-viewport {
+  /* xterm.js's own scrollbar; keep it inside the padded container. */
+  overflow-y: auto;
+  /* xterm.css hardcodes this to #000. FitAddon floors rows/cols to whole
+     cells, so the container is almost never an exact multiple of cell size —
+     the leftover strip past the last row/column would otherwise show black
+     instead of the terminal's own configured background (set on
+     .terminal-container itself, see TerminalRenderer.tsx). Two selectors deep
+     on purpose: it has to outrank xterm.css's own single-class rule
+     regardless of which stylesheet the bundler happens to order last. */
+  background-color: transparent;
+}

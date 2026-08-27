@@ -1,0 +1,20 @@
+# Paths excluded from the public source mirror.
+#
+# `export-ignore` affects `git archive` only, which is how scripts/sync-public.sh
+# builds each public snapshot. Nothing here changes this repository, a checkout,
+# a build or a test run.
+
+# A separate experimental program with its own build and gates; CLAUDE.md says
+# it is not part of this app.
+tui/                            export-ignore
+
+# Internal agent config and architecture notes.
+.claude/                        export-ignore
+CLAUDE.md                       export-ignore
+
+# Names RELEASE_PUBLISH_TOKEN and the hrusoft/downloads pipeline, and would try
+# to run on the public repo, where it has neither the secret nor a reason to.
+.github/workflows/release.yml   export-ignore
+
+# The mirror machinery itself.
+scripts/sync-public.sh          export-ignore

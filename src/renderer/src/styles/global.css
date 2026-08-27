@@ -1,0 +1,1852 @@
+/* Every color the app paints with is a custom property — and their values are
+   deliberately NOT declared here. applyTheme (core/theme/installTheme.ts)
+   writes the active theme's tokens onto this element before the first render,
+   from the single source of truth in shared/theme.ts. A fallback set declared
+   here as well would be a second copy to hand-sync, and would be the *wrong*
+   copy the moment a theme other than dark is active. `color-scheme` comes
+   from the same place for the same reason.
+
+   So: adding a color to the app means adding a ThemeToken, not writing a
+   literal into a rule. Three tokens aren't colors:
+
+   - --hover-rgb / --shadow-rgb hold a bare `r g b` triple, so each rule keeps
+     its own alpha: `rgb(var(--hover-rgb) / 0.12)`. That's what lets a light
+     theme flip a hover wash from white to black without every alpha in this
+     file being duplicated per theme.
+   - --shadow-strength scales every shadow alpha at once
+     (`calc(0.4 * var(--shadow-strength))`). Alphas tuned against a near-black
+     UI read as grey smudges on white, and they have to move together.
+
+   Translucent tints of an existing token use color-mix rather than a token of
+   their own, so they follow --accent/--bg automatically. */
+
+/* The one cross-window length token. Colors deliberately have no values in
+   this file (see above); lengths are different — this is the height both
+   windows' hand-drawn title bars share, and the number
+   main/windows.ts's trafficLightPosition is tuned against. */
+:root {
+  --window-titlebar-height: 28px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.app-content > * {
+  height: 100%;
+}
+
+/* --- Panes --- */
+
+/* Dressed like a small window: title bar on top, content below, thin border
+   around both, and — when this is the active pane — a 1px accent outline
+   around the content alone (see the `.pane-active` rules below). That outline
+   is the only mark activation makes, and it stops short of the pane's own
+   chrome: no bar is ever filled with the accent and no border recolored,
+   because a filled bar would overwrite the depth shade below and, on a tab
+   group, erase the active tab's merge into its content — i.e. it would
+   destroy the striping exactly on the group you're using. `--depth` and
+   `data-depth-parity` come from Pane.tsx; see content/depth.ts.
+
+   The two surfaces alternate rather than deepening indefinitely, so an
+   arbitrarily nested layout only ever needs the two chrome colors a theme
+   already declares — `--surface` is this level's, `--surface-next` the one a
+   tab reveals when opened. */
+.pane {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  border: 1px solid var(--border);
+  --surface: var(--bg);
+  --surface-next: var(--bg-elevated);
+  --depth-indent: calc((var(--depth, 0) + 1) * 7px);
+  /* How tall a tab itself is, independent of the bar around it. `.tab-strip`
+     reads this one, never --chrome-bottom directly: the docked root's bar is
+     taller than its tabs (see the --chrome-bottom override further down),
+     and its tabs must stay this size rather than stretching to match. */
+  --tab-strip-height: 24px;
+  /* Where this pane's own chrome bar ends and its content begins, measured
+     from the pane's inner top edge — the row the hairline between them
+     occupies. Both kinds of pane land on the same number, which is what lets
+     one `.pane-active::after` rule serve both: a title bar is this tall plus
+     its own bottom border, a tab strip is exactly this tall and the hairline
+     under it belongs to the pane below. Sizing the two bars from it keeps
+     them and the active outline from drifting apart. Derived from
+     --tab-strip-height rather than restating 24px: a nested bar has no extra
+     headroom, so its strip can't be taller than the bar holding it without
+     overflowing upward — the cascade keeps the two in step, while the docked
+     root's override of this one property alone lets them diverge exactly
+     there. */
+  --chrome-bottom: var(--tab-strip-height);
+}
+
+.pane[data-depth-parity="1"] {
+  --surface: var(--bg-elevated);
+  --surface-next: var(--bg);
+}
+
+/* Any pane — leaf or tabs-group — reached directly as another tabs-group's
+   tab content (no split in between — ContentView's `insideTabsContent`)
+   suppresses left/right/bottom: those sides would sit flush against the
+   parent's own border and stack. Suppression is positional, never by node
+   type, and the top is never suppressed at any depth — its border-top is
+   what draws the hairline under the revealing bar, broken only under the
+   active tab (`.tab-strip`/`.tab-active` below). The full derivation, seam
+   measurements included, is CLAUDE.md's pane-chrome entry. Nested bars still
+   read as distinct from one another: they land on opposite depth parities,
+   so `--surface` alone steps
+   the shade between them. */
+.pane-border-top-only {
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* The active pane's only marker: a 1px accent outline around its *content*,
+   starting below its own chrome bar. Excluding the bar is the point — the
+   bar's own border-top (a plain pane's, or `.pane-border-top-only`'s) stays
+   the neutral color, so activating a pane never recolors chrome, only the
+   content edge below it.
+
+   The negative insets are what keep it from *adding* a line: they pull the
+   outline out over the pane's own border, so an active pane reads as its
+   border recolored on three sides rather than as a second hairline inside a
+   neutral one. Getting that wrong is subtle but visible — two panes side by
+   side went from a 2px seam to 3px, which reads as the split having drifted
+   apart. Hence also why this sits on `.pane` and not on `.pane-body`, which
+   clips its overflow and would swallow exactly the pixel that matters.
+
+   `top` is exactly `--chrome-bottom`, with no adjustment for the pane's own
+   border: `top` on an absolutely positioned child is measured from its
+   containing block's *padding* edge, and so is the chrome bar it needs to
+   clear — `.pane-header` sits in normal flow starting at that same padding
+   edge, and a tabs-group's `.tab-strip` + the nested content pane beneath it
+   do too. Both the overlay and the chrome bar are offset from the pane's own
+   border-top by the same amount (by construction, since the border isn't
+   part of either one's containing/flow box), so that offset cancels and
+   `--chrome-bottom` alone is the right distance — subtracting a pixel for it
+   was double-counting an offset that was never there for the overlay to
+   begin with. Confirmed by measuring: at `chrome-bottom - 1px` the outline's
+   rendered top sat 1px above the chrome bar's own bottom border (the
+   overhang the ticket reported); at `chrome-bottom` it lands exactly flush.
+
+   An overlay rather than a real border, for the reason activation is kept
+   free of layout everywhere here: a border appearing on activation would
+   shrink the content box, and a terminal pane answers that by refitting and
+   SIGWINCHing its pty — a resize storm from nothing but clicking around.
+   Deliberately no `z-index`, so `.tab-active` (1) still paints over it: on a
+   tab group the outline runs beneath the strip and the active tab breaks it,
+   exactly as it breaks the neutral seam.
+
+   Every content-side pane cue is this same box — the bell's
+   `.pane-alert::after` (Bell section) and the agent's `.pane-controlled::after`
+   (Controlled panes section) — so the geometry is stated once here for all
+   three, and each of them adds only its own `border`/`box-shadow`/`animation`
+   below. Their separate rules are about the *cascade*, not the box: same
+   specificity, later rule wins on the one property that conflicts, which is
+   what lets a ringing or controlled pane's color beat the static accent when
+   a pane is in both states at once. Source order therefore stays
+   active → alert → controlled. */
+.pane-active::after,
+.pane-alert::after,
+.pane-controlled::after {
+  content: "";
+  position: absolute;
+  top: var(--chrome-bottom);
+  right: -1px;
+  bottom: -1px;
+  left: -1px;
+  pointer-events: none;
+}
+
+.pane-active::after {
+  border: 1px solid var(--accent);
+}
+
+.pane-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: calc(var(--chrome-bottom) + 1px);
+  /* Indented by nesting depth, like a tab bar — a leaf pane's title bar is
+     the last rung of the same ladder, so it steps in with the bars above it
+     rather than restarting at the pane's own left edge. Slightly wider than
+     a bare grip needs, so the bell and/or the control icon (both rendered
+     right after the grip, ahead of the title — see Pane.tsx) have room to
+     sit without crowding either. */
+  padding: 0 4px 0 var(--depth-indent);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.pane-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Both inline title editors (pane header, tab) — one rule; the class doubles
+   as the testid (see InlineTitleEditor). A translucent wash rather than a
+   fixed surface color: the chrome underneath is one of two depth shades, and
+   either one named outright would be invisible against itself at half the
+   depths. */
+.pane-title-input,
+.tab-title-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: rgb(var(--hover-rgb) / 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 0 2px;
+  margin: 0;
+}
+
+/* The always-grabbable spot at the chrome's left edge: on a tab strip the
+   tabs can crowd out every other inch of drag handle. */
+.pane-grip {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: grab;
+}
+
+.pane-header-controls {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.pane-header:hover .pane-header-controls,
+.tab-bar:hover .pane-header-controls,
+.pane-header-controls:focus-within {
+  opacity: 1;
+}
+
+.pane-header-button {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.pane-header-button:hover:not(:disabled) {
+  background: rgb(var(--hover-rgb) / 0.12);
+}
+
+.pane-header-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* The moved toolbar icons read at a smaller size than they did in the old
+   34px toolbar, to sit closer to the glyph buttons' visual weight in the
+   compact header. */
+.pane-header-button svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+/* Divides the creation groups (split/tab actions, content-type creation)
+   from the destructive group (close, clear). */
+.pane-header-separator {
+  flex: none;
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 2px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+/* Wraps one root chrome button + its dropdown. `inline-flex` keeps the box
+   sized to just the button — the dropdown is out-of-flow (absolute), so it
+   never affects this box's size — while giving the dropdown a
+   `position: relative` containing block. */
+.pane-header-group {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Visually the .context-menu family (rounded panel, border, shadow), but
+   anchored over a hovered button instead of at the cursor via JS — hence a
+   standalone rule rather than sharing that class outright, which would also
+   drag in its `position: fixed`. Icon-only, one column, sized to its
+   content: every row inside is a plain `.pane-header-button`, so the column
+   is naturally exactly as wide as the root button it opens over.
+   `top: 0, left: 0` — flush over the root button, not below it: opening the
+   menu covers the root entirely, so its action (repeated as the menu's own
+   first row) reads as the one thing on screen at that spot rather than a
+   second copy sitting next to the original. This also means the cursor
+   that opened the menu ends up resting on the menu itself once it appears
+   — still a descendant of `.pane-header-group`, so `:hover` stays
+   satisfied and the menu doesn't immediately close under its own reveal.
+   `visibility: hidden` while closed is required here (unlike the outer
+   .pane-header-controls toolbar, which never leaves the flex-row flow) since
+   this panel is absolutely positioned and floats over this pane's own body
+   content — and, now, over its own root button — once open; without it, an
+   invisible closed panel would eat clicks meant for whatever's underneath
+   (visibility removes hit-testing along with painting, which is exactly the
+   pair the closed state needs).
+   `var(--surface)` rather than a fixed `--bg-elevated`: the panel covers the
+   chrome it opens over, so it has to be whichever of the two depth shades
+   that chrome is painted in, or it reads as a separate surface floating on
+   top of it rather than as the header continuing downward.
+   PaneHeaderMenuGroup nudges it sideways with an inline
+   `transform: translateX(...)` once it measures real overflow against the
+   viewport, so a group near (or a pane narrower than) the window's edge
+   never spills past it.
+   Covering the root means hovering it makes the root's own testid
+   unreachable for the rest of the hover — clicking there lands on the
+   menu's covering first row instead, which fires the identical action, so
+   this is by design, not a gap: the two are interchangeable outcomes, not
+   two different things competing for the same click. */
+.pane-header-dropdown {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Above xterm.js's own internal layers (.xterm-decoration is 6/7) and
+     .dock-preview (10), comfortably below every window-level overlay
+     (.floating-layer 900, .drag-ghost 1000, .nav-flash 1001,
+     .context-menu-backdrop 2000, .command-palette-backdrop 2100). */
+  z-index: 20;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  /* `currentColor`, not `var(--border)`: the outline is meant to read as
+     part of the icon/text color (matching --on-accent once the pane-active
+     override below applies), not the app's generic neutral hairline. */
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / calc(0.4 * var(--shadow-strength)));
+  color: var(--text);
+  opacity: 0;
+  visibility: hidden;
+  /* The closing grace window, entirely in this declaration: these delays
+     apply when the menu transitions *to* this closed state, so on losing
+     the group's hover/focus it holds fully visible — and, via visibility,
+     hit-testable, so drifting back onto it re-satisfies `:hover` and
+     cancels the close — for 200ms, then fades out. The grace exists
+     because the dropdown is a handful of ~20px-wide icon buttons stacked
+     with no gap of their own to aim for, and real mouse input (unlike a
+     script driving a perfectly straight line) wanders a few pixels
+     off-axis on the way down — enough to clip a neighboring non-descendant
+     pixel for a frame or two, which a hard hover-driven close treated as
+     "gone" before the pointer ever reached the row the user was aiming
+     for. */
+  transition:
+    opacity 0.1s ease 0.2s,
+    visibility 0s linear 0.3s;
+}
+
+/* Opening stays on real, synchronous :hover/:focus-within — see
+   PaneHeaderMenuGroup's doc comment for why a React-state-gated reveal
+   breaks a plain click on the root button beneath it. The reveal is
+   instantaneous where it matters: this rule's own transition covers opacity
+   only, so visibility (and with it hit-testing) flips the moment the hover
+   lands. */
+.pane-header-group:hover > .pane-header-dropdown,
+.pane-header-group:focus-within > .pane-header-dropdown {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.1s ease;
+}
+
+/* Clips its own content (terminal canvas, long lines, etc.) to the body's
+   box — this used to live on `.pane` itself, but that also clipped the
+   header's hover dropdowns (PaneHeaderMenuGroup), which need to paint past
+   the pane's own bottom edge on a short pane. Scoping the clip to the body
+   only keeps content contained without cutting off chrome.
+
+   `overflow-clip-margin: 1px` matters when this body wraps a nested tabs-group
+   whose own leaf content sits flush against it (no padding anywhere in the
+   .tabs-view chain — see TabsRenderer.tsx): that leaf's `.pane-active::after`
+   / `.pane-alert::after` / `.pane-controlled::after` deliberately bleeds 1px
+   past its own box on three sides (see that rule's comment), and without
+   this margin an ancestor body flush against it clips the bleed away on
+   exactly those sides, leaving only the (never-bled) top edge visible. The margin is otherwise a no-op — nothing
+   else here intentionally paints past its own box. */
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: clip;
+  overflow-clip-margin: 1px;
+}
+
+.pane-body > * {
+  height: 100%;
+}
+
+/* The drag's source — pane or tab alike — dims in place while its ghost travels. */
+.pane-dragging,
+.tab-dragging {
+  opacity: 0.4;
+}
+
+/* Dims a pane's own rendered content when it's not the active one, leaving
+   its header/tab-bar chrome untouched (those aren't reachable through this
+   selector) — see "dimInactivePanes" setting. `:not(.tabs-view)` excludes a
+   tab group's tab-bar and hands its content off to the nested `Pane`s inside
+   it, which dim themselves independently based on their own active state, so
+   an active pane nested inside an inactive tab group still renders at full
+   brightness. The transition lives on this always-matching base rule (not
+   nested under `.pane-dimmed`) so it applies on the way *out* of dimming too
+   — scoping it to `.pane-dimmed` only would mean the undimmed state has no
+   transition of its own to animate with, so it'd snap back instantly.
+
+   `--dim-intensity` (0-1, set inline by Pane.tsx from the
+   dimInactivePanesIntensity setting) drives both filter functions from one
+   knob: grayscale scales with it directly, brightness inversely and capped
+   at a 0.7 swing so full intensity still tops out at 30% brightness instead
+   of going fully black. */
+.pane-body > *:not(.tabs-view) {
+  transition: filter 0.15s ease;
+}
+
+.pane-dimmed > .pane-body > *:not(.tabs-view) {
+  filter: grayscale(var(--dim-intensity, 0.5)) brightness(calc(1 - 0.7 * var(--dim-intensity, 0.5)));
+}
+
+/* --- Bell --- */
+
+/* Rung via xterm's onBell (see TerminalRenderer.tsx onBell wiring), shown
+   ahead of a pane's title (right after its grip) and, for a backgrounded tab
+   (whose pane-header is display:none — see TabsRenderer.tsx), again ahead of
+   its title on its TabBar tab. Leading rather than trailing so it reads as
+   the thing demanding attention, not a trailing decoration easy to miss
+   beside the close button/header controls. Mounted only while ringing, so
+   the loop just runs for as long as the element exists — no
+   forwards/onAnimationEnd teardown like nav-flash's one-shot fade needs. */
+.bell-icon {
+  --cue-color: var(--bell-alert);
+  --cue-pulse: bell-pulse 3s ease-in-out infinite;
+}
+
+/* One rule for both cue icons (the bell here, the robot in the Controlled
+   panes section): each marker class above/below sets only its color and its
+   pulse, so the shared box mechanics can't drift apart. */
+.bell-icon,
+.control-icon {
+  flex: none;
+  display: flex;
+  color: var(--cue-color);
+  animation: var(--cue-pulse);
+}
+
+.bell-icon svg,
+.control-icon svg {
+  display: block;
+}
+
+/* Shared by .bell-icon and .pane-alert::after below, so the two breathe in
+   sync rather than as two independently-timed loops. Never below 30%
+   opacity — a bell that fades near-invisible reads as "attention that's
+   stopped," not "attention pending" — and opacity-only (no scale/size
+   change): a growing icon reads as a flash, which is exactly what this
+   replaces. Held at the low end for a stretch on both sides of the peak
+   (0%-30% and 69%-100%, ~0.9s each of the 3s cycle below) rather than
+   easing straight back and forth, so the two holds run together across the
+   loop boundary into one long low period. The rise to peak (30%-56%, ~0.8s)
+   is deliberately slower than the fall back off it (56%-69%, ~0.4s) — a
+   bell should read as brightening gradually, not snapping on, while still
+   dropping back to rest quickly once seen. Those two absolute durations
+   (each hold, and the fall) are what's held fixed if this cycle's total
+   length ever changes again — only the rise should stretch or compress. */
+@keyframes bell-pulse {
+  0%,
+  30%,
+  100% {
+    opacity: 0.3;
+  }
+  56% {
+    opacity: 1;
+  }
+  69% {
+    opacity: 0.3;
+  }
+}
+
+/* The bell's cue on the pane's own content, not just its chrome — the shared
+   overlay box above (this pane's content area, its chrome bar excluded; see
+   that rule's comment for the geometry rationale), recolored and pulsing
+   instead of static. It keeps its own color rule rather than being merged into
+   .pane-active's, because the two classes genuinely coexist: ring() only drops
+   a bell when the pane is both active *and* the window focused (bellStore.ts),
+   so an active pane ringing while the window is unfocused is a common case,
+   not an edge one. Declared after .pane-active::after on purpose — same
+   specificity, so the cascade alone (last rule wins on the one property that
+   conflicts, `border`) lets the pulsing bell color win over the static accent
+   one when both apply, no z-index needed. And deliberately no z-index here
+   either, for the same reason as .pane-active::after: .tab-active (1) must
+   still break this outline under the active tab, exactly as it breaks the
+   neutral and active-accent ones. */
+.pane-alert::after {
+  --cue-color: var(--bell-alert);
+  --cue-pulse: bell-pulse 3s ease-in-out infinite;
+}
+
+/* One rule for both cue outlines, parameterized like the icons above: each
+   marker class sets only --cue-color/--cue-pulse. The cascade story in the
+   comments above still holds — this rule sits after .pane-active::after, and
+   for a pane both ringing and controlled the later marker rule (Controlled
+   panes section) wins the custom properties exactly as the later full rule
+   used to win `border`.
+
+   The box-shadow is an inward glow off the same border, not a second effect:
+   `inset` paints from the pseudo-element's own edge toward its center, so it
+   reads as the outline bleeding into the content rather than a
+   separately-placed highlight. `color-mix` rather than a token of its own,
+   the same way every other translucent tint here works — the cue colors are
+   flat hexes, not rgb triples, so they can't take `rgb(var(...) / a)`. One
+   rule for border, glow and animation means one `animation` pulses all of it
+   in lockstep. */
+.pane-alert::after,
+.pane-controlled::after {
+  border: 1px solid var(--cue-color);
+  box-shadow: inset 0 0 14px 0 color-mix(in srgb, var(--cue-color) 55%, transparent);
+  animation: var(--cue-pulse);
+}
+
+/* --- Controlled panes --- */
+
+/* Generalizes the Bell mechanism above to a pane currently owned by another
+   pane through the external-control ledger (see controlStore.ts / main's
+   externalControl.ts) — an agent driving it via tabs-ctl. Same lead
+   position, right after the bell icon if both apply (practically disjoint
+   today: ownership only ever reaches a browser pane, never a terminal, so
+   nothing that rings a bell is ever also controlled), and the same "pulse
+   the icon and the pane's own content border" shape. Deliberately different
+   in the one place the product spec calls out: this never propagates to a
+   parent tab. A controlled pane isn't demanding the user's attention the way
+   a bell is — it's a pane already being watched, by something else — so
+   TabBar's containment check has no counterpart here on purpose. */
+.control-icon {
+  --cue-color: var(--agent);
+  --cue-pulse: control-pulse 4.5s ease-in-out infinite;
+}
+
+/* Same curve as bell-pulse (see that keyframes' comment for why each phase
+   is shaped the way it is), just a slower cycle — "slow pulse" per the
+   product ask, versus the bell's more urgent 3s. Its own keyframes rather
+   than bell-pulse at a different animation-duration so the two can be
+   retuned independently without one's comment describing the other's
+   element. */
+@keyframes control-pulse {
+  0%,
+  30%,
+  100% {
+    opacity: 0.3;
+  }
+  56% {
+    opacity: 1;
+  }
+  69% {
+    opacity: 0.3;
+  }
+}
+
+/* The shared overlay box again (this pane's content area, its chrome bar
+   excluded — declared with .pane-active::after in the Panes section), and the
+   same cascade trick as the bell: declared after .pane-active::after so the
+   cascade lets it win on the one conflicting property (border) when a pane is
+   simultaneously active and controlled — no z-index needed — and .tab-active
+   (1) still breaks it under an active tab for the same reason it breaks the
+   others. */
+.pane-controlled::after {
+  --cue-color: var(--agent);
+  --cue-pulse: control-pulse 4.5s ease-in-out infinite;
+}
+
+/* --- Tabs --- */
+
+.tabs-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* The strip doubles as the group pane's title bar: grip on the left,
+   controls pinned on the right, tabs scrolling between them — sized and
+   typeset to sit close to a regular pane's title bar, and indented by
+   nesting depth so a stack of them reads as a ladder.
+   No `border-bottom` of its own: the 1px rule under a tab bar is the top
+   border of the content pane below it, which is a *sibling* of this bar, not
+   a descendant. That's deliberate — a border here as well would stack two
+   hairlines where the design has one, and the active tab could only ever
+   break the upper. The cost is that the tab has to paint over a sibling's
+   border out of the normal order; that lives on `.tab-active` rather than
+   here, and deliberately so. **This bar must never become a stacking
+   context** — `position` + `z-index` on it traps the hover menus inside it
+   (`.pane-header-dropdown`, z-index 20) at the bar's own level, and the next
+   bar down, at that same level and later in the DOM, paints straight over
+   them. What the user sees is a menu half-swallowed by the bar below it,
+   whose lower items can't be clicked at all: moving toward one lands the
+   cursor on that bar, which drops the `:hover` holding the menu open. */
+.tab-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--chrome-bottom);
+  padding: 0 4px 0 var(--depth-indent);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* The docked root's own bar doubles as the window's title bar — no separate
+   header sits above it any more (see App.tsx / TabBar.tsx). Everything that
+   is different about it in fullscreen keys off the `data-fullscreen`
+   attribute App.tsx stamps on the shell: outside fullscreen the root pane —
+   structurally `.app-content`'s only child, which floating windows (drawn
+   in .floating-layer) can never be — gets a taller chrome bar to fit the
+   macOS traffic lights — --window-titlebar-height, shared with the Settings
+   window's own title bar (.settings-titlebar), and trafficLightPosition in
+   main/windows.ts is tuned to center in that same number — plus the
+   traffic-light gutter itself. In fullscreen macOS hides the lights, so
+   both collapse and the bar reads exactly like a nested one. Overriding
+   --chrome-bottom (the same property every bar height and the active-pane
+   outline already key off) is what keeps this a two-declaration difference:
+   nothing downstream knows the root pane is special, and nested panes
+   restate the default via their own `.pane` rule. Everything else about
+   this bar (tabs, drag-to-dock, New Tab) keeps working exactly like a
+   nested bar's, fullscreen or not. */
+.app-shell:not([data-fullscreen]) > .app-content > .pane {
+  --chrome-bottom: var(--window-titlebar-height);
+}
+
+.tab-bar-root {
+  -webkit-app-region: drag;
+}
+
+.app-shell:not([data-fullscreen]) .tab-bar-root {
+  padding-left: 108px;
+}
+
+/* Interactive chrome inside the drag region needs its own carve-out —
+   otherwise a click anywhere on the bar moves the window instead of
+   registering. `.tab` itself gets the same
+   treatment further down, beside its own definition — deliberately scoped to
+   each *tab* rather than the whole `.tab-strip`: the strip is `flex: 1` and
+   fills every pixel of space after the tabs, including the wide stretch of
+   visually empty bar past the last one, and there is nowhere else at the
+   root level for that stretch to dock a pane into (nested groups can be
+   dragged onto; this one's chrome has nowhere to go — see
+   `chromePointerDown`'s `isRoot` branch) — so it stays part of the window's
+   drag handle rather than being carved out along with the tabs sitting on
+   it. */
+.tab-bar-root .pane-header-controls,
+.tab-bar-root .pane-header-dropdown,
+.tab-bar-settings-button {
+  -webkit-app-region: no-drag;
+}
+
+/* A modifier over .pane-header-button (the button renders through
+   HeaderButton — see RootSettingsButton in TabBar.tsx): only what differs
+   from a group's own chrome buttons lives here — kept off the window edge,
+   dimmed at rest since it sits on the bar permanently rather than inside a
+   hover-revealed toolbar, and a slightly larger glyph to read as window
+   chrome. The svg rule wins over .pane-header-button's by source order at
+   equal specificity. */
+.tab-bar-settings-button {
+  flex: none;
+  color: var(--text-dim);
+  padding: 4px;
+  margin-right: 6px;
+}
+
+.tab-bar-settings-button:hover {
+  color: var(--text);
+}
+
+.tab-bar-settings-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* A fixed height (`--tab-strip-height`, not `--chrome-bottom`) plus
+   `align-self: flex-end`: the strip sits flush against the *bottom* of
+   whatever bar holds it, tall or short, and a tab stretched to fill it (via
+   `align-items: stretch` below) always renders at the same size a nested
+   bar's tab does — the docked root's own bar is taller to fit the traffic
+   lights (see Pane.tsx), but its tabs read identically to any other group's.
+   The 1px negative bottom margin makes the strip one pixel taller than its
+   own box, so a tab reaches one pixel past it and covers the content pane's
+   top border. Only the active tab has a background, so only it breaks the
+   seam — every other tab is transparent and the hairline runs straight
+   through. The overhang has to come from the strip growing rather than from
+   a negative margin on the tab itself: `overflow-x` clips this box in both
+   axes, so a tab overflowing it would simply be cut off. */
+.tab-strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  align-self: flex-end;
+  height: var(--tab-strip-height);
+  gap: 2px;
+  margin-bottom: -1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* Sized to its own label, not to a grid: a short title gets a short tab.
+   Square-bottomed and flush with the bar's lower edge — the rounding is on
+   the top corners only, because the bottom edge is where the active tab
+   joins the content it opens rather than an edge of its own. */
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  max-width: 220px;
+  padding: 0 2px 0 10px;
+  border-radius: 3px 3px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The 10px left padding above is tuned for a tab's title text starting flush
+   against it; a leading bell icon (rendered first, ahead of the title — see
+   TabBar.tsx) reads as floating in that same gap rather than anchored to the
+   tab's edge, since a round glyph's own whitespace already eats into it.
+   Matches the tab's own `gap` so the bell sits equidistant from the tab's
+   edge and from the title beside it, rather than looking off-center. */
+.tab:has(> .bell-icon) {
+  padding-left: 2px;
+}
+
+/* See the comment beside `.tab-bar-root`'s other no-drag carve-outs above —
+   a tab itself needs one too, so clicking/dragging it switches or reorders
+   rather than moving the window. */
+.tab-bar-root .tab {
+  -webkit-app-region: no-drag;
+}
+
+/* The "New tab" button appended after the last tab. It's a
+   .pane-header-button (imported via HeaderButton) but, sitting inside
+   .tab-strip rather than .pane-header-controls, it falls outside that
+   toolbar's own hover-to-reveal rule — so it repeats the same opacity
+   toggle here, keyed off the same .tab-bar:hover trigger, to match the
+   rest of the bar's controls. align-self: center opts out of the strip's
+   own align-items: stretch the same way .tab-drop-indicator does, so it
+   isn't drawn full-height like a tab. */
+.tab-strip-new-tab-button {
+  flex: none;
+  align-self: center;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.tab-bar:hover .tab-strip-new-tab-button,
+.tab-strip-new-tab-button:focus {
+  opacity: 1;
+}
+
+.tab-strip-new-tab-button:hover {
+  color: var(--text);
+}
+
+.tab-strip-new-tab-button svg {
+  width: 10px;
+  height: 10px;
+}
+
+.tab-bar-root .tab-strip-new-tab-button {
+  -webkit-app-region: no-drag;
+}
+
+.tab:hover:not(.tab-active) {
+  background: rgb(var(--hover-rgb) / 0.05);
+}
+
+/* The active tab's new top border (below) eats 1px off the top of its own
+   content box, nudging its centered text down half a pixel — enough for the
+   two to visibly disagree. Left uncompensated on the active tab itself (its
+   position is the reference); nudged up here instead so an inactive tab's
+   label lines up with it rather than the other way around. */
+.tab:not(.tab-active) {
+  transform: translateY(-1px);
+}
+
+.tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Painted in the shade of the level it reveals, not in a highlight color of
+   its own: together with covering the seam below it, that makes the active
+   tab read as an opening onto its content rather than as a selected chip.
+   It's also why the group needs no other selection marker.
+
+   The `z-index` is what lets it cover that seam: the border it paints over
+   belongs to the content pane, a *later* sibling of this tab's bar, which
+   would otherwise draw over it. It sits on this one element rather than on
+   `.tab-bar` on purpose — see the warning there — and stays at 1 so the
+   dock preview (10) and the hover menus (20) still paint above it, while the
+   active pane's edge marker deliberately takes no z-index at all and stays
+   *below* this tab (see `.pane-active::after`), which is what lets the
+   active tab break the outline the way it breaks the neutral seam.
+
+   The top/left/right border is the same `var(--border)` every other piece
+   of chrome is outlined in (a plain pane's own box, a title bar's
+   bottom edge) — without it, the pane's border-top just runs flat across
+   the whole strip, uncorrelated with which tab is open. Framing the active
+   tab in it instead makes that border read as wrapping around the tab
+   itself, the same way it wraps a plain pane's title bar. No border-bottom:
+   that edge is still the merge into the content below, handled by the
+   background + z-index above, not a drawn line.
+
+   `margin-top` is trimmed below `.tab`'s own 4px, on purpose: every tab is
+   stretched to fill the strip's fixed height (`.tab-strip`'s `align-items:
+   stretch`), and stretch keeps margin + border + content exactly equal to
+   that height regardless of how the margin is split — so shrinking the
+   active tab's top margin doesn't risk it overflowing the strip, it just
+   moves more of that fixed budget from empty space into visible tab, which
+   is what makes it read as slightly taller than its neighbors. The strip
+   itself, and the bar around it, are untouched. */
+.tab-active {
+  position: relative;
+  z-index: 1;
+  margin-top: 3px;
+  background: var(--surface-next);
+  color: var(--text);
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  /* A positive y-offset casts the shadow downward, off the bar's own top
+     edge above the tab rather than over it — a negative offset here spilled
+     the blur past the tab's top border into the empty bar beside it. Wide
+     blur so it still reads as soft depth rather than a hard smudge, even at
+     this alpha. */
+  box-shadow: 0 3px 10px rgb(var(--shadow-rgb) / calc(0.25 * var(--shadow-strength)));
+}
+
+.tab-title {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+/* On a tab the inherited color is the tab's dimmed one, so state it. */
+.tab-title-input {
+  color: var(--text);
+}
+
+.tab-close {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+/* Revealed on hover only, including on the active tab, which used to show it
+   unconditionally: the slot is reserved either way (`opacity`, not
+   `display`), so nothing reflows when it appears — but a tab is now sized to
+   its own label, and a permanently visible × on the one tab that is already
+   the widest of the group reads as clutter rather than as an affordance. */
+.tab:hover .tab-close,
+.tab:focus-visible .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: rgb(var(--hover-rgb) / 0.12);
+}
+
+.tabs-view-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.tabs-view-pane {
+  height: 100%;
+  width: 100%;
+}
+
+/* --- Splits --- */
+
+.split-view {
+  height: 100%;
+  width: 100%;
+}
+
+.split-pane {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.split-pane > * {
+  height: 100%;
+}
+
+.split-separator {
+  /* No explicit width: react-resizable-panels hard-codes flexBasis: 'auto'
+     on the separator (a stylesheet rule can't win against an inline style),
+     which collapses it to 0 with no content of its own — so adjacent panes
+     sit flush against each other rather than showing a visible gap. It's
+     still a real, draggable resize handle: the library pads a hit target
+     around it regardless of its rendered size. background/transition below
+     are inert as a result (nothing to paint on a 0-width box) — left in so
+     a future explicit width (a design change, not a bug) picks them up for
+     free. */
+  background: var(--border);
+  transition: background 0.15s ease;
+}
+
+.split-separator:hover,
+.split-separator[data-separator="active"] {
+  background: var(--accent);
+}
+
+/* --- Content --- */
+
+.empty-pane {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+}
+
+.empty-pane p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* One button per enabled content type, joined into a single segmented control
+   (EmptyPaneRenderer.tsx). Core chrome rather than any one type's CSS: `empty`
+   is a *structural* type — registered by registerStructural.ts and rendered by
+   every pane-tree window and both non-Electron test tiers — so these rules
+   cross no import boundary the way a content type's own stylesheet would (see
+   CLAUDE.md on where type CSS lives).
+
+   `gap: 0` is stated rather than inherited: the parent .empty-pane sets 14px
+   for the column it lays out, and a gap here would break exactly the shared
+   edge below. */
+.empty-pane-toolbar {
+  display: flex;
+  gap: 0;
+}
+
+.empty-pane-toolbar button {
+  /* The ticket's fixed size. box-sizing is global, so the border sits inside
+     these 32px and every button measures 32x32 whatever its state. */
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  /* Square by default; only the two ends round, below. */
+  border-radius: 0;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+/* Neighbours share one hairline instead of stacking two: without this the seam
+   is 2px and reads as a gap between separate buttons rather than as a division
+   inside one control. */
+.empty-pane-toolbar button + button {
+  margin-left: -1px;
+}
+
+/* A lone button matches both selectors and is therefore fully rounded, which
+   is why the single-content-type case needs no rule of its own. */
+.empty-pane-toolbar button:first-child {
+  border-top-left-radius: 5px;
+  border-bottom-left-radius: 5px;
+}
+
+.empty-pane-toolbar button:last-child {
+  border-top-right-radius: 5px;
+  border-bottom-right-radius: 5px;
+}
+
+/* Raised so the hovered button's own border is unbroken by its neighbours' —
+   the negative margin above puts the next button's left edge over this one's
+   right edge. */
+.empty-pane-toolbar button:hover {
+  position: relative;
+  z-index: 1;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.empty-pane-toolbar button svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.unknown-content {
+  padding: 24px;
+  color: var(--text-dim);
+}
+
+/* Each content type's own pane styles live with its renderer —
+   src/plugins/terminal/renderer/terminal.css and
+   src/plugins/browser/renderer/browser.css, side-effect
+   imported there so a window loads them only if it renders that type. */
+
+/* --- Tab drag and drop --- */
+
+/* .tab-dragging shares the pane's source-dim rule — see .pane-dragging. */
+
+.tab-drop-indicator {
+  flex: none;
+  width: 2px;
+  height: 15px;
+  align-self: center;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--text);
+  opacity: 0.85;
+  box-shadow: 0 4px 12px rgb(var(--shadow-rgb) / calc(0.35 * var(--shadow-strength)));
+  white-space: nowrap;
+}
+
+.empty-pane-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Where a docked tab would land: half the pane for an edge zone, all of it
+   for a center merge. Position/size come inline from Pane so zone changes
+   transition. */
+.dock-preview {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none; /* keep elementFromPoint hit-testing clean */
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid var(--accent);
+  transition:
+    left 0.1s ease,
+    top 0.1s ease,
+    width 0.1s ease,
+    height 0.1s ease;
+}
+
+.drag-ghost-returning {
+  /* No duration here on purpose: DragOverlay sets it inline from TS's
+     FLY_BACK_MS, the one source shared with the cleanup timer that must
+     outlive the transition. A duration here would be the second copy. */
+  transition-property: transform;
+  transition-timing-function: ease-in-out;
+}
+
+/* The brief centered chevron flash confirming a cmd+arrow navigation press
+   and its direction. `forwards` holds opacity 0 until NavFlashOverlay
+   unmounts the element on animationend. */
+.nav-flash {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1001; /* above the drag ghost, though the two never coexist */
+  pointer-events: none; /* keep elementFromPoint hit-testing clean */
+  width: 88px;
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text);
+  animation: nav-flash 350ms ease-out forwards;
+}
+
+.nav-flash svg {
+  width: 40px;
+  height: 40px;
+}
+
+@keyframes nav-flash {
+  0% {
+    opacity: 0;
+  }
+  25%,
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* --- Settings --- */
+
+/* Groups of related rows — see settingsRows.tsx. A border-top (rather than a
+   border on every row) keeps the separation between distinct concerns clear
+   without making the list of individual options look busier than it needs
+   to. */
+.settings-section {
+  padding: 14px 6px 6px;
+}
+
+.settings-section + .settings-section {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-section-title {
+  margin: 0 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.settings-row:hover {
+  background: rgb(var(--hover-rgb) / 0.05);
+}
+
+.settings-row input[type="checkbox"] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Title + description pair, in place of one sentence-length label — keeps
+   each row scannable at a glance. */
+.settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-row-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.settings-row-desc {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+/* The layout every inline settings row shares: text left, control right.
+   Each variant below (and .settings-row-anchor, appended with its feature
+   further down) adds only its own control chrome. */
+.settings-row-select,
+.settings-row-range,
+.settings-row-action,
+.settings-row-anchor {
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-row-range,
+.settings-row-action,
+.settings-row-anchor {
+  cursor: default;
+}
+
+.settings-row-select .settings-row-text {
+  flex: 1;
+}
+
+.settings-row-select select {
+  flex: none;
+  font-size: 12px;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+
+.settings-row-select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The number-input twin of the select above (SettingsNumberRow) — core kit,
+   so no package patches this class from its own stylesheet. */
+.settings-row-select input[type="number"] {
+  flex: none;
+  width: 90px;
+  font-size: 12px;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 6px;
+}
+
+.settings-row-select input[type="number"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-row-range[data-disabled] {
+  opacity: 0.5;
+}
+
+.settings-row-range input[type="range"] {
+  flex: none;
+  width: 120px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-row-range input[type="range"]:disabled {
+  cursor: default;
+}
+
+.settings-row-range input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A content type's own Settings page styles live with its page def — the
+   terminal's appearance editor is
+   src/plugins/terminal/settings/terminalSettingsPage.css,
+   side-effect imported there. Note that is a different file from
+   src/plugins/terminal/renderer/terminal.css, which the *renderer* imports: only the
+   Settings window needs these, and only a pane window needs those. */
+
+/* --- Settings window --- */
+
+/* The Settings window's own root — a real OS window (see createSettingsWindow
+   in src/main/windows.ts), not an overlay: its own title bar on top, the
+   sidebar + content split filling everything below. */
+.settings-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* This window's own title bar: a drag handle, room for the traffic lights,
+   and a centered title. The window hides its native title bar the same way
+   the main window does (see createSettingsWindow in main/windows.ts) and so
+   draws its own; its height and drag behavior are kept in step with the
+   main window's root tab bar (--window-titlebar-height, both keyed off the
+   same trafficLightPosition in main/windows.ts) so the two windows read as one
+   app — though they no longer share a background color (the root bar's is
+   depth-striped; this one stays a fixed elevated shade). The traffic-light
+   gutter (padding-left) is balanced by an equal padding-right, which lands
+   the title on the window's true center. */
+.settings-titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--window-titlebar-height);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  padding-left: 78px;
+  padding-right: 78px;
+  -webkit-app-region: drag;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.settings-window {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-sidebar {
+  flex: none;
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+}
+
+.settings-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-sidebar-item:hover {
+  background: rgb(var(--hover-rgb) / 0.06);
+  color: var(--text);
+}
+
+.settings-sidebar-item[data-active] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px 28px;
+}
+
+.settings-page-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* --- Skills settings --- */
+
+.settings-section-desc {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.settings-row-buttons {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+
+.settings-secondary-button {
+  flex: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.settings-secondary-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.settings-secondary-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* --- Keyboard shortcut rows --- */
+
+/* The current combination for one action, and the target that starts
+   recording a new one — see KeyboardSettings.tsx. Monospace and
+   min-width'd so a row doesn't jump sideways between '⌘T' and 'Press keys…'. */
+.settings-shortcut-chip {
+  flex: none;
+  min-width: 104px;
+  font: inherit;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  text-align: center;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.settings-shortcut-chip:hover {
+  border-color: var(--accent);
+}
+
+.settings-shortcut-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Armed and waiting for a keypress. */
+.settings-shortcut-chip[data-capturing] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+/* Deliberately unbound — the action still exists, it just has no key. */
+.settings-shortcut-chip[data-unbound]:not([data-capturing]) {
+  color: var(--text-dim);
+}
+
+/* Rejected combination / reassignment note, in place of the row description. */
+.settings-row-desc[data-tone="error"] {
+  color: var(--bell-alert);
+}
+
+.settings-row-desc[data-tone="info"] {
+  color: var(--accent);
+}
+
+/* Live filter above the shortcut list, with an inline clear button — see
+   KeyboardSettings.tsx. */
+.settings-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.settings-search-input {
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 32px 7px 10px;
+}
+
+.settings-search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-search-clear {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.settings-search-clear:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+/* Nothing to clear — hidden rather than dimmed, like a browser's own search
+   field, since an empty box has no use for it. */
+.settings-search-clear:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- Context menu --- */
+
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
+.context-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / calc(0.4 * var(--shadow-strength)));
+  color: var(--text);
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* --- Command palette --- */
+
+/* A real dimming backdrop, unlike .context-menu-backdrop's invisible one:
+   this overlay is meant to read as a persistent modal (it doesn't
+   auto-dismiss), not a transient menu, so it darkens what's behind it.
+   Above every other window-level overlay — see the stacking-order comment on
+   .pane-header-dropdown above. */
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+}
+
+.command-palette {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  max-height: 70vh;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgb(var(--shadow-rgb) / calc(0.5 * var(--shadow-strength)));
+  color: var(--text);
+}
+
+.command-palette-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.command-palette-item-highlighted {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.command-palette-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.command-palette-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-empty {
+  margin: 0;
+  padding: 10px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+}
+
+/* --- Floating panes --- */
+
+/* Inert by design: a positioning context, not a surface. `pointer-events:
+   none` keeps dragController's elementFromPoint hit-testing — and every
+   ordinary click — falling straight through to the docked panes underneath,
+   the same reason .dock-preview and .nav-flash set it. Without it every dock
+   target in the app would break the moment a window opened. Each window turns
+   pointer events back on for its own box, which is exactly right: you cannot
+   dock *through* a window.
+
+   z-index sits above every docked pane and .dock-preview (10) but below the
+   drag ghost (1000), so a ghost still draws over a floating window, and below
+   the context-menu backdrop (2000), so Pin stays clickable over one. */
+.floating-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+}
+
+/* `absolute` inside the fixed layer, so the layer alone owns the stacking
+   context and each window's z-index is a plain 1..n taken from its place in
+   the floating list. No border of its own: the .pane inside already draws
+   one, and gets the accent color when it is the active pane. */
+.floating-window {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg);
+  /* A dark ring plus a drop shadow: a floating window's own border is the
+     same color as a docked pane's, so without the ring the two read as one
+     surface wherever they meet. */
+  box-shadow:
+    0 0 0 1px rgb(var(--shadow-rgb) / calc(0.55 * var(--shadow-strength))),
+    0 14px 36px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength)));
+}
+
+/* The eight frame handles: thin invisible strips laid over the window's own
+   edges, above the content so a grip near a pane border still resizes. */
+.floating-resize {
+  position: absolute;
+  z-index: 2;
+}
+
+.floating-resize-n,
+.floating-resize-s {
+  left: 8px;
+  right: 8px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.floating-resize-e,
+.floating-resize-w {
+  top: 8px;
+  bottom: 8px;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.floating-resize-n {
+  top: 0;
+}
+.floating-resize-s {
+  bottom: 0;
+}
+.floating-resize-w {
+  left: 0;
+}
+.floating-resize-e {
+  right: 0;
+}
+
+/* Exactly the square the four edge strips leave uncovered — they inset
+   themselves 8px from each corner, so anything larger than 8px here is a
+   corner handle overlapping an edge handle for no gain, and it reaches far
+   enough into the chrome to swallow the pane grip that sits just inside the
+   window's top-left corner. At 12px it did precisely that once the chrome
+   shrank to 21px: the grip's own center landed inside the handle, leaving a
+   floating tab group with no way to be moved or right-clicked. */
+.floating-resize-nw,
+.floating-resize-ne,
+.floating-resize-sw,
+.floating-resize-se {
+  width: 8px;
+  height: 8px;
+}
+
+.floating-resize-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.floating-resize-se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+.floating-resize-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.floating-resize-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+/* Core also sets .pointer-gesture on <body> for the duration of any
+   pointer-driven gesture — a floating window's move/resize (floatingDrag.ts)
+   and a pane/tab drag (dragController.ts) alike, through pointerGesture.ts.
+   Core only raises the flag; what has to react to it is a per-type concern (a
+   <webview> guest swallows the pointer events the gesture needs, pointerup
+   included), so that rule lives in src/plugins/browser/renderer/browser.css.
+   Nothing in this stylesheet keys off it. */
+
+/* --- Settings: the new-unpinned-pane position picker --- */
+
+/* Belongs with the .settings-* rules further up — core settings chrome, not a
+   content type's, so it stays in global.css rather than moving beside its
+   component. Kept as one appended block only so the addition is easy to read
+   as a unit. The control is nine native radios (SettingsAnchorRow in
+   settings/settingsRows.tsx) laid out as the pane they divide: appearance:none
+   is what lets a radio be a rectangle instead of a dot, while the element
+   stays a real radio for the keyboard and the accessibility tree. */
+
+.settings-anchor-grid {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  grid-template-rows: repeat(3, 16px);
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+/* Visually hidden rather than absent: a fieldset with no legend is an unnamed
+   group to a screen reader, and the row title beside it is not part of it. */
+.settings-anchor-legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.settings-anchor-cell {
+  appearance: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 2px;
+  background: rgb(var(--hover-rgb) / 0.08);
+  cursor: pointer;
+}
+
+.settings-anchor-cell:hover {
+  background: rgb(var(--hover-rgb) / 0.18);
+}
+
+/* The whole of the selected indication, deliberately — no glyph, no preview. */
+.settings-anchor-cell:checked {
+  background: var(--accent);
+}
+
+.settings-anchor-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

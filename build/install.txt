@@ -1,0 +1,8 @@
+Tabs is unsigned, so macOS quarantines it and Gatekeeper refuses to open it after you
+copy it to Applications.
+
+Clear the quarantine flag once, from Terminal:
+
+    xattr -rd com.apple.quarantine /Applications/Tabs.app
+
+Then open Tabs normally.

@@ -1,0 +1,282 @@
+/* The git tree pane's own styles, side-effect imported by GitTreeRenderer.tsx
+   so they load with the renderer that uses them and nowhere else. That module
+   is reached only through registerBuiltins (main.tsx), so the Settings window
+   — which registers page defs, never renderers — never ships these rules.
+
+   Everything that is chrome (toolbar, text, borders, selection) uses the theme
+   tokens installTheme writes, so this pane follows light/dark like the rest of
+   the app.
+
+   The `--git-lane-*` colours are deliberately not declared here: they are
+   content, not chrome (see LANE_COLORS in GitGraph.tsx), and GitTreeRenderer
+   publishes them onto the container the way it publishes --git-row-height —
+   one owner for the swatches and the cycle length alike. */
+
+.git-tree-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.git-tree-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.git-tree-path-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  height: 20px;
+}
+
+.git-tree-path-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.git-tree-browse-button {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.git-tree-browse-button:hover {
+  color: var(--text);
+  background: rgb(var(--hover-rgb) / 0.12);
+}
+
+.git-tree-head {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 0 4px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* List above, detail below. A column rather than two side-by-side panes
+   because a pane can be narrow — this is a recursive tab manager, panes get
+   split — and a commit subject needs the width far more than the detail does. */
+.git-tree-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.git-tree-list {
+  flex: 1 1 60%;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+
+/* Focus lands on the list as a whole (it is the listbox), so say so on its
+   own edge rather than on the selected row, which carries selection already. */
+.git-tree-list:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.git-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--git-row-height);
+  /* The left inset is the graph's, not the text's: without it a lane-0 dot
+     sits half a radius from the pane's own border and reads as clipped. */
+  padding: 0 8px 0 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.git-tree-row:hover {
+  background: rgb(var(--hover-rgb) / 0.08);
+}
+
+.git-tree-row-selected,
+.git-tree-row-selected:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* The gutter must not shrink when a subject is long, or the graph would
+   compress and stop lining up row to row. */
+.git-graph {
+  flex: none;
+}
+
+.git-tree-hash {
+  flex: none;
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.git-tree-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-tree-ref {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 14px;
+  vertical-align: 1px;
+}
+
+.git-tree-author,
+.git-tree-date {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.git-tree-author {
+  max-width: 20%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-tree-detail {
+  flex: 1 1 40%;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.git-tree-message {
+  margin: 0 0 8px;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.git-tree-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  margin: 0 0 8px;
+  font-size: 11px;
+}
+
+.git-tree-fields dt {
+  color: var(--text-dim);
+}
+
+.git-tree-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.git-tree-files {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.git-tree-file {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+/* Fixed width so the paths line up into a column however wide the counts get. */
+.git-tree-file-stat {
+  flex: none;
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  width: 84px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Their own colors, not borrowed lane vars: green-for-added and
+   red-for-removed are decisions about diff stats, and borrowing --git-lane-2/
+   --git-lane-5 (which happened to be these mid-tones) meant reordering the
+   lane palette silently recolored +/-. Same fixed-mid-tone boundary as the
+   lanes themselves — content, not theme chrome. */
+.git-tree-insertions {
+  color: #59b871;
+}
+
+.git-tree-deletions {
+  color: #e0705a;
+}
+
+.git-tree-binary,
+.git-tree-dim {
+  color: var(--text-dim);
+}
+
+.git-tree-file-path {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.git-tree-load-more {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 6px 8px;
+  padding: 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.git-tree-load-more:hover {
+  color: var(--text);
+  background: rgb(var(--hover-rgb) / 0.12);
+}
+
+.git-tree-notice {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  font-size: 12px;
+}
+
+.git-tree-notice p {
+  margin: 0 0 6px;
+}

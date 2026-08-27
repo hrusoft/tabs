@@ -1,0 +1,137 @@
+/* The terminal's Settings-window appearance editor, side-effect imported by
+   TerminalSettingsPage.tsx.
+
+   Deliberately a separate file from terminal.css even though both sit in this
+   folder: the folder is not the boundary, the module is. TerminalSettingsPage
+   is reached from settings/registerBuiltinPages.ts (settings-main.tsx) and
+   imports no xterm, which is exactly why the page def lives apart from the
+   renderer; hanging these rules off terminal.css instead would drag the pane
+   renderer — and xterm with it — into the Settings window's bundle, the same
+   hazard registerBuiltinPages.ts exists to avoid, arriving through CSS.
+
+   Tokens come from installTheme, not from here (see CLAUDE.md). */
+
+/* A labeled control (font family, size, line height, cursor style), the
+   bespoke counterpart to .settings-row-select for controls that don't fit
+   the generic checkbox/select row shape (text/number inputs, color pickers,
+   the ANSI grid) — see TerminalSettingsPage.tsx. */
+.terminal-appearance-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.terminal-appearance-field label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.terminal-appearance-field input,
+.terminal-appearance-field select {
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 6px;
+}
+
+.terminal-appearance-field input:focus-visible,
+.terminal-appearance-field select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Pairs two fields side by side (font size + line height, cursor style +
+   blink) instead of each claiming a full-width row of its own. */
+.terminal-appearance-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.terminal-appearance-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  margin-bottom: 1px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.terminal-appearance-checkbox input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Background/foreground/cursor/selection — the four colors that aren't part
+   of the 16-entry ANSI palette below. */
+.terminal-appearance-colors {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 6px;
+}
+
+.terminal-appearance-color {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+/* Shared by the four named swatches above and the 16 ANSI swatches below —
+   a plain color input styled to read as a small square chip rather than the
+   platform's default color-well chrome. */
+.terminal-appearance-color input[type="color"],
+.terminal-appearance-ansi-swatch {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.terminal-appearance-color input[type="color"]::-webkit-color-swatch-wrapper,
+.terminal-appearance-ansi-swatch::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.terminal-appearance-color input[type="color"]::-webkit-color-swatch,
+.terminal-appearance-ansi-swatch::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.terminal-appearance-ansi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+}
+
+.terminal-appearance-ansi-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-appearance-ansi-row-label {
+  flex: none;
+  width: 42px;
+  font-size: 11px;
+  color: var(--text-dim);
+}

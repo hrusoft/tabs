@@ -1,0 +1,31 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": [
+    "src/renderer/src/**/*",
+    "src/shared/**/*",
+    "src/preload/*.d.ts",
+    "src/plugins/index.ts",
+    "src/plugins/*/shared/**/*",
+    "src/plugins/*/renderer/**/*",
+    "src/plugins/*/settings/**/*",
+    "src/plugins/*/testing/**/*"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "jsx": "react-jsx",
+    // The @electron-toolkit base sets strict but forces noImplicitAny back off.
+    "noImplicitAny": true,
+    "noImplicitOverride": true,
+    // Catches a typo'd side-effect import of a TS module resolving to nothing;
+    // note vite/client's wildcard *.css declarations mean a typo'd CSS path
+    // still resolves, so this does not cover those.
+    "noUncheckedSideEffectImports": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    // The one hand-synced copy of the @shared alias — JSON can't import
+    // alias.config.ts, which is where the three vite/vitest configs get it.
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
+  }
+}
