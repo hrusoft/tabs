@@ -47,6 +47,15 @@ Tabs isn't notarized by Apple yet, so on first launch macOS will warn that it ca
 verify the app. Right-click (or Control-click) the Tabs icon in Applications and choose
 **Open**, then confirm **Open** in the dialog that appears — you only need to do this once.
 
+## Contributing
+
+Development happens in a private repository; this one is a mirror that receives a
+squashed snapshot of the source with each release, which is why its history is one
+commit per version rather than one per change.
+
+Issues and pull requests are welcome here. A merged pull request is carried back into
+the private repository with its authorship intact, and reappears in the next snapshot.
+
 ## License
 
 Copyright © 2026 Hrusoft. All rights reserved.
