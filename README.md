@@ -54,7 +54,8 @@ squashed snapshot of the source with each release, which is why its history is o
 commit per version rather than one per change.
 
 Issues and pull requests are welcome here. A merged pull request is carried back into
-the private repository with its authorship intact, and reappears in the next snapshot.
+the private repository by hand, with its authorship intact, and reappears in the next
+snapshot — so please keep changes focused enough to port cleanly.
 
 ## License
 
