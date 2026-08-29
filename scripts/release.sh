@@ -12,12 +12,6 @@
 # bump -> commit -> tag -> push -> mirror snapshot -> merge -> mirror release
 # -> wait for the dmg build.
 #
-# This automates .claude/skills/create-release/SKILL.md's steps exactly; that
-# file is the design doc, this is the implementation. The one thing left to
-# judgment is what the notes say -- drafting them (from `git log
-# <prev-tag>..HEAD`) is not this script's job, whether a human or an agent is
-# on the other end of the prompt.
-
 set -euo pipefail
 
 PUBLIC_REPO="${PUBLIC_REPO:-hrusoft/tabs}"
@@ -96,8 +90,6 @@ elif [ "$changed" = "package-lock.json package.json" ]; then
   git add package.json package-lock.json
   git commit -q -m "$(cat <<EOF
 Bump version to $date_str to match release tag
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
 EOF
 )"
   git push origin main
