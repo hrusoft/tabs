@@ -9,7 +9,7 @@ export interface SettingsPageDef {
   label: string
   Icon: ComponentType
   Component: ComponentType
-  /** Sidebar position — pages sort by this, then by label. Core pages pin the ends (General 0, Skills 100); content types sit between. */
+  /** Sidebar position — pages sort by this, then by label. Core pages pin the ends (General 0, AI 100); content types sit between. */
   order: number
   /**
    * The content type this page configures, if any — set it and the page

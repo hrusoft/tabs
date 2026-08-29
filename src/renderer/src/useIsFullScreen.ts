@@ -20,7 +20,7 @@ export function useIsFullScreen(): boolean {
       // A change event that landed before this round-trip resolved is newer
       // than the answer — applying the stale initial read over it would
       // mis-show the header until the next toggle (the async-hydrate race the
-      // stores avoid with sync IPC). SkillsSettings' statusSeq fends off the
+      // stores avoid with sync IPC). AiSettings' statusSeq fends off the
       // same race between two pulls; here a boolean suffices because any push
       // beats the one initial pull.
       if (!cancelled && !sawChange) setIsFullScreen(value)

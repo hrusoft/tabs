@@ -1405,7 +1405,7 @@ body {
   font-weight: 600;
 }
 
-/* --- Skills settings --- */
+/* --- AI settings --- */
 
 .settings-section-desc {
   margin: 0 0 10px;
@@ -1439,6 +1439,40 @@ body {
 .settings-secondary-button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* A literal the user is meant to retype or copy into another program's config
+   — inline in a sentence, or a line of its own. Both carry `user-select: text`
+   against the app-wide `user-select: none` on body: a snippet nobody can
+   select is one they have to transcribe by eye, which is how a typo'd setting
+   key ends up looking like a bug in this app. Monospace spelled out for the
+   reason .settings-shortcut-chip spells it out — there is no --mono-font
+   token, and minting one here would leave two spellings. */
+.settings-code,
+.settings-code-block {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  user-select: text;
+}
+
+.settings-code {
+  font-size: 11px;
+  padding: 1px 4px;
+  /* An inline <code> inherits the paragraph's line-height; its own padding
+     would otherwise push the lines around it apart. */
+  line-height: 1.2;
+}
+
+.settings-code-block {
+  margin: 0;
+  font-size: 11.5px;
+  padding: 8px 10px;
+  /* A config line has no break opportunities of its own, and the settings
+     pane is narrow enough to reach. */
+  overflow-x: auto;
 }
 
 /* --- Keyboard shortcut rows --- */
