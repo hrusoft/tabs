@@ -1,4 +1,4 @@
-<table>
+<table border="0">
   <tr>
     <td><img src="build/icon.png" alt="Tabs icon" width="96" height="96" style="height: auto;"></td>
     <td valign="middle">

@@ -1,6 +1,6 @@
 {
   "name": "tabs",
-  "version": "2026.08.29.1520",
+  "version": "2026.08.29.1532",
   "description": "Tabs — a recursive tab manager for arbitrary content",
   "type": "module",
   "main": "./out/main/index.js",
@@ -27,6 +27,7 @@
     "test:e2e:browser": "playwright test --project=browser",
     "check": "npm run typecheck && npm run lint && npm run lint:cycles && npm run test && npm run test:e2e",
     "pack": "npm run build && electron-builder --dir",
+    "release": "bash ./scripts/release.sh",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:mac:universal": "npm run build && electron-builder --mac --universal --publish never"
   },
