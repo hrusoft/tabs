@@ -15,7 +15,7 @@ export function createSettingsPluginContext(type: ContentTypeId): SettingsPlugin
   // Two packages once picked the same literal, which left the order to the
   // registry's label tiebreak: correct-looking by accident, and a rename
   // away from reshuffling the sidebar. Core's own pages pin the ends
-  // (General 0, Skills 100); the 10+ band sits between them.
+  // (General 0, AI 100); the 10+ band sits between them.
   const order = 10 + CONTENT_TYPE_MANIFESTS.findIndex((manifest) => manifest.type === type)
   return {
     registerSettingsPage: (page) => registerSettingsPage({ ...page, order, contentType: type }),

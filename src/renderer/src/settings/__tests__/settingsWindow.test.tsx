@@ -38,7 +38,7 @@ test('a content type with a settings page gets a sidebar entry while it is enabl
   expect(screen.getByTestId('settings-tab-general')).toBeInTheDocument()
   expect(screen.getByTestId('settings-tab-panes')).toBeInTheDocument()
   expect(screen.getByTestId('settings-tab-keyboard')).toBeInTheDocument()
-  expect(screen.getByTestId('settings-tab-skills')).toBeInTheDocument()
+  expect(screen.getByTestId('settings-tab-ai')).toBeInTheDocument()
 })
 
 test('the sidebar lists content types in census order, between the core pages', () => {
@@ -54,7 +54,7 @@ test('the sidebar lists content types in census order, between the core pages', 
   const typesWithPages = CONTENT_TYPE_MANIFESTS.filter((manifest) => manifest.settings).map(
     (manifest) => manifest.type as string
   )
-  expect(ids).toEqual(['general', 'panes', 'keyboard', ...typesWithPages, 'skills'])
+  expect(ids).toEqual(['general', 'panes', 'keyboard', ...typesWithPages, 'ai'])
 })
 
 test('disabling that type removes its sidebar entry, and only its own', () => {
@@ -64,7 +64,7 @@ test('disabling that type removes its sidebar entry, and only its own', () => {
   expect(screen.getByTestId('settings-tab-general')).toBeInTheDocument()
   expect(screen.getByTestId('settings-tab-panes')).toBeInTheDocument()
   expect(screen.getByTestId('settings-tab-keyboard')).toBeInTheDocument()
-  expect(screen.getByTestId('settings-tab-skills')).toBeInTheDocument()
+  expect(screen.getByTestId('settings-tab-ai')).toBeInTheDocument()
 })
 
 test('a page hidden while the user is reading it falls back rather than going blank', async () => {

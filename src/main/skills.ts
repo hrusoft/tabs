@@ -117,7 +117,7 @@ export function uninstallSkill(
   }
 }
 
-/** Per-target install status, for the Settings window's Skills tab. */
+/** Per-target install status, for the Settings window's AI tab. */
 export function getSkillStatus({
   skillsDir,
   targets = TARGETS

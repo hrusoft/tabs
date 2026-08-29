@@ -106,9 +106,9 @@ test('fonts.listFamilies populates the settings font picker', async ({ page, ele
   expect(await select.locator('option').count()).toBeGreaterThan(1)
 })
 
-test('skills.status resolves and fills the Skills settings page', async ({ page, electronApp }) => {
-  const settingsPage = await openSettingsTab(electronApp, page, 'skills')
-  await expect(settingsPage.getByTestId('settings-page-skills')).toBeVisible()
+test('skills.status resolves and fills the AI settings page', async ({ page, electronApp }) => {
+  const settingsPage = await openSettingsTab(electronApp, page, 'ai')
+  await expect(settingsPage.getByTestId('settings-page-ai')).toBeVisible()
 
   // "Loading…" clears only when the skills.status() round-trip lands; the
   // target list itself is machine-dependent, so assert no further.

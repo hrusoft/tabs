@@ -177,7 +177,7 @@ const externalControl: ExternalControlApi = {
 /**
  * Installs (or reports the status of) the bundled "control Tabs" skill into
  * an agent's personal skill directory (see src/main/skills.ts), driven by the
- * Settings window's Skills tab.
+ * Settings window's AI tab.
  */
 const skills: SkillsApi = {
   status: (): Promise<SkillInstallTarget[]> => ipcRenderer.invoke(IpcChannel.skillsStatus),

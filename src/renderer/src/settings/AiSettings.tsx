@@ -2,14 +2,21 @@ import type { SkillInstallTarget, SkillResult } from '@shared/api'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
- * Installs (or uninstalls) the bundled "control Tabs" skill into an agent's
- * personal skill directory (see src/main/skills.ts) — explicit, user-
- * triggered, one row per registry target. No generic action row exists in
- * settingsRows.tsx (its SettingRow union is entirely bound to persisted
- * Settings keys, and this isn't one), so this page hand-rolls its markup the
- * way TerminalSettingsPage does for the same reason.
+ * The "AI" page: what an agent running inside a Tabs pane needs from the app
+ * itself. Two things today, and they sit together because they are the same
+ * question asked from both ends — what Tabs hands the agent (the bundled
+ * "control Tabs" skill, installed into an agent's personal skill directory,
+ * see src/main/skills.ts) and what the agent has to be told about Tabs (the
+ * bell note below, which is a hint rather than a control: nothing here can
+ * write another program's config for it).
+ *
+ * The install rows are explicit and user-triggered, one per registry target.
+ * No generic action row exists in settingsRows.tsx (its SettingRow union is
+ * entirely bound to persisted Settings keys, and this isn't one), so this
+ * page hand-rolls its markup the way TerminalSettingsPage does for the same
+ * reason.
  */
-export function SkillsSettings() {
+export function AiSettings() {
   const [targets, setTargets] = useState<SkillInstallTarget[] | null>(null)
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -47,9 +54,10 @@ export function SkillsSettings() {
   }
 
   return (
-    <div data-testid="settings-page-skills">
-      <h1 className="settings-page-title">Skills</h1>
+    <div data-testid="settings-page-ai">
+      <h1 className="settings-page-title">AI</h1>
       <section className="settings-section">
+        <h3 className="settings-section-title">Skills</h3>
         <p className="settings-section-desc">
           Installs a skill that lets an agent running in a Tabs terminal pane open and control
           browser panes it creates. It only works from inside Tabs — installing it doesn't affect
@@ -92,6 +100,18 @@ export function SkillsSettings() {
             </div>
           )
         })}
+      </section>
+      <section className="settings-section" data-testid="settings-ai-bell-note">
+        <h3 className="settings-section-title">Bell notifications</h3>
+        <p className="settings-section-desc">
+          Claude Code stays silent in terminals it doesn&apos;t recognise, so it never rings the
+          bell (<code className="settings-code">\a</code>) Tabs watches for. Run{' '}
+          <code className="settings-code">/config</code> → notification channel → “Terminal bell”,
+          or add to <code className="settings-code">~/.claude/settings.json</code>:
+        </p>
+        <pre className="settings-code-block" data-testid="settings-ai-bell-snippet">
+          <code>&quot;preferredNotifChannel&quot;: &quot;terminal_bell&quot;</code>
+        </pre>
       </section>
     </div>
   )

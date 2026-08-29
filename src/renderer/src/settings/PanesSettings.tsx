@@ -9,7 +9,7 @@ import { SettingsRowGroup } from './settingsRows'
 export const PANES_SECTIONS: SettingsRowSection[] = [
   {
     // Untitled: the page's own <h1> already says "Panes & Tabs" — same
-    // pattern as the first section of TerminalSettingsPage/SkillsSettings.
+    // pattern as the first section of TerminalSettingsPage/AiSettings.
     rows: [
       {
         type: 'checkbox',

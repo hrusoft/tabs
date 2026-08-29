@@ -2,10 +2,10 @@ import { resolvePluginEntries } from '@shared/plugin/entries'
 import { KeyboardIcon, SettingsIcon, SkillIcon, SplitHorizontalIcon } from '../content/icons'
 import type { SettingsPluginContext } from '../plugin/settingsApi'
 import { createSettingsPluginContext } from '../plugin/settingsContext'
+import { AiSettings } from './AiSettings'
 import { GeneralSettings } from './GeneralSettings'
 import { KeyboardSettings } from './KeyboardSettings'
 import { PanesSettings } from './PanesSettings'
-import { SkillsSettings } from './SkillsSettings'
 import { hasSettingsPage, registerSettingsPage } from './settingsPageRegistry'
 
 /**
@@ -44,7 +44,7 @@ const settingsEntries = import.meta.glob<{ activate: (ctx: SettingsPluginContext
 export function registerBuiltinSettingsPages(): void {
   if (hasSettingsPage('general')) return
 
-  // Core's pages pin the ends of the sidebar (General 0, Skills 100); content
+  // Core's pages pin the ends of the sidebar (General 0, AI 100); content
   // types sit between them.
   registerSettingsPage({
     id: 'general',
@@ -68,10 +68,10 @@ export function registerBuiltinSettingsPages(): void {
     order: 5
   })
   registerSettingsPage({
-    id: 'skills',
-    label: 'Skills',
+    id: 'ai',
+    label: 'AI',
     Icon: SkillIcon,
-    Component: SkillsSettings,
+    Component: AiSettings,
     order: 100
   })
 
