@@ -125,6 +125,7 @@ gh pr merge "$pr_number" --repo "$PUBLIC_REPO" --squash --delete-branch
 # ---- release on the mirror -----------------------------------------------
 
 note "creating release $tag on $PUBLIC_REPO..."
+release_created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 gh release create "$tag" --repo "$PUBLIC_REPO" \
   --title "$date_str" \
   --target main \
@@ -133,9 +134,16 @@ gh release create "$tag" --repo "$PUBLIC_REPO" \
 # ---- wait for the dmg ----------------------------------------------------
 
 note "waiting for release.yml to build the dmg..."
+# Matched by tag *and* by having started after this release was created --
+# either alone can find a stale run: an earlier release attempt on the same
+# tag (e.g. one created, built, then deleted and re-cut) leaves a completed
+# run with the same headBranch, and "most recent run of this workflow" can
+# name it before the new run has even registered.
 run_id=""
 for _ in $(seq 1 15); do
-  run_id="$(gh run list --repo "$PUBLIC_REPO" --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+  run_id="$(gh run list --repo "$PUBLIC_REPO" --workflow=release.yml --limit 20 \
+    --json databaseId,createdAt,headBranch \
+    --jq "[.[] | select(.headBranch == \"$tag\" and .createdAt >= \"$release_created_at\")] | sort_by(.createdAt) | .[0].databaseId // empty")"
   [ -n "$run_id" ] && break
   sleep 2
 done
