@@ -123,11 +123,24 @@ function loadManifestModules(): Record<string, ManifestModule> {
 
 const manifestModules = loadManifestModules()
 
+/**
+ * The `src/plugins/<name>/` folder a globbed path belongs to, or undefined
+ * for a path that isn't shaped like one — shared with entries.ts, the other
+ * `import.meta.glob` reconciler, so the two don't each hand-write this regex.
+ * Deliberately as loose as the shape it names: registry.ts's own glob pattern
+ * (`plugins/*\/shared/manifest.ts`) already guarantees the stricter shape its
+ * caller wants, so narrowing this further would only duplicate that
+ * guarantee, not add one.
+ */
+export function packageNameFromPluginPath(path: string): string | undefined {
+  return /\/plugins\/([^/]+)\//.exec(path)?.[1]
+}
+
 /** The folder name a globbed manifest path belongs to — `../../plugins/<name>/shared/manifest.ts`. */
 function packageNameOf(path: string): string {
-  const match = /\/plugins\/([^/]+)\/shared\/manifest\.ts$/.exec(path)
-  if (!match) throw new Error(`unexpected manifest glob path: ${path}`)
-  return match[1]!
+  const name = packageNameFromPluginPath(path)
+  if (!name) throw new Error(`unexpected manifest glob path: ${path}`)
+  return name
 }
 
 /**

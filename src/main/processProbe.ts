@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile)
  * hung `ps`/`lsof` would wedge those flows forever rather than degrade to
  * "unknown".
  */
-const PROBE_TIMEOUT_MS = 1000
+export const PROBE_TIMEOUT_MS = 1000
 
 /**
  * One OS lookup about a live process, described once for both supported

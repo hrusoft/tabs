@@ -29,6 +29,13 @@ export const IpcChannel = {
    */
   windowGetAppInfoSync: 'window:get-app-info-sync',
   /**
+   * The OS-applied rounding of the window's own corners, in CSS px — read
+   * synchronously so the active-pane outline never paints a sharp corner on
+   * the first frame. See src/main/windowChrome.ts for why this is a
+   * hardcoded table rather than a live query.
+   */
+  windowGetCornerRadiusSync: 'window:get-corner-radius-sync',
+  /**
    * Writes to the user's system clipboard, from main rather than the
    * renderer. `navigator.clipboard` needs a focused document, which the
    * e2e window never genuinely is (see e2eHidden.ts), and Electron's own

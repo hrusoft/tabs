@@ -516,3 +516,149 @@ test.describe('an active leaf nested one tabs-group deep beside a split', () => 
     expect(bottomBleed.equals(topAccent)).toBe(true)
   })
 })
+
+/**
+ * --pane-corner-radius-left/-right's split half (global.css's "--- Splits
+ * ---" section): the bug report this exists to fix was a visibly square
+ * corner on whichever pane a horizontal or vertical split put at the
+ * window's real bottom edge, even though a lone pane filling the whole
+ * window rounded correctly. --os-corner-radius is 0 in this tier (the fake
+ * bridge has no real OS window to measure), so it's overridden to a
+ * distinguishable value before checking — otherwise "correctly inherited 0"
+ * and "incorrectly reset to 0" would look identical.
+ */
+test.describe('corner radius through a split', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--os-corner-radius', '20px')
+    })
+  })
+
+  test.describe('horizontal (side by side)', () => {
+    test.use({
+      seed: {
+        layout: {
+          version: LAYOUT_VERSION,
+          root: {
+            id: 's0',
+            type: 'split',
+            direction: 'horizontal',
+            sizes: [0.5, 0.5],
+            children: [leaf('a', 'A'), leaf('b', 'B')]
+          },
+          activePaneId: 'b'
+        }
+      }
+    })
+
+    test('the left child owns only the bottom-left corner, the right child only the bottom-right', async ({
+      page
+    }) => {
+      const panes = page.getByTestId('pane')
+      // pane 0 is the synthetic single-tab root wrapper (ensureTabsRoot) —
+      // not itself a split child. Panes 1 and 2 are the split's two leaves,
+      // in document order (left, then right).
+      await expect(panes).toHaveCount(3)
+
+      const corners = await panes.evaluateAll((els) =>
+        els.map((el) => {
+          const style = getComputedStyle(el)
+          return [style.borderBottomLeftRadius, style.borderBottomRightRadius]
+        })
+      )
+      expect(corners[1]).toEqual(['20px', '0px'])
+      expect(corners[2]).toEqual(['0px', '20px'])
+    })
+  })
+
+  test.describe('vertical (stacked)', () => {
+    test.use({
+      seed: {
+        layout: {
+          version: LAYOUT_VERSION,
+          root: {
+            id: 's0',
+            type: 'split',
+            direction: 'vertical',
+            sizes: [0.5, 0.5],
+            children: [leaf('top', 'Top'), leaf('bottom', 'Bottom')]
+          },
+          activePaneId: 'bottom'
+        }
+      }
+    })
+
+    test('the top child owns neither bottom corner, the bottom child owns both', async ({
+      page
+    }) => {
+      const panes = page.getByTestId('pane')
+      await expect(panes).toHaveCount(3)
+
+      const corners = await panes.evaluateAll((els) =>
+        els.map((el) => {
+          const style = getComputedStyle(el)
+          return [style.borderBottomLeftRadius, style.borderBottomRightRadius]
+        })
+      )
+      expect(corners[1]).toEqual(['0px', '0px'])
+      expect(corners[2]).toEqual(['20px', '20px'])
+    })
+  })
+
+  /**
+   * The bug report this generalized to a prop (rather than leaving it a CSS
+   * selector/inheritance problem): one pane filling the left column, the
+   * right column split top/bottom. Nothing between the outer horizontal
+   * split and the inner vertical one is ever a `.pane` (a split contributes
+   * none of its own), so a value with no way to be *reset* along that path
+   * rode the outer split's right-side inherit all the way down and landed
+   * on both of the bottom-right pane's corners instead of just its own.
+   */
+  test.describe('an L shape (one pane left, the right column split top/bottom)', () => {
+    test.use({
+      seed: {
+        layout: {
+          version: LAYOUT_VERSION,
+          root: {
+            id: 's0',
+            type: 'split',
+            direction: 'horizontal',
+            sizes: [0.5, 0.5],
+            children: [
+              leaf('left', 'Left'),
+              {
+                id: 's1',
+                type: 'split',
+                direction: 'vertical',
+                sizes: [0.5, 0.5],
+                children: [leaf('topRight', 'Top right'), leaf('bottomRight', 'Bottom right')]
+              }
+            ]
+          },
+          activePaneId: 'bottomRight'
+        }
+      }
+    })
+
+    test('only the bottom-right pane owns the bottom-right corner, and only it — never both', async ({
+      page
+    }) => {
+      // getByTestId('pane') matches every .pane in the tree in DOM order:
+      // the synthetic root wrapper, then 'left', then s1's 'topRight' and
+      // 'bottomRight' (the inner split is nested inside the outer split's
+      // second child, so its own two leaves come last).
+      const panes = page.getByTestId('pane')
+      await expect(panes).toHaveCount(4)
+
+      const corners = await panes.evaluateAll((els) =>
+        els.map((el) => {
+          const style = getComputedStyle(el)
+          return [style.borderBottomLeftRadius, style.borderBottomRightRadius]
+        })
+      )
+      expect(corners[1]).toEqual(['20px', '0px']) // left
+      expect(corners[2]).toEqual(['0px', '0px']) // topRight
+      expect(corners[3]).toEqual(['0px', '20px']) // bottomRight — the bug report
+    })
+  })
+})

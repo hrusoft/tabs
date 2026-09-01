@@ -34,7 +34,13 @@ export default function App() {
   return (
     <div className="app-shell" data-fullscreen={isFullScreen || undefined}>
       <div className="app-content">
-        <ContentView node={root} />
+        {/* The docked root always touches both of the window's true bottom
+            corners — it *is* the window, below the title bar — except in
+            fullscreen, where macOS gives the window square corners
+            edge-to-edge. See ContentRendererProps.cornerLeft/cornerRight and
+            SplitRenderer for how this fans out to whichever leaf actually
+            ends up there. */}
+        <ContentView node={root} cornerLeft={!isFullScreen} cornerRight={!isFullScreen} />
       </div>
       <FloatingLayer />
       <DragOverlay />

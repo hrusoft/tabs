@@ -75,6 +75,9 @@ export function createFakeApi(seed: TestSeed = {}): FakeApiHandle {
         chrome: '0.0.0',
         node: '0.0.0'
       }),
+      // 0, like the real answer on non-macOS: neither tier this bridge serves
+      // (jsdom, plain Chromium) runs behind a real OS-rounded window frame.
+      getCornerRadiusSync: () => 0,
       copyText: (text) => {
         copiedText.push(text)
       }

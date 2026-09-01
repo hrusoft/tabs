@@ -18,16 +18,17 @@ import { flushSettingsWrite, registerSettingsIpc, subscribeSettings } from './se
 import { registerShortcutsIpc } from './shortcuts'
 import { registerSkillsIpc } from './skills'
 import { installNativeTheme } from './theme'
+import { currentWindowCornerRadius } from './windowChrome'
 import { createWindow, getMainWindow, openSettingsWindow } from './windows'
 
 /**
  * App lifecycle: what gets registered, in what order, and what happens on the
  * way out. The windows themselves live in windows.ts and the application menu
  * in menu.ts — both are constructions with no opinion about when they run.
- * The six window/pane IPC handlers below are the one exception to
+ * The seven window/pane IPC handlers below are the one exception to
  * "registration calls only": each is a couple of lines with no module of its
  * own to belong to, and inlining them here was judged clearer than minting a
- * registerWindowIpc for six one-liners.
+ * registerWindowIpc for seven one-liners.
  */
 
 // Give unpackaged dev/preview runs a userData directory that can never
@@ -109,6 +110,10 @@ app
       chrome: process.versions.chrome,
       node: process.versions.node
     }))
+    // Feeds --pane-corner-radius (global.css) before the first frame, so the
+    // active-pane outline never paints a sharp corner against the window's
+    // OS-rounded one. See windowChrome.ts for why this is a table, not a query.
+    registerSyncGetter(IpcChannel.windowGetCornerRadiusSync, () => currentWindowCornerRadius())
     // The About window's copy-address buttons. Main-side because
     // navigator.clipboard requires a focused document and no e2e window ever
     // genuinely is — see AppWindowApi.copyText in src/shared/api.ts.

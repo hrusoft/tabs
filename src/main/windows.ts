@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, type BrowserWindowConstructorOptions, type WebPreferences } from 'electron'
 import icon from '../../resources/icon.png?asset'
 import { IpcChannel } from '../shared/ipc'
 import { contentModuleWindowPreferences, wireContentModulesInto } from './contentTypes'
@@ -79,11 +79,18 @@ function loadRenderer(win: BrowserWindow, htmlFile: string): void {
   }
 }
 
-export function createWindow(): void {
-  const mainWindow = new BrowserWindow({
-    title: 'Tabs',
-    width: 1200,
-    height: 800,
+/**
+ * The options every window in the app shares, layered under each window's own
+ * title/size/behavior. `extraWebPreferences` is for what only the pane-tree
+ * window needs — the registered content types' own requirements (the
+ * browser's `webviewTag`, today; see MainPluginModule.windowPreferences) —
+ * spread first, so core's own two settings below still decide how a window
+ * loads its renderer regardless of what a content type asked for.
+ */
+function baseWindowOptions(
+  extraWebPreferences: WebPreferences = {}
+): Partial<BrowserWindowConstructorOptions> {
+  return {
     show: false,
     autoHideMenuBar: true,
     // Painted before the renderer's first frame; without it the window flashes
@@ -97,15 +104,19 @@ export function createWindow(): void {
     // calling show()/showInactive() below).
     ...(e2eHidden ? { focusable: false } : {}),
     webPreferences: {
-      // What the registered content types need in the constructor — the
-      // browser's `webviewTag`, today (see MainPluginModule.windowPreferences).
-      // Spread first on purpose: core's own two settings below decide how this
-      // window loads its renderer, and a content type may extend the window's
-      // capabilities without redefining that.
-      ...contentModuleWindowPreferences(),
+      ...extraWebPreferences,
       preload: join(import.meta.dirname, '../preload/index.mjs'),
       sandbox: false
     }
+  }
+}
+
+export function createWindow(): void {
+  const mainWindow = new BrowserWindow({
+    title: 'Tabs',
+    width: 1200,
+    height: 800,
+    ...baseWindowOptions(contentModuleWindowPreferences())
   })
 
   showWhenReady(mainWindow)
@@ -162,20 +173,9 @@ function createSettingsWindow(): BrowserWindow {
     height: 560,
     minWidth: 600,
     minHeight: 440,
-    show: false,
     maximizable: false,
     fullscreenable: false,
-    autoHideMenuBar: true,
-    // See createWindow.
-    backgroundColor: themeWindowBackground(),
-    ...(process.platform === 'linux' ? { icon } : {}),
-    ...hiddenTitleBar,
-    // e2e only: see the matching comment in createWindow.
-    ...(e2eHidden ? { focusable: false } : {}),
-    webPreferences: {
-      preload: join(import.meta.dirname, '../preload/index.mjs'),
-      sandbox: false
-    }
+    ...baseWindowOptions()
   })
 
   showWhenReady(win)
@@ -189,24 +189,44 @@ function createSettingsWindow(): BrowserWindow {
   return win
 }
 
-/** Opens the Settings window, creating it if needed, or focusing it if already open. */
-export function openSettingsWindow(): void {
-  // Guarded because both callers are unguarded dispatch: the menu click and a
-  // synchronous ipcMain.on listener (window:open-settings), where an escaping
-  // throw from window construction is the native error modal persist.ts
-  // documents. A failed open degrades to "nothing happened".
+/**
+ * Shows and focuses `get()`'s window, creating it via `create()` and storing
+ * it through `set()` if there isn't one yet. Guarded because every caller is
+ * unguarded dispatch — a menu click, or a synchronous ipcMain.on listener —
+ * where an escaping throw from window construction is the native error modal
+ * persist.ts documents. A failed open degrades to "nothing happened".
+ */
+function openOrFocus(
+  get: () => BrowserWindow | null,
+  set: (win: BrowserWindow) => void,
+  create: () => BrowserWindow,
+  label: string
+): void {
   try {
-    if (settingsWindow) {
+    const existing = get()
+    if (existing) {
       if (!e2eHidden) {
-        settingsWindow.show()
-        settingsWindow.focus()
+        existing.show()
+        existing.focus()
       }
       return
     }
-    settingsWindow = createSettingsWindow()
+    set(create())
   } catch (error) {
-    console.error('[tabs] could not open the Settings window:', error)
+    console.error(`[tabs] could not open the ${label} window:`, error)
   }
+}
+
+/** Opens the Settings window, creating it if needed, or focusing it if already open. */
+export function openSettingsWindow(): void {
+  openOrFocus(
+    () => settingsWindow,
+    (win) => {
+      settingsWindow = win
+    },
+    createSettingsWindow,
+    'Settings'
+  )
 }
 
 /**
@@ -230,20 +250,9 @@ function createAboutWindow(): BrowserWindow {
     width: 460,
     height: 660,
     resizable: false,
-    show: false,
     maximizable: false,
     fullscreenable: false,
-    autoHideMenuBar: true,
-    // See createWindow.
-    backgroundColor: themeWindowBackground(),
-    ...(process.platform === 'linux' ? { icon } : {}),
-    ...hiddenTitleBar,
-    // e2e only: see the matching comment in createWindow.
-    ...(e2eHidden ? { focusable: false } : {}),
-    webPreferences: {
-      preload: join(import.meta.dirname, '../preload/index.mjs'),
-      sandbox: false
-    }
+    ...baseWindowOptions()
   })
 
   showWhenReady(win)
@@ -259,21 +268,14 @@ function createAboutWindow(): BrowserWindow {
 
 /** Opens the About window, creating it if needed, or focusing it if already open. */
 export function openAboutWindow(): void {
-  // Guarded for the same reason openSettingsWindow is: the only caller is an
-  // unguarded menu click, where an escaping throw from window construction is
-  // the native error modal persist.ts documents.
-  try {
-    if (aboutWindow) {
-      if (!e2eHidden) {
-        aboutWindow.show()
-        aboutWindow.focus()
-      }
-      return
-    }
-    aboutWindow = createAboutWindow()
-  } catch (error) {
-    console.error('[tabs] could not open the About window:', error)
-  }
+  openOrFocus(
+    () => aboutWindow,
+    (win) => {
+      aboutWindow = win
+    },
+    createAboutWindow,
+    'About'
+  )
 }
 
 /**

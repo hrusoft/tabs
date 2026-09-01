@@ -26,6 +26,9 @@ interface ContentViewProps {
    * `.pane-border-top-only` comment.
    */
   insideTabsContent?: boolean
+  /** See ContentRendererProps — forwarded to both the type's own renderer (which cares only if it's TabsRenderer/SplitRenderer) and, once this node actually renders as a `.pane`, to Pane itself. */
+  cornerLeft?: boolean | undefined
+  cornerRight?: boolean | undefined
 }
 
 /**
@@ -39,13 +42,17 @@ interface ContentViewProps {
  * nesting (a tab's content, a split's child, the root) — except `split`
  * itself, which is a layout container rather than a pane.
  */
-function ContentViewImpl({ node, insideTabsContent }: ContentViewProps) {
+function ContentViewImpl({ node, insideTabsContent, cornerLeft, cornerRight }: ContentViewProps) {
   const def = useContentDef(node.type)
-  const content = def ? <def.Component node={node} /> : <UnknownContent node={node} />
+  const content = def ? (
+    <def.Component node={node} cornerLeft={cornerLeft} cornerRight={cornerRight} />
+  ) : (
+    <UnknownContent node={node} />
+  )
   if (node.type === 'split') return content
   const border = insideTabsContent === true ? 'top-only' : 'full'
   return (
-    <Pane node={node} border={border}>
+    <Pane node={node} border={border} cornerLeft={cornerLeft} cornerRight={cornerRight}>
       {content}
     </Pane>
   )
