@@ -67,6 +67,14 @@ export interface AppWindowApi {
    */
   getAppInfoSync: () => AppInfo
   /**
+   * The OS-applied rounding of the window's own corners, in CSS px — 0 on
+   * non-macOS. Read synchronously for the same reason getAppInfoSync is: it
+   * feeds the active-pane outline's `--pane-corner-radius` before the first
+   * frame. See src/main/windowChrome.ts — there is no live query for this,
+   * only a hand-measured table.
+   */
+  getCornerRadiusSync: () => number
+  /**
    * Puts `text` on the user's system clipboard. Main-side on purpose:
    * `navigator.clipboard.writeText` throws on an unfocused document, which
    * every e2e window structurally is (see src/main/e2eHidden.ts), so the

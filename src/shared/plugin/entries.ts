@@ -1,5 +1,10 @@
 import { PLUGIN_PACKAGES } from '../../plugins/index'
-import { type ContentTypeId, manifestFor, type PluginEntryKind } from '../content/registry'
+import {
+  type ContentTypeId,
+  manifestFor,
+  type PluginEntryKind,
+  packageNameFromPluginPath
+} from '../content/registry'
 
 /**
  * Resolves one boundary's entry glob against the list and the manifests — the
@@ -26,9 +31,8 @@ export function resolvePluginEntries<T>(
 ): [ContentTypeId, T][] {
   const byName = new Map<string, T>()
   for (const [path, module] of Object.entries(modules)) {
-    const match = /\/plugins\/([^/]+)\//.exec(path)
-    if (!match) throw new Error(`unexpected plugin entry glob path: ${path}`)
-    const name = match[1]!
+    const name = packageNameFromPluginPath(path)
+    if (!name) throw new Error(`unexpected plugin entry glob path: ${path}`)
     if (!(PLUGIN_PACKAGES as readonly string[]).includes(name)) {
       throw new Error(
         `src/plugins/${name} ships a ${kind} entry but is not named in PLUGIN_PACKAGES (src/plugins/index.ts)`

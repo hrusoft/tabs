@@ -72,6 +72,7 @@ const appWindow: AppWindowApi = {
     ipcRenderer.send(IpcChannel.windowOpenExternal, url)
   },
   getAppInfoSync: (): AppInfo => ipcRenderer.sendSync(IpcChannel.windowGetAppInfoSync),
+  getCornerRadiusSync: (): number => ipcRenderer.sendSync(IpcChannel.windowGetCornerRadiusSync),
   copyText: (text: string): void => {
     ipcRenderer.send(IpcChannel.windowCopyText, text)
   }

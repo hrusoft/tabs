@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { ipcMain } from 'electron'
 import { IpcChannel } from '../shared/ipc'
+import { PROBE_TIMEOUT_MS } from './processProbe'
 
 const execFileAsync = promisify(execFile)
 
@@ -32,12 +33,15 @@ JSON.stringify(result)
 async function listFontFamilies(): Promise<string[]> {
   if (process.platform !== 'darwin') return []
   try {
-    const { stdout } = await execFileAsync('osascript', [
-      '-l',
-      'JavaScript',
-      '-e',
-      JXA_LIST_FONT_FAMILIES
-    ])
+    const { stdout } = await execFileAsync(
+      'osascript',
+      ['-l', 'JavaScript', '-e', JXA_LIST_FONT_FAMILIES],
+      // Same rationale as processProbe.ts's PROBE_TIMEOUT_MS: an uncapped
+      // hang here (e.g. a first-run Automation permission prompt) would wedge
+      // the awaiting fontsListFamilies IPC handler forever instead of
+      // degrading to the empty-array fallback below.
+      { timeout: PROBE_TIMEOUT_MS }
+    )
     const families = JSON.parse(stdout)
     return Array.isArray(families) ? families : []
   } catch {

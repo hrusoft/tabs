@@ -4,6 +4,29 @@ import { createObservableRegistry } from './observableRegistry'
 
 export interface ContentRendererProps<N extends ContentNode = ContentNode> {
   node: N
+  /**
+   * Whether *some* descendant of this node — however deeply nested through
+   * tabs and splits — sits at the window's true bottom-left/bottom-right
+   * corner and should carry OS-radius rounding there once it's actually
+   * rendered as a `.pane` (see `Pane`'s corresponding props, and
+   * `--pane-corner-radius-left/-right` in global.css). Only `TabsRenderer`
+   * and `SplitRenderer` read these — every other content type ignores them.
+   *
+   * Threaded top-down like `insideTabsContent`, computed once in
+   * `SplitRenderer` per child (`TabsRenderer` passes both straight through
+   * unchanged, since a tabs-group's revealed content is always exactly as
+   * wide as its bar) rather than left for CSS to reconstruct: a plain CSS
+   * inheritance/selector chain has no way to *reset* a value it never had a
+   * `.pane` to reset it at — a split node has none of its own (see
+   * `ContentView`'s `if (node.type === 'split') return content`) — so a
+   * value could ride unreset through an arbitrary depth of nested splits
+   * and land on a geometrically wrong corner. Measured directly: an
+   * L-shaped layout (one pane filling the left column, the right column
+   * split top/bottom) rounded *both* bottom corners of the bottom-right
+   * pane, not just its own.
+   */
+  cornerLeft?: boolean | undefined
+  cornerRight?: boolean | undefined
 }
 
 /**

@@ -4,7 +4,7 @@ import { ContentView } from '../ContentView'
 import { TabDepthContext, useTabDepth } from '../depth'
 import { TabBar } from './TabBar'
 
-export function TabsRenderer({ node }: ContentRendererProps<TabsContent>) {
+export function TabsRenderer({ node, cornerLeft, cornerRight }: ContentRendererProps<TabsContent>) {
   // The bar paints at this group's own depth; everything a tab reveals is one
   // step deeper, which is what alternates the shade and steps the indent. The
   // provider wraps only the content, so `TabBar` keeps this group's depth.
@@ -19,7 +19,12 @@ export function TabsRenderer({ node }: ContentRendererProps<TabsContent>) {
             // or any other content's state survives switching away and back.
             <div key={tab.id} className="tabs-view-pane" hidden={tab.id !== node.activeTabId}>
               {/* A tab's content is its own pane: opening content on it adds a sibling tab here, rather than nesting a group inside it. */}
-              <ContentView node={tab.content} insideTabsContent />
+              <ContentView
+                node={tab.content}
+                insideTabsContent
+                cornerLeft={cornerLeft}
+                cornerRight={cornerRight}
+              />
             </div>
           ))}
         </TabDepthContext.Provider>

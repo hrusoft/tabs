@@ -70,6 +70,19 @@ interface BodySession {
 const sessions = new Map<number, BodySession>()
 
 /**
+ * The one in-flight session-creation attempt per guest, so two concurrent
+ * `enableBodyCapture` calls for the same guest (two socket clients, or a
+ * client racing `reapplyBodyCapture` on a reparent — nothing serializes
+ * across connections, see externalControl.ts) join the same attempt instead
+ * of each building and registering their own `BodySession`. Without this, the
+ * second `sessions.set` below would silently clobber the first's entry,
+ * leaking its CDP listener (events double-processed) and its debugger lease
+ * (the shared refcount in guestDebugger.ts never reaches zero, so the session
+ * never detaches even after the caller is told capture is off).
+ */
+const inFlight = new Map<number, Promise<{ error?: string }>>()
+
+/**
  * Bound on the pending map so a page that starts requests it never finishes
  * (long-polls, aborted streams) cannot grow it without limit. Eviction is
  * oldest-first (Map insertion order); an evicted request that later finishes
@@ -105,6 +118,20 @@ export async function enableBodyCapture(
     intents.add(paneId)
     return {}
   }
+  const attempt = inFlight.get(guest.id) ?? startSession(guest)
+  const outcome = await attempt
+  if (!outcome.error) intents.add(paneId)
+  return outcome
+}
+
+/** Starts the single session-creation attempt for `guest`, registering it before any `await`. */
+function startSession(guest: WebContents): Promise<{ error?: string }> {
+  const attempt = createSession(guest).finally(() => inFlight.delete(guest.id))
+  inFlight.set(guest.id, attempt)
+  return attempt
+}
+
+async function createSession(guest: WebContents): Promise<{ error?: string }> {
   let lease: DebuggerLease
   try {
     lease = await acquireGuestDebugger(guest)
@@ -126,7 +153,6 @@ export async function enableBodyCapture(
     dropGuestBodySession(guest.id)
     return { error: `could not enable network capture: ${String(error)}` }
   }
-  intents.add(paneId)
   return {}
 }
 

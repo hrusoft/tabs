@@ -59,12 +59,17 @@ const DOCK_PREVIEW_RECTS: Record<DockZone, CSSProperties> = {
 export function Pane({
   node,
   children,
-  border = 'full'
+  border = 'full',
+  cornerLeft,
+  cornerRight
 }: {
   node: ContentNode
   children: ReactNode
   /** See ContentView's `insideTabsContent` doc — 'top-only' for any node reached directly as another tabs-group's tab content (no split in between). */
   border?: 'full' | 'top-only'
+  /** See ContentRendererProps — whether *this* pane sits at the window's true bottom-left/bottom-right corner. */
+  cornerLeft?: boolean | undefined
+  cornerRight?: boolean | undefined
 }) {
   const nodeId = node.id
   const isActive = useLayoutStore((state) => state.activePaneId === nodeId)
@@ -123,7 +128,17 @@ export function Pane({
   // global.css), so the length lives beside the values it must match.
   const style = {
     '--depth': depth,
-    ...(isDimmed && Number.isFinite(dimIntensity) ? { '--dim-intensity': dimIntensity } : {})
+    ...(isDimmed && Number.isFinite(dimIntensity) ? { '--dim-intensity': dimIntensity } : {}),
+    // Explicit on every pane, unconditionally — never left to inherit or
+    // fall back to a CSS default. That's the whole fix: an inherited or
+    // selector-matched value has no way to be reset for a subtree with no
+    // `.pane` of its own to reset it at (a split's own node, in particular),
+    // so a value could ride an arbitrary depth of nesting onto the wrong
+    // pane. See ContentRendererProps.cornerLeft/cornerRight and
+    // SplitRenderer, which is the only place either one is ever computed as
+    // anything other than a straight pass-through.
+    '--pane-corner-radius-left': cornerLeft ? 'var(--os-corner-radius)' : '0px',
+    '--pane-corner-radius-right': cornerRight ? 'var(--os-corner-radius)' : '0px'
   } as CSSProperties
 
   const onHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {

@@ -58,6 +58,45 @@ body {
   flex: 1;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
+}
+
+/* Rounds the window's real bottom-left/bottom-right corners so whatever pane
+   background reaches them doesn't end in a hard square edge against the OS's
+   own rounding out there — see CLAUDE.md's "how do I find the curvature"
+   entry, and --os-corner-radius's origin in windowChrome.ts (both sides), a
+   hardcoded-per-OS-version table rather than a live query.
+
+   This is a *fill* fix only, not a stroke one: clipping removes pixels
+   outside the mask, and a solid background clipped that way reads as
+   properly rounded because there was never anything but fill on both sides
+   of the boundary. It does nothing for the active-pane outline's own 1px
+   border — clipping two straight stub lines apart doesn't draw the curved
+   segment that would join them (measured: it left a real gap, not a round
+   corner) — which is why that outline carries its own matching
+   --pane-corner-radius-left/-right instead. Both are set as an *inline*
+   style on the specific `.pane` DOM node that needs them (Pane.tsx), from
+   `cornerLeft`/`cornerRight` props App.tsx seeds at the root and
+   SplitRenderer.tsx fans out per child — not left to a CSS selector/
+   inheritance chain to reconstruct. That was tried first and is wrong: a
+   split contributes no `.pane` of its own (ContentView's `if (node.type ===
+   'split') return content`), so nothing resets a value for one side of a
+   split's *other* branch, and it can ride an arbitrary depth of nested
+   splits onto a geometrically unrelated pane — measured directly on an
+   L-shaped layout (one pane filling the left column, the right column split
+   top/bottom), where it rounded *both* bottom corners of the bottom-right
+   pane. This rule is a backstop, not the fix — a pane's own
+   radius (below) is what's actually load-bearing for the outline; this just
+   keeps the fill from reading as a worse-looking square corner in case that
+   value is ever wrong or missing.
+
+   Top corners stay square on purpose — they're under the title bar, above
+   where any pane's content (and so any accent-colored edge) ever starts, so
+   nothing there needs rounding. Skipped in fullscreen, where macOS gives the
+   window itself square corners edge-to-edge; --os-corner-radius doesn't
+   already know that, so the guard lives here instead. */
+.app-shell:not([data-fullscreen]) > .app-content {
+  border-radius: 0 0 var(--os-corner-radius) var(--os-corner-radius);
 }
 
 .app-content > * {
@@ -88,6 +127,18 @@ body {
   height: 100%;
   width: 100%;
   border: 1px solid var(--border);
+  /* Same reasoning and same variables as .pane-active::after's radius below:
+     a straight-cornered border sitting at the window's real bottom edge (the
+     docked root's own, or a split's edge child — every other pane's
+     --pane-corner-radius-left/-right are 0px, so this is a no-op there) pokes
+     a square corner out from behind the active outline's now-rounded one.
+     Along the straight edges the two coincide and this one is invisible
+     underneath; only the corner, where they diverge, shows it. Both
+     properties are set inline by Pane.tsx, never here — see this file's
+     "Rounds the window's real bottom-left/bottom-right corners" comment
+     above for why a CSS default/inheritance chain can't be trusted to reset
+     them correctly for every possible split/tabs shape. */
+  border-radius: 0 0 var(--pane-corner-radius-right) var(--pane-corner-radius-left);
   --surface: var(--bg);
   --surface-next: var(--bg-elevated);
   --depth-indent: calc((var(--depth, 0) + 1) * 7px);
@@ -187,6 +238,20 @@ body {
   bottom: -1px;
   left: -1px;
   pointer-events: none;
+  /* Top corners stay square: this box starts below the pane's own chrome
+     bar, already below where the window's top corners round off, so neither
+     ever needs rounding. The bottom two each round independently, on
+     whichever pane's outline actually reaches that specific corner of the
+     window — --pane-corner-radius-left/-right carry that (0px everywhere
+     else), set inline by Pane.tsx from the cornerLeft/cornerRight props
+     SplitRenderer.tsx computes per child. A border-radius here is
+     load-bearing in a way .app-content's own clip (above) can't substitute
+     for: clipping only removes pixels outside a mask, it can't draw the
+     missing curved stroke between this box's straight bottom and side
+     edges. Measured directly — a straight-cornered outline against that
+     clip left a real gap between two disconnected stub lines, not a rounded
+     corner. */
+  border-radius: 0 0 var(--pane-corner-radius-right) var(--pane-corner-radius-left);
 }
 
 .pane-active::after {
@@ -747,7 +812,7 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-top: 4px;
+  margin-top: 3px;
   max-width: 220px;
   padding: 0 2px 0 10px;
   border-radius: 3px 3px 0 0;
@@ -812,15 +877,6 @@ body {
   background: rgb(var(--hover-rgb) / 0.05);
 }
 
-/* The active tab's new top border (below) eats 1px off the top of its own
-   content box, nudging its centered text down half a pixel — enough for the
-   two to visibly disagree. Left uncompensated on the active tab itself (its
-   position is the reference); nudged up here instead so an inactive tab's
-   label lines up with it rather than the other way around. */
-.tab:not(.tab-active) {
-  transform: translateY(-1px);
-}
-
 .tab:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
@@ -849,21 +905,24 @@ body {
    that edge is still the merge into the content below, handled by the
    background + z-index above, not a drawn line.
 
-   `margin-top` is trimmed below `.tab`'s own 4px, on purpose: every tab is
+   `margin-top` is trimmed below `.tab`'s own 3px, on purpose: every tab is
    stretched to fill the strip's fixed height (`.tab-strip`'s `align-items:
    stretch`), and stretch keeps margin + border + content exactly equal to
    that height regardless of how the margin is split — so shrinking the
    active tab's top margin doesn't risk it overflowing the strip, it just
    moves more of that fixed budget from empty space into visible tab, which
    is what makes it read as slightly taller than its neighbors. The strip
-   itself, and the bar around it, are untouched. */
+   itself, and the bar around it, are untouched.
+
+   No `font-weight` of its own — the active tab is marked by its background,
+   border and shadow, not by bolder text next to its siblings' regular
+   weight. */
 .tab-active {
   position: relative;
   z-index: 1;
-  margin-top: 3px;
+  margin-top: 2px;
   background: var(--surface-next);
   color: var(--text);
-  font-weight: 600;
   border: 1px solid var(--border);
   border-bottom: none;
   /* A positive y-offset casts the shadow downward, off the bar's own top

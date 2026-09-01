@@ -88,34 +88,46 @@ function AttributionsSection({ info }: { info: ReturnType<typeof useAppInfo> }) 
       </p>
       <ul className="about-credits">
         {RUNTIME_COMPONENTS.map((component) => (
-          <li className="about-credit" key={component.name}>
-            <button
-              type="button"
-              className="about-credit-name"
-              data-testid={`about-credit-${component.name}`}
-              onClick={() => window.api.appWindow.openExternal(component.url)}
-            >
-              {component.name}
-            </button>
-            <span className="about-credit-version">{info[component.versionKey]}</span>
-            <span className="about-credit-license">{component.license}</span>
-          </li>
+          <CreditItem
+            key={component.name}
+            name={component.name}
+            url={component.url}
+            license={component.license}
+            version={info[component.versionKey]}
+          />
         ))}
         {ATTRIBUTIONS.map((entry) => (
-          <li className="about-credit" key={entry.name}>
-            <button
-              type="button"
-              className="about-credit-name"
-              data-testid={`about-credit-${entry.name}`}
-              onClick={() => window.api.appWindow.openExternal(entry.url)}
-            >
-              {entry.name}
-            </button>
-            <span className="about-credit-license">{entry.license}</span>
-          </li>
+          <CreditItem key={entry.name} name={entry.name} url={entry.url} license={entry.license} />
         ))}
       </ul>
     </section>
+  )
+}
+
+function CreditItem({
+  name,
+  url,
+  license,
+  version
+}: {
+  name: string
+  url: string
+  license: string
+  version?: string
+}) {
+  return (
+    <li className="about-credit">
+      <button
+        type="button"
+        className="about-credit-name"
+        data-testid={`about-credit-${name}`}
+        onClick={() => window.api.appWindow.openExternal(url)}
+      >
+        {name}
+      </button>
+      {version !== undefined && <span className="about-credit-version">{version}</span>}
+      <span className="about-credit-license">{license}</span>
+    </li>
   )
 }
 

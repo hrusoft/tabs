@@ -9,8 +9,25 @@ import { paneDomRect } from '../paneDom'
  * the same pane again returns it to where the user put it rather than back
  * over its docked slot. Session-only and deliberately not persisted: it is a
  * convenience, not layout state, and a restart legitimately starts over.
+ *
+ * Never evicted on pane close (a node id closed for good has no future unpin
+ * to inform, but nothing here is told a close happened without a new
+ * coupling back onto layoutStore, which every other writer here avoids), so
+ * it is bounded instead — the same oldest-first-eviction shape as
+ * networkBodyCapture.ts's PENDING_CAP, sized generously since an entry is
+ * only a node id and four numbers.
  */
+const LAST_RECTS_CAP = 200
 const lastRects = new Map<NodeId, FloatRect>()
+
+function rememberRect(nodeId: NodeId, rect: FloatRect): void {
+  lastRects.delete(nodeId) // re-inserts at the end, keeping insertion order recency-ordered
+  if (lastRects.size >= LAST_RECTS_CAP) {
+    const oldest = lastRects.keys().next().value
+    if (oldest !== undefined) lastRects.delete(oldest)
+  }
+  lastRects.set(nodeId, rect)
+}
 
 /**
  * Unpins the pane `nodeId` into a floating window. The window opens over the
@@ -40,7 +57,7 @@ export function unpinPaneAt(nodeId: NodeId, originId: NodeId = nodeId): void {
 export function repinFloatingWindow(floatId: NodeId): void {
   const state = useLayoutStore.getState()
   const entry = state.floating.find((candidate) => candidate.id === floatId)
-  if (entry) lastRects.set(entry.content.id, entry.rect)
+  if (entry) rememberRect(entry.content.id, entry.rect)
   state.repinPane(floatId)
 }
 

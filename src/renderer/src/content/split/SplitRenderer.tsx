@@ -78,7 +78,11 @@ interface DragGesture {
   members: ClusterMember[]
 }
 
-export function SplitRenderer({ node }: ContentRendererProps<SplitContent>) {
+export function SplitRenderer({
+  node,
+  cornerLeft,
+  cornerRight
+}: ContentRendererProps<SplitContent>) {
   const resizeSplit = useLayoutStore((state) => state.resizeSplit)
   // Remount the group when the pane set changes so defaultLayout reseeds;
   // plain drag-resizes keep the same key and stay uncontrolled.
@@ -87,6 +91,25 @@ export function SplitRenderer({ node }: ContentRendererProps<SplitContent>) {
   const groupRef = useRef<GroupImperativeHandle | null>(null)
   const groupElRef = useRef<HTMLDivElement | null>(null)
   const isHorizontal = node.direction === 'horizontal'
+
+  /**
+   * Which of *this* split's own two corner flags (received from above) a
+   * given child inherits — see ContentRendererProps.cornerLeft/cornerRight.
+   * A horizontal split lays children side by side, each spanning the full
+   * height: only the first (leftmost) can ever own the left corner, only the
+   * last (rightmost) the right — never both on one child unless there's only
+   * one, and never on a middle child of 3+, which touches neither. A
+   * vertical split stacks children full-width: everything but the last
+   * touches no bottom corner at all, and the last owns both, since it alone
+   * spans the full width down at the actual bottom edge.
+   */
+  function childCorners(index: number): { cornerLeft: boolean; cornerRight: boolean } {
+    const isFirst = index === 0
+    const isLast = index === node.children.length - 1
+    return isHorizontal
+      ? { cornerLeft: isFirst && cornerLeft === true, cornerRight: isLast && cornerRight === true }
+      : { cornerLeft: isLast && cornerLeft === true, cornerRight: isLast && cornerRight === true }
+  }
 
   // Kept live every render (not just in an effect) so a cross-split reader
   // — via the registry, mid-gesture — always sees this split's current
@@ -422,7 +445,7 @@ export function SplitRenderer({ node }: ContentRendererProps<SplitContent>) {
             />
           )}
           <Panel id={child.id} className="split-pane" minSize={MIN_PANE_SIZE_PERCENT}>
-            <ContentView node={child} />
+            <ContentView node={child} {...childCorners(index)} />
           </Panel>
         </Fragment>
       ))}

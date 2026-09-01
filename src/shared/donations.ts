@@ -131,7 +131,7 @@ export const CRYPTO_ADDRESSES: readonly CryptoAddress[] = [
   }
 ] as const
 
-/** The tier's amount as it appears on screen, e.g. `$4 CAD`. */
+/** The tier's amount as it appears on screen, e.g. `$4 USD`. */
 export function formatDonationAmount(tier: DonationTier): string {
   return `$${tier.amount} ${DONATION_CURRENCY}`
 }
