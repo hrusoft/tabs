@@ -23,11 +23,11 @@ import { themeWindowBackground } from './theme'
 
 /**
  * macOS only: hide the native title bar but keep the traffic lights, floating
- * them over the 28px of chrome the renderer draws itself — the main window's
+ * them over the 30px of chrome the renderer draws itself — the main window's
  * docked root is always a tab group, and that group's own tab bar carries the
  * gutter (.tab-bar-root in global.css, see content/tabs/TabBar.tsx), while the
  * Settings window still draws a plain title bar (.settings-titlebar) — both
- * sized by --window-titlebar-height (28px) in global.css. Shared by both
+ * sized by --window-titlebar-height (30px) in global.css. Shared by both
  * windows rather than spelled out at each call site, so the two can never
  * drift into looking like different apps — `y` centers the lights in that
  * shared height, so changing the token means retuning this too.
@@ -41,7 +41,7 @@ import { themeWindowBackground } from './theme'
  */
 const hiddenTitleBar =
   process.platform === 'darwin'
-    ? ({ titleBarStyle: 'hidden', trafficLightPosition: { x: 11, y: 8 } } as const)
+    ? ({ titleBarStyle: 'hidden', trafficLightPosition: { x: 11, y: 9 } } as const)
     : {}
 
 let settingsWindow: BrowserWindow | null = null

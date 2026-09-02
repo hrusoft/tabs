@@ -25,7 +25,7 @@
    windows' hand-drawn title bars share, and the number
    main/windows.ts's trafficLightPosition is tuned against. */
 :root {
-  --window-titlebar-height: 28px;
+  --window-titlebar-height: 30px;
 }
 
 * {
@@ -807,7 +807,19 @@ body {
 /* Sized to its own label, not to a grid: a short title gets a short tab.
    Square-bottomed and flush with the bar's lower edge — the rounding is on
    the top corners only, because the bottom edge is where the active tab
-   joins the content it opens rather than an edge of its own. */
+   joins the content it opens rather than an edge of its own.
+
+   The transparent 1px left/right border reserves exactly the width .tab-
+   active paints in color — every tab is always this wide, active or not, so
+   activating one never changes its own or any neighbor's horizontal
+   position. Without it, activation adds a real border (2px of total width,
+   since the tab isn't width:auto in name only — a flex item sized to
+   content) and every tab after it in the strip visibly shifts sideways as a
+   result. Deliberately left/right only, not top: the vertical "active reads
+   taller" trick below relies on .tab having *no* border-top to weigh against
+   its own larger margin-top, and reserving one here would break that (title
+   text would sit a fraction of a pixel lower on every inactive tab, still
+   wrong by this component's own standard of "exactly where it was"). */
 .tab {
   display: flex;
   align-items: center;
@@ -815,6 +827,8 @@ body {
   margin-top: 3px;
   max-width: 220px;
   padding: 0 2px 0 10px;
+  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
   border-radius: 3px 3px 0 0;
   color: var(--text-dim);
   font-size: 11px;
@@ -903,16 +917,21 @@ body {
    tab in it instead makes that border read as wrapping around the tab
    itself, the same way it wraps a plain pane's title bar. No border-bottom:
    that edge is still the merge into the content below, handled by the
-   background + z-index above, not a drawn line.
+   background + z-index above, not a drawn line. Left/right repaint the same
+   1px `.tab` already reserves as transparent, so those two never resize the
+   tab; border-top is new width added here on purpose (see below).
 
-   `margin-top` is trimmed below `.tab`'s own 3px, on purpose: every tab is
-   stretched to fill the strip's fixed height (`.tab-strip`'s `align-items:
-   stretch`), and stretch keeps margin + border + content exactly equal to
-   that height regardless of how the margin is split — so shrinking the
-   active tab's top margin doesn't risk it overflowing the strip, it just
-   moves more of that fixed budget from empty space into visible tab, which
-   is what makes it read as slightly taller than its neighbors. The strip
-   itself, and the bar around it, are untouched.
+   `margin-top` is trimmed below `.tab`'s own 3px, to exactly offset that new
+   border-top: stretch keeps margin + border + content equal to the strip's
+   fixed height regardless of how the margin is split, and border-top(1) +
+   margin-top(2) here equals border-top(0) + margin-top(3) on a plain `.tab`
+   — so the *content* box, where the title actually sits, is the same height
+   either way and the title never moves vertically when a tab (de)activates.
+   What does change is how that equal budget is split between empty margin
+   and visible, painted box: shifting 1px of it from margin into border+
+   background is what makes the active tab read as slightly taller than its
+   neighbors, a purely visual effect layered on top of a title that hasn't
+   moved. The strip itself, and the bar around it, are untouched.
 
    No `font-weight` of its own — the active tab is marked by its background,
    border and shadow, not by bolder text next to its siblings' regular
