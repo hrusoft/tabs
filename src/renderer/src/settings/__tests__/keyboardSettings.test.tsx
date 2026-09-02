@@ -241,6 +241,15 @@ test('the clear button empties the field and restores the full list', async () =
   expect(chip('split-horizontal')).toBeInTheDocument()
 })
 
+test('the clear button carries a hover tooltip, not just an accessible name', () => {
+  mount()
+
+  expect(screen.getByTestId('settings-shortcut-search-clear')).toHaveAttribute(
+    'title',
+    'Clear search'
+  )
+})
+
 test('a query matching nothing shows the empty-state placeholder instead of a blank page', async () => {
   mount()
   const user = userEvent.setup()

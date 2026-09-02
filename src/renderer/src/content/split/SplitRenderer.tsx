@@ -6,7 +6,7 @@ import {
 } from '@shared/model/separatorSnap'
 import { MIN_PANE_SIZE } from '@shared/model/tree'
 import type { NodeId, SplitContent } from '@shared/model/types'
-import { Fragment, useEffect, useRef } from 'react'
+import { type CSSProperties, Fragment, useEffect, useRef } from 'react'
 import {
   Group,
   type GroupImperativeHandle,
@@ -33,6 +33,42 @@ import {
 // constant normalizeSizes clamps persisted/programmatic sizes to — the two
 // must agree or a drag could produce a size the model immediately repairs.
 const MIN_PANE_SIZE_PERCENT: `${number}%` = `${MIN_PANE_SIZE * 100}%`
+
+/**
+ * Both the Group's own element (`.split-view`) and each Panel's inner element
+ * (`.split-pane`) need this — passed as a `style` prop rather than left to
+ * the `.split-view`/`.split-pane` classes in global.css, because the library
+ * sets its own inline `overflow` on both of those exact elements (`hidden`
+ * on the Group, `auto` on the Panel's inner div — see react-resizable-
+ * panels' source), and a plain stylesheet rule can never beat a plain inline
+ * style. `.split-pane { overflow: hidden }` in global.css predates this and
+ * was always dead code for that reason — kept only for `height`/`width` now.
+ * A `style` *prop* on `<Group>`/`<Panel>` works because the library spreads
+ * it into its own style object ahead of the properties it truly owns
+ * (`display`/`flexDirection`/`touchAction`, `flexGrow`) but after its own
+ * `overflow` default, so this is the one thing about that default we can
+ * safely override without reaching for `!important`.
+ *
+ * `clip` rather than `hidden`, and with a margin, for the same reason
+ * `.pane-body` uses `overflow-clip-margin: 1px` instead of plain
+ * `overflow: hidden` (see that rule's comment in global.css): the active/
+ * alert/controlled overlay (`.pane-active::after` and siblings) deliberately
+ * bleeds 1px past a pane whose border is suppressed on that side, to read as
+ * that side's real ancestor border recolored rather than a second hairline —
+ * and a split sits on the path between a split child and the tabs-group
+ * ancestor whose border it now can suppress (see
+ * ContentRendererProps.suppressBorderLeft/Right/Bottom). Without this,
+ * `.split-pane`'s true `overflow: auto` turned that 1px bleed into a real,
+ * visible scrollbar on the active pane, and `.split-view`'s true
+ * `overflow: hidden` clipped the bleed outright on whichever side reached it
+ * first — together the bug report this fixes: "the highlight border isn't
+ * fully rendered" plus "active panes get scroll bars", both introduced by
+ * teaching a split child to suppress a side of its own border for the first
+ * time. `clip` still blocks real overflow the same as the `hidden`/`auto`
+ * it replaces (no scrollbar, no programmatic scroll) — the margin only
+ * excuses exactly the 1px this file's own overlay can produce.
+ */
+const SPLIT_CLIP_STYLE: CSSProperties = { overflow: 'clip', overflowClipMargin: '1px' }
 
 /**
  * The two directions of the only conversion this file does: react-resizable-
@@ -81,7 +117,10 @@ interface DragGesture {
 export function SplitRenderer({
   node,
   cornerLeft,
-  cornerRight
+  cornerRight,
+  suppressBorderLeft,
+  suppressBorderRight,
+  suppressBorderBottom
 }: ContentRendererProps<SplitContent>) {
   const resizeSplit = useLayoutStore((state) => state.resizeSplit)
   // Remount the group when the pane set changes so defaultLayout reseeds;
@@ -93,22 +132,48 @@ export function SplitRenderer({
   const isHorizontal = node.direction === 'horizontal'
 
   /**
-   * Which of *this* split's own two corner flags (received from above) a
-   * given child inherits — see ContentRendererProps.cornerLeft/cornerRight.
-   * A horizontal split lays children side by side, each spanning the full
-   * height: only the first (leftmost) can ever own the left corner, only the
-   * last (rightmost) the right — never both on one child unless there's only
-   * one, and never on a middle child of 3+, which touches neither. A
-   * vertical split stacks children full-width: everything but the last
-   * touches no bottom corner at all, and the last owns both, since it alone
-   * spans the full width down at the actual bottom edge.
+   * Which of *this* split's own outer edges child `index` shares. A
+   * horizontal split lays children side by side, each spanning the full
+   * height: every child's bottom edge is the split's own, but only the first
+   * (leftmost) touches the split's left edge and only the last its right — a
+   * middle child of 3+ touches neither side. A vertical split stacks children
+   * full-width: every child's left and right edges are the split's own, and
+   * only the last child's bottom is the split's bottom.
+   *
+   * Everything a child inherits from the flags this split received is a
+   * projection of that one fact, so both per-edge facets derive from it here
+   * rather than each keeping its own copy of the axis table:
+   *
+   * - cornerLeft/cornerRight (see ContentRendererProps): a child owns a bottom
+   *   corner only if it touches both edges that meet there.
+   * - suppressBorderLeft/Right/Bottom (see ContentRendererProps): a child
+   *   suppresses a side only if that side IS the split's own edge on that
+   *   side — the sides it doesn't touch are real seams against a sibling and
+   *   keep their border. This is the fix for the bug where splitting a lone
+   *   pane made its surviving content shift a pixel: before it, a split's
+   *   children always fell back to a full border regardless of what the
+   *   split itself received, redrawing a border on sides that used to be
+   *   flush against the tabs-group around them.
    */
-  function childCorners(index: number): { cornerLeft: boolean; cornerRight: boolean } {
+  function childEdgeProps(index: number): {
+    cornerLeft: boolean
+    cornerRight: boolean
+    suppressBorderLeft: boolean
+    suppressBorderRight: boolean
+    suppressBorderBottom: boolean
+  } {
     const isFirst = index === 0
     const isLast = index === node.children.length - 1
-    return isHorizontal
-      ? { cornerLeft: isFirst && cornerLeft === true, cornerRight: isLast && cornerRight === true }
-      : { cornerLeft: isLast && cornerLeft === true, cornerRight: isLast && cornerRight === true }
+    const touches = isHorizontal
+      ? { left: isFirst, right: isLast, bottom: true }
+      : { left: true, right: true, bottom: isLast }
+    return {
+      cornerLeft: touches.left && touches.bottom && cornerLeft === true,
+      cornerRight: touches.right && touches.bottom && cornerRight === true,
+      suppressBorderLeft: touches.left && suppressBorderLeft === true,
+      suppressBorderRight: touches.right && suppressBorderRight === true,
+      suppressBorderBottom: touches.bottom && suppressBorderBottom === true
+    }
   }
 
   // Kept live every render (not just in an effect) so a cross-split reader
@@ -338,6 +403,7 @@ export function SplitRenderer({
     <Group
       key={paneKey}
       className="split-view"
+      style={SPLIT_CLIP_STYLE}
       orientation={node.direction}
       defaultLayout={layoutFromSizes(childIdsRef.current, node.sizes)}
       elementRef={(el) => {
@@ -444,8 +510,13 @@ export function SplitRenderer({
               }}
             />
           )}
-          <Panel id={child.id} className="split-pane" minSize={MIN_PANE_SIZE_PERCENT}>
-            <ContentView node={child} {...childCorners(index)} />
+          <Panel
+            id={child.id}
+            className="split-pane"
+            minSize={MIN_PANE_SIZE_PERCENT}
+            style={SPLIT_CLIP_STYLE}
+          >
+            <ContentView node={child} {...childEdgeProps(index)} />
           </Panel>
         </Fragment>
       ))}

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import { clampOverlay } from '../core/overlayPosition'
+import { IconButton } from '../IconButton'
 import { fireAndReport, type UiAction } from './fireAndReport'
 
 /**
@@ -12,6 +13,17 @@ import { fireAndReport, type UiAction } from './fireAndReport'
  * group (the root tab bar's Settings button), which needs exactly this
  * press-isolation contract; `className` adds that caller's modifier on top
  * of the shared base styling.
+ *
+ * An `IconButton`, so every caller gets the label's hover/focus-visible
+ * tooltip for free (see IconButton.tsx). That pays off hardest for a
+ * *grouped* root button: hovering it reveals the
+ * dropdown instantly (real, synchronous CSS `:hover`, not this component's
+ * own state), which covers the root with the dropdown's own first row — a
+ * duplicate of this same root, in its own `HeaderButton` — so the cursor
+ * ends up over a *different* wrapped element almost immediately. That's not
+ * a bug to work around: the new element starts its own hover timer, and its
+ * tooltip is the one that shows once the pointer settles, which is exactly
+ * what should happen once the menu has taken over that spot on screen.
  */
 export function HeaderButton({
   testId,
@@ -32,12 +44,10 @@ export function HeaderButton({
   children: ReactNode
 }) {
   return (
-    <button
-      type="button"
+    <IconButton
+      label={label}
+      testId={testId}
       className={className ? `pane-header-button ${className}` : 'pane-header-button'}
-      data-testid={testId}
-      aria-label={label}
-      title={label}
       disabled={disabled}
       role={role}
       onPointerDown={(event) => event.stopPropagation()}
@@ -53,7 +63,7 @@ export function HeaderButton({
       }}
     >
       {children}
-    </button>
+    </IconButton>
   )
 }
 

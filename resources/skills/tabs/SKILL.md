@@ -1,6 +1,12 @@
 ---
 name: tabs
 description: Create, read, and drive browser panes in the Tabs terminal app, from a shell running inside one of its terminal panes. Screenshot a page, read its text or structure, click and type, capture console and network activity, run JavaScript. Only relevant when the user is working inside Tabs — do not reach for this in any other terminal.
+# allowed-tools is a real optional field in the open Agent Skills spec
+# (agentskills.io/specification: "Experimental. Support for this field may
+# vary between agent implementations") — not a Claude Code-only extension.
+# It pre-approves the two printenv calls below so Claude Code runs them
+# without a permission prompt; an agent that doesn't implement it is
+# expected to just ignore an optional key it doesn't recognize.
 allowed-tools: Bash(printenv TABS_CONTROL_SOCKET), Bash(printenv TABS_PANE_ID)
 ---
 
@@ -10,15 +16,14 @@ This skill lets you open a browser pane inside the Tabs app (the terminal app th
 
 ## Check you're actually inside Tabs
 
-Control socket path:
+Run these two commands yourself before doing anything else:
 
-!`printenv TABS_CONTROL_SOCKET`
+```
+printenv TABS_CONTROL_SOCKET
+printenv TABS_PANE_ID
+```
 
-Pane id:
-
-!`printenv TABS_PANE_ID`
-
-If either command above failed or printed nothing, **stop** — this shell is not running inside a Tabs terminal pane, so none of the commands below will work. Tell the user this skill only applies inside the Tabs app and do nothing further.
+If either command fails or prints nothing, **stop** — this shell is not running inside a Tabs terminal pane, so none of the commands below will work. Tell the user this skill only applies inside the Tabs app and do nothing further.
 
 If both values are present, continue below.
 

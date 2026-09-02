@@ -63,6 +63,21 @@ test('repeated New tab clicks on the initial pane keep adding top-level tabs', a
   expect(tabs[2]).toHaveAttribute('aria-selected', 'true')
 })
 
+// The per-tab close × is a different button from the pane-header close action
+// (pane-header.test.tsx), and an IconButton like it: the label lands as the
+// accessible name, the native `title` and the hover bubble together. jsdom can
+// pin the first two; the bubble itself is measured in the Chromium tier
+// (e2e/browser/tooltip.spec.ts).
+test("a tab's close button is labeled with what it closes", async () => {
+  renderApp()
+  const user = userEvent.setup()
+  await openNewTab(user, initialPane())
+
+  const secondTab = screen.getAllByRole('tab')[1]!
+  const closeButton = within(secondTab).getByRole('button', { name: 'Close Tabs' })
+  expect(closeButton).toHaveAttribute('title', 'Close Tabs')
+})
+
 test('New tab on a genuinely ungrouped pane (a split child) wraps it into a nested tab group', async () => {
   renderApp()
   const user = userEvent.setup()

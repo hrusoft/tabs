@@ -2,6 +2,7 @@ import type { LayoutSnapshot } from '../../src/shared/layout'
 import { LAYOUT_VERSION } from '../../src/shared/layout'
 import type { LeafContent, Tab, TabsContent } from '../../src/shared/model/types'
 import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
+import { requireBox } from '../helpers/geometry'
 import { expect, test } from './helpers/harness'
 
 /**
@@ -60,6 +61,49 @@ test.use({ seed: { layout: LAYOUT } })
 
 function backgroundOf(page: import('@playwright/test').Locator): Promise<string> {
   return page.evaluate((el) => getComputedStyle(el).backgroundColor)
+}
+
+/** `--accent` resolved to the `rgb(...)` form computed colors come back in, so it can be compared against them directly. */
+async function accentRgbOf(page: import('@playwright/test').Page): Promise<string> {
+  const resolved = await page.evaluate(() => {
+    const probe = document.createElement('span')
+    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent')
+    document.body.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  })
+  expect(resolved).not.toBe('')
+  return resolved
+}
+
+/**
+ * The painted color at one viewport pixel, as `rgb(r, g, b)` — for asserting
+ * a pixel against a resolved token (see accentRgbOf) rather than against
+ * another pixel, which is what the `Buffer.equals` comparisons elsewhere in
+ * this file do when a known-good reference pixel is available.
+ */
+async function pixelColorAt(
+  page: import('@playwright/test').Page,
+  x: number,
+  y: number
+): Promise<string> {
+  const buf = await page.screenshot({ clip: { x, y, width: 1, height: 1 } })
+  return page.evaluate(
+    async (src) => {
+      const img = new Image()
+      img.src = src
+      await img.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = 1
+      canvas.height = 1
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+      return `rgb(${r}, ${g}, ${b})`
+    },
+    `data:image/png;base64,${buf.toString('base64')}`
+  )
 }
 
 test('nested tab bars alternate the two chrome surfaces and step their indent', async ({
@@ -130,8 +174,9 @@ test('the active tab covers its own seam into a nested tabs-group, but a real bo
   page
 }) => {
   // Bar 1 (g1) reveals g2, another tabs-group nested directly inside it (no
-  // split in between) — per ContentView's `insideTabsContent`, g2 draws a
-  // border-top of its own (`.pane-border-top-only`) regardless of depth. The
+  // split in between) — per TabsRenderer's unconditional suppression, g2 draws a
+  // border-top of its own (`.pane-suppress-left/-right/-bottom` suppress the
+  // other three) regardless of depth. The
   // active tab's own z-index+background still cover that border for exactly
   // its own width (the overhang mechanic every bar shares), so directly
   // under it the fill still reads as one continuous surface with no seam —
@@ -173,8 +218,8 @@ test('the active tab covers its own seam into a nested leaf just the same, not o
   // Bar 3 (g3) reveals a real leaf (l0), not another tabs-group — and it
   // behaves exactly like bar 1 revealing g2 above: a leaf at the bottom of a
   // nested-tabs chain is exactly as eligible for its own border-top as an
-  // intermediate tabs-group is, regardless of depth (see ContentView's
-  // `insideTabsContent` doc). Left/right/bottom still suppress unconditionally
+  // intermediate tabs-group is, regardless of depth (see TabsRenderer's
+  // ContentView call). Left/right/bottom still suppress unconditionally
   // — that's the doubling risk measured in "a shallow sibling reads exactly
   // two pixels away from a deeply nested leaf" below — but the top side never
   // had that risk at any depth.
@@ -226,15 +271,7 @@ test('a bar hover menu opens over every tab bar below it', async ({ page }) => {
 test('the active pane is outlined around its content, not around its title bar', async ({
   page
 }) => {
-  const accentRgb = await page.evaluate(() => {
-    const probe = document.createElement('span')
-    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent')
-    document.body.append(probe)
-    const resolved = getComputedStyle(probe).color
-    probe.remove()
-    return resolved
-  })
-  expect(accentRgb).not.toBe('')
+  const accentRgb = await accentRgbOf(page)
 
   // The outline overlay, and where it starts: below the pane's chrome bar,
   // and pulled out over the pane's own border on the other three sides so it
@@ -353,6 +390,123 @@ test.describe('two panes side by side', () => {
     expect(leftBorder.equals(leftContent)).toBe(false)
     expect(rightBorder.equals(rightContent)).toBe(false)
     expect(leftBorder.equals(rightBorder)).toBe(false)
+  })
+})
+
+/**
+ * The bug report this pins: splitting a tab's sole pane must not shift its
+ * surviving content. Before the fix, a split's children always fell back to
+ * a full border regardless of what the split itself received (see
+ * ContentRendererProps.suppressBorderLeft/Right/Bottom and SplitRenderer's
+ * childEdgeProps), so the surviving pane suddenly drew a border on
+ * the three sides that used to sit flush against its tabs-group's own —
+ * visibly nudging its content inward the instant a sibling appeared.
+ */
+test.describe('splitting a lone tab pane', () => {
+  test.use({
+    seed: {
+      layout: {
+        version: LAYOUT_VERSION,
+        root: group('g0', [
+          {
+            id: 't0',
+            title: 'Solo',
+            content: {
+              id: 's0',
+              type: 'split',
+              direction: 'horizontal',
+              sizes: [0.5, 0.5],
+              children: [leaf('l0', 'Solo'), leaf('l1', 'New')]
+            }
+          }
+        ]),
+        activePaneId: 'l0'
+      }
+    }
+  })
+
+  test('the surviving pane keeps only the seam it shares with its new sibling', async ({
+    page
+  }) => {
+    const panes = page.getByTestId('pane')
+    // pane 0 is g0 itself — a real single-tab root, not the synthetic
+    // wrapper "two panes side by side" above needs (its root is a raw split,
+    // which isn't a valid docked root on its own). Panes 1 and 2 are the
+    // split's two leaves.
+    await expect(panes).toHaveCount(3)
+
+    const borders = await panes.evaluateAll((els) =>
+      els.map((el) => {
+        const s = getComputedStyle(el)
+        return {
+          left: s.borderLeftWidth,
+          right: s.borderRightWidth,
+          bottom: s.borderBottomWidth,
+          top: s.borderTopWidth
+        }
+      })
+    )
+
+    expect(borders[0]).toEqual({ left: '1px', right: '1px', bottom: '1px', top: '1px' })
+    // The surviving pane (l0): no border on the three sides that sit flush
+    // against g0's own — only the seam shared with its new sibling is real.
+    expect(borders[1]).toEqual({ left: '0px', right: '1px', bottom: '0px', top: '1px' })
+    // The new pane (l1) is the mirror image.
+    expect(borders[2]).toEqual({ left: '1px', right: '0px', bottom: '0px', top: '1px' })
+  })
+
+  test("the surviving pane's content starts exactly where a lone tab's would", async ({ page }) => {
+    // Flush against g0's own 1px border on the left — the same position a
+    // lone, unsplit tab pane's content sits at (border-box, no padding
+    // anywhere in the .tabs-view chain). The bug moved this to x: 2.
+    const body = page.locator('.pane-body').nth(1)
+    const box = await body.boundingBox()
+    expect(box?.x).toBe(1)
+  })
+
+  /**
+   * The follow-up bug report from the fix above: suppressing a split child's
+   * border on a side now means its active-pane overlay (`.pane-active::after`)
+   * bleeds 1px past its own box on that side, same as it always has for a
+   * plain tab-content leaf — but that bleed now has to cross two more DOM
+   * layers on its way to the real ancestor border (react-resizable-panels'
+   * own Group/Panel elements) than the plain-leaf case ever did. Both set
+   * their own inline `overflow` (`hidden` on the Group, `auto` on the
+   * Panel's inner div — see SplitRenderer.tsx's SPLIT_CLIP_STYLE), which a
+   * stylesheet rule can't override: before that fix, the Group's `hidden`
+   * silently clipped the bleed away on whichever side it reached first, and
+   * the Panel's `auto` turned it into a real, visible scrollbar on the
+   * active pane.
+   */
+  test("the active pane's outline survives the split wrapper instead of scrolling or clipping it away", async ({
+    page
+  }) => {
+    const overflow = await page.evaluate(() => ({
+      splitPane: getComputedStyle(document.querySelector('.split-pane')!).overflow,
+      splitView: getComputedStyle(document.querySelector('.split-view')!).overflow
+    }))
+    // 'clip' never shows a scrollbar regardless of content extent — unlike
+    // 'auto', which react-resizable-panels sets by default and which turned
+    // this pane's own outline bleed into a real scrollbar.
+    expect(overflow).toEqual({ splitPane: 'clip', splitView: 'clip' })
+
+    const accentRgb = await accentRgbOf(page)
+
+    const active = page.getByTestId('pane').nth(1)
+    const box = await requireBox(active)
+    const midY = Math.round(box.y + box.height / 2)
+    const pixelColor = (x: number, y: number) => pixelColorAt(page, x, y)
+
+    // Suppressed left side: the overlay bleeds 1px past this pane's own box,
+    // onto g0's real border — it must actually render there, not be clipped
+    // or scrolled out of view.
+    expect(await pixelColor(Math.round(box.x) - 1, midY)).toBe(accentRgb)
+    // Suppressed bottom side, same idea.
+    const midX = Math.round(box.x + box.width / 2)
+    expect(await pixelColor(midX, Math.round(box.y + box.height))).toBe(accentRgb)
+    // Kept right side (the real seam with the sibling) still renders too —
+    // this one never needed to bleed past the pane's own box.
+    expect(await pixelColor(Math.round(box.x + box.width) - 1, midY)).toBe(accentRgb)
   })
 })
 

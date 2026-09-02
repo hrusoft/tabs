@@ -168,8 +168,8 @@ body {
 }
 
 /* Any pane — leaf or tabs-group — reached directly as another tabs-group's
-   tab content (no split in between — ContentView's `insideTabsContent`)
-   suppresses left/right/bottom: those sides would sit flush against the
+   tab content (no split in between — TabsRenderer sets all three flags
+   below on every tab's content) suppresses left/right/bottom: those sides would sit flush against the
    parent's own border and stack. Suppression is positional, never by node
    type, and the top is never suppressed at any depth — its border-top is
    what draws the hairline under the revealing bar, broken only under the
@@ -177,16 +177,35 @@ body {
    measurements included, is CLAUDE.md's pane-chrome entry. Nested bars still
    read as distinct from one another: they land on opposite depth parities,
    so `--surface` alone steps
-   the shade between them. */
-.pane-border-top-only {
-  border: none;
-  border-top: 1px solid var(--border);
+   the shade between them.
+
+   Three independent rules, not one combined class, because a split can
+   narrow suppression to a subset of sides for one of its children — see
+   ContentRendererProps.suppressBorderLeft/Right/Bottom and SplitRenderer's
+   childEdgeProps. A single pane that IS a tabs-group's whole tab
+   content still gets all three classes, same net effect as the old combined
+   rule; the split path is what needed the split. Each rule sets only its own
+   side's longhand — the old combined rule's `border: none` shorthand reset
+   all four sides at once, which is exactly wrong here: applying two of these
+   three classes together must leave the third side's `.pane` border (top
+   included) alone. */
+.pane-suppress-left {
+  border-left: none;
+}
+
+.pane-suppress-right {
+  border-right: none;
+}
+
+.pane-suppress-bottom {
+  border-bottom: none;
 }
 
 /* The active pane's only marker: a 1px accent outline around its *content*,
    starting below its own chrome bar. Excluding the bar is the point — the
-   bar's own border-top (a plain pane's, or `.pane-border-top-only`'s) stays
-   the neutral color, so activating a pane never recolors chrome, only the
+   bar's own border-top (drawn regardless of whether left/right/bottom are
+   suppressed via `.pane-suppress-left/-right/-bottom`) stays the neutral
+   color, so activating a pane never recolors chrome, only the
    content edge below it.
 
    The negative insets are what keep it from *adding* a line: they pull the
@@ -1003,6 +1022,13 @@ body {
 
 /* --- Splits --- */
 
+/* Sizing only — the overflow/clip behavior for both of these lives in
+   SplitRenderer.tsx's SPLIT_CLIP_STYLE, passed as a `style` prop to
+   <Group>/<Panel> rather than declared here. react-resizable-panels sets its
+   own inline `overflow` on both of these exact elements, which a stylesheet
+   rule can never beat — an `overflow: hidden` used to sit here for
+   `.split-pane` and never actually applied, for that reason; see
+   SPLIT_CLIP_STYLE's comment for what it's replaced by and why. */
 .split-view {
   height: 100%;
   width: 100%;
@@ -1011,7 +1037,6 @@ body {
 .split-pane {
   height: 100%;
   width: 100%;
-  overflow: hidden;
 }
 
 .split-pane > * {
@@ -1701,9 +1726,9 @@ body {
 
 /* A real dimming backdrop, unlike .context-menu-backdrop's invisible one:
    this overlay is meant to read as a persistent modal (it doesn't
-   auto-dismiss), not a transient menu, so it darkens what's behind it.
-   Above every other window-level overlay — see the stacking-order comment on
-   .pane-header-dropdown above. */
+   auto-dismiss), not a transient menu, so it darkens what's behind it. Above
+   every other window-level overlay except the tooltip (2200, below) — see
+   the stacking-order comment on .pane-header-dropdown above. */
 .command-palette-backdrop {
   position: fixed;
   inset: 0;
@@ -1779,6 +1804,40 @@ body {
   padding: 10px;
   font-size: 12px;
   color: color-mix(in srgb, var(--text) 65%, transparent);
+}
+
+/* --- Tooltip (see Tooltip.tsx) --- */
+
+/* Adds no box: the button inside becomes, for layout purposes, exactly as
+   if it were unwrapped — see Tooltip.tsx's own comment for why that has to
+   be true of every call site (a `.tab`'s flex gap, `.pane-header-controls`'s
+   hover-reveal keyed off direct children, and so on). */
+.tooltip-trigger {
+  display: contents;
+}
+
+/* Portaled to document.body (see Tooltip.tsx), so this never inherits a
+   stacking context from wherever its trigger happens to live — no nested
+   bar, dropdown, or floating window can trap it the way .pane-header-dropdown
+   can be trapped by a stacking context on .tab-bar. Above every other
+   overlay in the app, command palette included: whatever else is open, a
+   tooltip still has to win against it or it isn't a tooltip. `transition`
+   only touches opacity — position is set once, pre-clamped, on the same
+   frame the bubble is measured (see TooltipBubble), so animating it too
+   would just animate a jump that was never meant to be seen. */
+.tooltip-bubble {
+  position: fixed;
+  z-index: 2200;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgb(var(--shadow-rgb) / calc(0.35 * var(--shadow-strength)));
+  transition: opacity 0.1s ease;
 }
 
 /* --- Floating panes --- */

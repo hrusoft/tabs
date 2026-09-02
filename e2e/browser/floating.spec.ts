@@ -386,6 +386,24 @@ test('a whole tab group can be unpinned and re-pinned, tabs intact', async ({ pa
   await expect(dockedRoot(page).getByRole('tablist').last().getByRole('tab')).toHaveCount(2)
 })
 
+test("unpinning the docked root's own tab bar is declined", async ({ page }) => {
+  // The root's own chrome menu offered "Unpin" the same as any nested
+  // group's — selecting it used to lift the *entire* docked layout into one
+  // floating window and leave the root a single fresh empty placeholder,
+  // since the root has no parent to detach from (issue #8).
+  await splitHorizontal(initialPane(page))
+  const bar = headerOf(rootPane(page))
+  // Playwright's default click point is the box's centre: the empty stretch
+  // of the strip between the single tab / New tab button and the header's
+  // own controls, well clear of both — no `.tab` there to swallow the
+  // right-click with its own (unrelated) content-unpin entry.
+  await bar.click({ button: 'right' })
+  await expect(page.getByTestId('context-menu')).toHaveCount(0)
+  await expect(floatingWindows(page)).toHaveCount(0)
+  // Root's own wrapper, plus the split's two children — untouched.
+  await expect(dockedPanes(page)).toHaveCount(3)
+})
+
 /**
  * Where a *new* unpinned pane spawns follows the newUnpinnedPanePosition
  * setting, so every test below states the position it is about rather than

@@ -22,6 +22,7 @@ import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState }
 import { flushSync } from 'react-dom'
 import { platform } from '../core/platform'
 import { useSettingsStore } from '../core/store/settingsStore'
+import { IconButton } from '../IconButton'
 
 /** Keys that only ever modify another key — held down while a combination is being formed. */
 const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'AltGraph'])
@@ -318,11 +319,10 @@ export function KeyboardSettings() {
             onBlur={() => setSearchFocused(false)}
             onKeyDown={handleSearchKeyDown}
           />
-          <button
-            type="button"
+          <IconButton
+            label="Clear search"
+            testId="settings-shortcut-search-clear"
             className="settings-search-clear"
-            data-testid="settings-shortcut-search-clear"
-            aria-label="Clear search"
             disabled={query === ''}
             onClick={() => {
               setQuery('')
@@ -330,7 +330,7 @@ export function KeyboardSettings() {
             }}
           >
             ×
-          </button>
+          </IconButton>
         </div>
       </section>
       <section className="settings-section">

@@ -1,6 +1,6 @@
 {
   "name": "tabs",
-  "version": "2026.09.02",
+  "version": "2026.09.02.1959",
   "description": "Tabs — a recursive tab manager for arbitrary content",
   "type": "module",
   "main": "./out/main/index.js",

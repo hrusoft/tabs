@@ -9,6 +9,7 @@ import { useContextMenuStore } from '../../core/store/contextMenuStore'
 import { useDragStore } from '../../core/store/dragStore'
 import { useLayoutStore } from '../../core/store/layoutStore'
 import { useSettingsStore } from '../../core/store/settingsStore'
+import { IconButton } from '../../IconButton'
 import { CueIcon } from '../CueIcon'
 import { confirmClosingContent } from '../closeConfirmation'
 import { startTabDrag } from '../dragController'
@@ -104,7 +105,11 @@ export function TabBar({ group }: { group: TabsContent }) {
       onContextMenu={(event) => {
         event.preventDefault()
         event.stopPropagation()
-        const pin = pinOrUnpinItem(floating, group.id)
+        // The root has no parent to detach from — unpinning it would lift
+        // every tab in the window into one floating pane and leave a bare
+        // placeholder behind — so, like Ungroup below, the entry never
+        // appears on its bar; the store refuses it too (see `unpinPane`).
+        const pin = isRoot ? null : pinOrUnpinItem(floating, group.id)
         const items = pin ? [pin] : []
         // Ungrouping the root would leave the window with no tab group at
         // all — its own bar has nowhere to unwrap to (see ensureTabsRoot in
@@ -199,10 +204,9 @@ export function TabBar({ group }: { group: TabsContent }) {
                     <span className="tab-title" onDoubleClick={() => setEditingTabId(tab.id)}>
                       {tab.title}
                     </span>
-                    <button
-                      type="button"
+                    <IconButton
+                      label={`Close ${tab.title}`}
                       className="tab-close"
-                      aria-label={`Close ${tab.title}`}
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation()
@@ -210,7 +214,7 @@ export function TabBar({ group }: { group: TabsContent }) {
                       }}
                     >
                       ×
-                    </button>
+                    </IconButton>
                   </>
                 )}
               </div>

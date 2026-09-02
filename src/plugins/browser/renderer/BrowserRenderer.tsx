@@ -3,7 +3,7 @@ import type { LeafContent } from '@shared/model/types'
 import type { RingLog } from '@shared/ringLog'
 import type { WebviewTag } from 'electron'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ContentRendererProps } from '../../../renderer/src/plugin/api'
+import { type ContentRendererProps, IconButton } from '../../../renderer/src/plugin/api'
 import { BrowserGuestMethod } from '../shared/ipc'
 import { resolveAddressInput } from './addressInput'
 import { BackIcon, ForwardIcon, RefreshIcon } from './browserIcons'
@@ -342,35 +342,32 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
   return (
     <div className="browser-container" data-testid="browser">
       <div className="browser-toolbar">
-        <button
-          type="button"
+        <IconButton
+          label="Back"
+          testId="browser-back-button"
           className="pane-header-button"
-          data-testid="browser-back-button"
-          aria-label="Back"
           disabled={!canGoBack}
           onClick={() => webviewRef.current?.goBack()}
         >
           <BackIcon />
-        </button>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
+          label="Forward"
+          testId="browser-forward-button"
           className="pane-header-button"
-          data-testid="browser-forward-button"
-          aria-label="Forward"
           disabled={!canGoForward}
           onClick={() => webviewRef.current?.goForward()}
         >
           <ForwardIcon />
-        </button>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
+          label="Refresh"
+          testId="browser-refresh-button"
           className="pane-header-button"
-          data-testid="browser-refresh-button"
-          aria-label="Refresh"
           onClick={() => webviewRef.current?.reload()}
         >
           <RefreshIcon />
-        </button>
+        </IconButton>
         <input
           ref={addressInputRef}
           type="text"

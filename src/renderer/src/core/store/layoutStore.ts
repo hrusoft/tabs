@@ -535,16 +535,21 @@ export const useLayoutStore = create<LayoutState>()((set) => ({
     ),
   unpinPane: (nodeId, rect) =>
     set((state) => {
+      // The docked root has no parent to detach from — floating it would lift
+      // every tab in the window into one floating pane and leave the docked
+      // area a single fresh placeholder. Refused here as the backstop, same
+      // as ungroupTabs/closePane/clearPane for the identical hazard; the
+      // chrome menu also hides the entry for the root (see pinOrUnpinItem).
+      if (nodeId === state.root.id) return state
       // Only docked panes float: `detachForFloat` resolves against the docked
       // root alone, so a node already inside a window comes back null.
       const result = detachForFloat(state.root, nodeId, clampRect(rect, viewportSize()))
       if (!result) return state
       // Appended last, so the newest window starts on top.
       const floating = [...state.floating, result.floating]
-      // Unpinning the docked root itself (there's nothing stopping that —
-      // Unpin has no root guard) leaves the same bare placeholder `removeNode`
-      // falls back to when the root is removed; re-wrap it like every other
-      // docked-root mutation (see `withOwner`), which this bypasses entirely.
+      // Re-wrap like every other docked-root mutation (see `withOwner`, which
+      // this bypasses entirely): the root itself can no longer reach here,
+      // but floating the last content of the root group still collapses it.
       const root = ensureRootGroup(result.root)
       // The pane survives by reference and keeps focus in its new place — the
       // same policy `dockPane` follows.

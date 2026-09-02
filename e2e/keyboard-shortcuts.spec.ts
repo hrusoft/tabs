@@ -100,6 +100,27 @@ test('clearing a binding leaves the item in the menu with no accelerator', async
   await clickMenuItem(electronApp, 'Clear Buffer', page)
 })
 
+/**
+ * Real hover coverage for the search box's Clear button — Tooltip.tsx's
+ * bubble, not the native `title` (see Tooltip.tsx for why that is neither
+ * reliable nor verifiable here). The Settings window is its own entry point
+ * (settings-main.tsx, no `registerBuiltins`), so this can't be covered
+ * against the non-Electron harness the way the pane-header/tab-strip cases
+ * are in e2e/browser/tooltip.spec.ts.
+ */
+test("the search box's Clear button carries a hover tooltip", async ({ page, electronApp }) => {
+  const settingsPage = await openSettingsTab(electronApp, page, 'keyboard')
+  const clearButton = settingsPage.getByTestId('settings-shortcut-search-clear')
+  const bubble = settingsPage.getByTestId('tooltip-bubble')
+
+  await settingsPage.getByTestId('settings-shortcut-search').fill('split')
+  await expect(clearButton).toBeEnabled()
+
+  await clearButton.hover()
+  await expect(bubble).toBeVisible()
+  await expect(bubble).toHaveText('Clear search')
+})
+
 // The reason capture mode exists at all: macOS matches a menu key equivalent
 // before the keystroke reaches any renderer, so without suspension the
 // recorder could never observe the combinations already bound to menu items.
