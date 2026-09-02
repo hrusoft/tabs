@@ -69,14 +69,14 @@ test('fullscreen collapses the root bar into an ordinary tab bar', async ({
     })
 
   // Out of fullscreen: the traffic-light gutter plus the taller title-bar
-  // height (28px — see trafficLightPosition in main/windows.ts). The initial
+  // height (30px — see trafficLightPosition in main/windows.ts). The initial
   // read also rides the real invoke channel end to end. (The `window.api`
   // typing lives in the renderer tsconfig; this spec compiles under the node
   // one, hence the cast.)
   expect(
     await page.evaluate(() => (window as unknown as { api: Api }).api.appWindow.isFullScreen())
   ).toBe(false)
-  expect(await barMetrics()).toEqual({ paddingLeft: '108px', height: '28px' })
+  expect(await barMetrics()).toEqual({ paddingLeft: '108px', height: '30px' })
 
   // The change event over the real channel and preload bridge — this is the
   // real-IPC coverage for appWindow.onFullScreenChange (see ipc-smoke.spec.ts's
@@ -98,5 +98,5 @@ test('fullscreen collapses the root bar into an ordinary tab bar', async ({
   await expect.poll(barMetrics).toEqual({ paddingLeft: '7px', height: '24px' })
 
   await send(false)
-  await expect.poll(barMetrics).toEqual({ paddingLeft: '108px', height: '28px' })
+  await expect.poll(barMetrics).toEqual({ paddingLeft: '108px', height: '30px' })
 })

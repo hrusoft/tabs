@@ -24,18 +24,18 @@
 
   <!-- fanned tabs -->
   <g>
-    <!-- back-left tab: cream/pink -->
-    <g transform="translate(420 520) rotate(-12) scale(1 0.9) translate(-420 -520)">
+    <!-- back-left tab: red -->
+    <g transform="translate(420 520) rotate(-12) scale(1 0.9) translate(-420 -520)" opacity="0.8">
       <rect x="190" y="268" width="460" height="504" rx="70" ry="70"
-            fill="#FFFBF5" stroke="#E3A9C4" stroke-width="8" />
-      <rect x="218" y="296" width="404" height="90" rx="36" ry="36" fill="#FFC9DE" />
+            fill="#FFDCDC" stroke="#E2574F" stroke-width="8" />
+      <rect x="218" y="296" width="404" height="90" rx="36" ry="36" fill="#EF5350" />
     </g>
 
-    <!-- back-right tab: mint -->
-    <g transform="translate(604 520) rotate(12) scale(1 0.9) translate(-604 -520)">
+    <!-- back-right tab: green -->
+    <g transform="translate(604 520) rotate(12) scale(1 0.9) translate(-604 -520)" opacity="0.8">
       <rect x="374" y="268" width="460" height="504" rx="70" ry="70"
-            fill="#C9F5E4" stroke="#8FDDC0" stroke-width="8" />
-      <rect x="402" y="296" width="404" height="90" rx="36" ry="36" fill="#7FD1B3" />
+            fill="#D7F5DC" stroke="#4CAF50" stroke-width="8" />
+      <rect x="402" y="296" width="404" height="90" rx="36" ry="36" fill="#43A047" />
     </g>
 
     <!-- front-center tab: peach, active — bolder border matching its own title/chevron
@@ -48,8 +48,8 @@
       <rect x="310" y="288" width="404" height="90" rx="36" ry="36" fill="#F2A73D" />
 
       <!-- terminal-prompt chevron in the content area -->
-      <polyline points="350,410 462,490 350,570"
-                fill="none" stroke="#F2A73D" stroke-width="44"
+      <polyline points="450.4,422.0 573.6,510.0 450.4,598.0"
+                fill="none" stroke="#F2A73D" stroke-width="48.4"
                 stroke-linecap="round" stroke-linejoin="round" />
     </g>
   </g>

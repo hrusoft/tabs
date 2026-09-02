@@ -92,7 +92,7 @@ test('the Settings window wears the same custom title bar height as the main win
 
   // Guards the comparison against passing vacuously on two unstyled bars.
   expect(main.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
-  expect(main.height).toBe('28px')
+  expect(main.height).toBe('30px')
 
   expect(settings.height).toBe(main.height)
   // Without this the Settings window would be unmovable: hiding the native
@@ -105,7 +105,7 @@ test('the Settings window wears the same custom title bar height as the main win
  * The other half of the same change, and the half that can only be seen from
  * the main process: the native title bar is gone, so the web contents fill the
  * whole window. Stated as a relationship between the two windows — a stock
- * macOS frame would make the content ~28px shorter than the window.
+ * macOS frame would make the content ~30px shorter than the window.
  */
 test('neither window has a native title bar above its web contents', async ({
   page,
