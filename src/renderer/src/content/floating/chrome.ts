@@ -37,8 +37,12 @@ export function chromePointerDown(
  * The chrome menu's Pin/Unpin entry: Pin for a floating window's own chrome,
  * Unpin for a docked node, and nothing for a node nested inside a floating
  * window — the store rejects unpinning those (see `unpinPane`), and no entry
- * beats a dead one. `originId` names the node to measure when the unpinned
- * node has no rect of its own (a backgrounded tab's content).
+ * beats a dead one. The docked root's own bar is the one docked node that
+ * must not offer Unpin either (no parent to detach from), and it excludes
+ * itself at the call site in `TabBar.tsx`, beside its `Ungroup` exclusion —
+ * the only chrome host that can ever be the root. `originId` names the node
+ * to measure when the unpinned node has no rect of its own (a backgrounded
+ * tab's content).
  */
 export function pinOrUnpinItem(
   floating: FloatingWindowContext | null,

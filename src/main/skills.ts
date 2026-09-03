@@ -13,15 +13,21 @@ interface SkillInstallTargetDef {
 }
 
 /**
- * Every agent this skill can be installed into. Claude Code is the only
- * entry for now; adding another agent later is just adding a row here, not
- * touching installSkill/getSkillStatus.
+ * Every agent this skill can be installed into. Adding another agent is just
+ * adding a row here — installSkill/uninstallSkill/getSkillStatus stay
+ * generic over the list, and so does the Settings window's AI tab, which
+ * renders one row per entry.
  */
 const TARGETS: SkillInstallTargetDef[] = [
   {
     id: 'claude-code',
     label: 'Claude Code',
     targetDir: () => join(homedir(), '.claude', 'skills', 'tabs')
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    targetDir: () => join(homedir(), '.agents', 'skills', 'tabs')
   }
 ]
 

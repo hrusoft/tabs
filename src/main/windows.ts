@@ -41,7 +41,7 @@ import { themeWindowBackground } from './theme'
  */
 const hiddenTitleBar =
   process.platform === 'darwin'
-    ? ({ titleBarStyle: 'hidden', trafficLightPosition: { x: 11, y: 9 } } as const)
+    ? ({ titleBarStyle: 'hidden', trafficLightPosition: { x: 14, y: 9 } } as const)
     : {}
 
 let settingsWindow: BrowserWindow | null = null

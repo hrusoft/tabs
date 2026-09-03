@@ -113,7 +113,7 @@ test("a disabled type's settings page leaves the sidebar, and comes back on re-e
   // Core's own pages are not content types and are never filtered.
   await expect(settingsPage.getByTestId('settings-tab-general')).toBeVisible()
   await expect(settingsPage.getByTestId('settings-tab-keyboard')).toBeVisible()
-  await expect(settingsPage.getByTestId('settings-tab-skills')).toBeVisible()
+  await expect(settingsPage.getByTestId('settings-tab-ai')).toBeVisible()
 
   await settingsPage.getByTestId(CONTENT_TYPE_ROW.terminal).check()
   await expect(settingsPage.getByTestId('settings-tab-terminal')).toBeVisible()

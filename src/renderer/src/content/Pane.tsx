@@ -59,14 +59,18 @@ const DOCK_PREVIEW_RECTS: Record<DockZone, CSSProperties> = {
 export function Pane({
   node,
   children,
-  border = 'full',
+  suppressBorderLeft,
+  suppressBorderRight,
+  suppressBorderBottom,
   cornerLeft,
   cornerRight
 }: {
   node: ContentNode
   children: ReactNode
-  /** See ContentView's `insideTabsContent` doc — 'top-only' for any node reached directly as another tabs-group's tab content (no split in between). */
-  border?: 'full' | 'top-only'
+  /** See ContentRendererProps — suppresses that side's own border because this pane sits flush against an ancestor's, with no real seam there yet. */
+  suppressBorderLeft?: boolean | undefined
+  suppressBorderRight?: boolean | undefined
+  suppressBorderBottom?: boolean | undefined
   /** See ContentRendererProps — whether *this* pane sits at the window's true bottom-left/bottom-right corner. */
   cornerLeft?: boolean | undefined
   cornerRight?: boolean | undefined
@@ -119,7 +123,9 @@ export function Pane({
   if (enableControlIndicator && isControlled) classNames.push('pane-controlled')
   if (isDragSource) classNames.push('pane-dragging')
   if (isDimmed) classNames.push('pane-dimmed')
-  if (border === 'top-only') classNames.push('pane-border-top-only')
+  if (suppressBorderLeft) classNames.push('pane-suppress-left')
+  if (suppressBorderRight) classNames.push('pane-suppress-right')
+  if (suppressBorderBottom) classNames.push('pane-suppress-bottom')
   // `--dim-intensity` is only set while dimmed — the CSS falls back to a
   // default when absent, and there's no reason to spend the property on every
   // non-dimmed pane. The docked root's taller chrome bar is not set here:

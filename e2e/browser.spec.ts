@@ -51,6 +51,40 @@ test('the pane window loads the browser pane stylesheet', async ({ page }) => {
   await expect(browser.locator('.browser-toolbar')).toHaveCSS('height', '28px')
 })
 
+/**
+ * Back/Forward/Refresh are icon-only, so `aria-label` alone left them with
+ * no visible hint at all. The coverage is Tooltip.tsx's own hover bubble —
+ * ordinary page content this suite can see, where a bare `title` is native
+ * chrome that CDP-driven automation cannot verify either way (and see
+ * Tooltip.tsx for why it is unreliable here regardless). The same interaction
+ * is covered against plain Chromium in e2e/browser/tooltip.spec.ts, but
+ * BrowserRenderer needs a real `<webview>` and cannot render in that tier.
+ *
+ * Back starts disabled (nothing to go back to on a fresh pane) — exactly the
+ * case where naming the button matters most, and not automatic: Tooltip.tsx's
+ * hover listeners sit on a wrapper around the button, not on the disabled
+ * button itself, so a disabled button's hover still reaching them is pinned
+ * here too.
+ */
+test('the toolbar buttons carry a hover tooltip naming what they do, disabled or not', async ({
+  page
+}) => {
+  const browser = await openBrowser(initialPane(page))
+  const bubble = page.getByTestId('tooltip-bubble')
+
+  const back = browser.getByTestId('browser-back-button')
+  await expect(back).toBeDisabled()
+  await back.hover()
+  await expect(bubble).toBeVisible()
+  await expect(bubble).toHaveText('Back')
+
+  await browser.getByTestId('browser-forward-button').hover()
+  await expect(bubble).toHaveText('Forward')
+
+  await browser.getByTestId('browser-refresh-button').hover()
+  await expect(bubble).toHaveText('Refresh')
+})
+
 test('typing a URL and pressing Enter navigates, and the page title updates the pane header', async ({
   page
 }) => {

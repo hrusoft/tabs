@@ -39,6 +39,12 @@ export type {
   ContentRendererProps,
   PaneCreationAction
 } from '../core/registry/registry'
+// The labeled icon-only button (see IconButton.tsx) — pure and core-stateless
+// like the exports above, so it rides the same rule: a package's icon-only
+// buttons are IconButtons exactly as core's are, rather than a second
+// implementation or a bare `title` (see Tooltip.tsx for why that alone is
+// not enough on this app's pinned Electron version).
+export { IconButton } from '../IconButton'
 // A package's typed view of its own settings blob. A stateless factory, like
 // createReattachRegistry above — the state it makes is the package's own.
 export { createTypedSettingsAccess, type TypedSettingsAccess } from './typedSettings'

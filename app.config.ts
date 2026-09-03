@@ -46,9 +46,9 @@ export const appConfig = {
      * here is a compile error there rather than a silently missing link.
      */
     paymentLinks: {
-      coffee: 'https://donate.stripe.com/test_cNicMY4x3gvJ2cY8tmcIE00',
-      beans: 'https://donate.stripe.com/test_4gMfZa3sZ0wLeZK7picIE01',
-      grinder: 'https://donate.stripe.com/test_8x26oAd3zdjxg3O5hacIE02'
+      coffee: 'https://donate.stripe.com/4gMeV67Jgb5XfgU6C31Jm02',
+      beans: 'https://donate.stripe.com/14A00c4x40rj8Sw0dF1Jm00',
+      grinder: 'https://donate.stripe.com/fZu3cobZw4HzfgUgcD1Jm01'
     },
     /**
      * Keyed by chain id, read the same way. The placeholders are not valid

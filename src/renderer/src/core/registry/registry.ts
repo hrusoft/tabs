@@ -12,8 +12,7 @@ export interface ContentRendererProps<N extends ContentNode = ContentNode> {
    * `--pane-corner-radius-left/-right` in global.css). Only `TabsRenderer`
    * and `SplitRenderer` read these — every other content type ignores them.
    *
-   * Threaded top-down like `insideTabsContent`, computed once in
-   * `SplitRenderer` per child (`TabsRenderer` passes both straight through
+   * Threaded top-down, computed once in `SplitRenderer` per child (`TabsRenderer` passes both straight through
    * unchanged, since a tabs-group's revealed content is always exactly as
    * wide as its bar) rather than left for CSS to reconstruct: a plain CSS
    * inheritance/selector chain has no way to *reset* a value it never had a
@@ -27,6 +26,27 @@ export interface ContentRendererProps<N extends ContentNode = ContentNode> {
    */
   cornerLeft?: boolean | undefined
   cornerRight?: boolean | undefined
+  /**
+   * Whether this node's own eventual `.pane` should suppress its border on
+   * that side because it sits flush against an ancestor tabs-group's own
+   * border, with no split having introduced a real seam there yet. Starts
+   * as all three `true` at a `TabsRenderer`'s tab content — set there for
+   * every tab, whatever the content's type: suppression is positional, never
+   * by node type — and must be threaded through a `split` the same way
+   * cornerLeft/cornerRight are — a split
+   * contributes no `.pane` of its own to reset a value at, so `SplitRenderer`
+   * derives each child's flags from its own (per axis: the side(s) that
+   * child's edge doesn't actually touch flip to `false`, since that's now a
+   * real seam against a sibling). Getting this wrong either direction is
+   * visible: never deriving it (the bug this fixed — a lone pane's content
+   * shifted a pixel the moment it was split, because the surviving pane
+   * suddenly drew a border on sides that used to be flush with its tabs-
+   * group's own) or deriving it unconditionally (double-suppressing a real
+   * seam between two split siblings, collapsing their divider to 0px).
+   */
+  suppressBorderLeft?: boolean | undefined
+  suppressBorderRight?: boolean | undefined
+  suppressBorderBottom?: boolean | undefined
 }
 
 /**
