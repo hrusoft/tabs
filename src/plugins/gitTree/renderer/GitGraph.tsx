@@ -63,11 +63,14 @@ function curve(fromLane: number, toLane: number, fromY: number, toY: number): st
 export function GitGraph({
   row,
   laneCount,
-  selected
+  selected,
+  isHead
 }: {
   row: GraphRow
   laneCount: number
   selected: boolean
+  /** Whether HEAD points at this row's commit — the row decides, since it badges the same fact in its ref pills. */
+  isHead: boolean
 }) {
   const width = Math.max(laneCount, 1) * LANE_WIDTH
   const centerY = ROW_HEIGHT / 2
@@ -120,6 +123,21 @@ export function GitGraph({
         stroke={laneColor(row.lane)}
         strokeWidth={1.5}
       />
+      {/* A second, larger ring around the commit HEAD points at — a mark on
+          the dot itself, distinct from selection (which fills the dot) and
+          from the ref pills (which sit off in the subject text and can
+          scroll out of view on a narrow pane). Sized to stay inside a single
+          lane's width so it never overlaps a neighbouring lane's line. */}
+      {isHead && (
+        <circle
+          cx={laneX(row.lane)}
+          cy={centerY}
+          r={RADIUS + 1.5}
+          fill="none"
+          stroke={laneColor(row.lane)}
+          strokeWidth={1.5}
+        />
+      )}
     </svg>
   )
 }

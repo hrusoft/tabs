@@ -54,8 +54,9 @@ test("the palette steals keyboard focus from a browser pane's guest, so arrow/En
 }) => {
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
-  const browser = await openBrowser(panes.nth(2))
-  await navigateTo(browser, dataPage('Probe'))
+  const browserPane = panes.nth(2)
+  await openBrowser(browserPane)
+  await navigateTo(browserPane, dataPage('Probe'))
 
   // A real click inside the guest's own content — not the address bar —
   // hands it real DOM focus via click-to-activate.

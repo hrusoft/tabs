@@ -7,10 +7,16 @@ import {
 export interface GitTreeSettings {
   /** Whether an active git tree pane re-reads its log when it (or the window) regains focus. See GitTreeRenderer.tsx. */
   autoRefreshOnFocus: boolean
+  /** Whether the commit list shows an author column. Off by default — the graph, hash and message are the only always-shown columns. */
+  showAuthorColumn: boolean
+  /** Whether the commit list shows a date column. Off by default, same reasoning as showAuthorColumn. */
+  showDateColumn: boolean
 }
 
 export const DEFAULT_GIT_TREE_SETTINGS: GitTreeSettings = {
-  autoRefreshOnFocus: false
+  autoRefreshOnFocus: false,
+  showAuthorColumn: false,
+  showDateColumn: false
 }
 
 /** Total merge of a persisted git tree blob over the defaults — see the descriptor contract. */

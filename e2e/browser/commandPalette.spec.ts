@@ -10,7 +10,7 @@ import { emitSettingsChange, expect, fireShortcut, test } from './helpers/harnes
  * e2e/commandPalette.spec.ts.
  *
  * The default harness registers exactly one creation-capable content type;
- * the hover/highlight test opts into a second through `extraContentType`
+ * the hover/highlight test opts into a second through `extraContentTypes`
  * (see empty-pane-toolbar.spec.ts for the same pattern) so there is a second
  * item to hover past the first.
  */
@@ -62,7 +62,7 @@ test('renders above a floating window', async ({ page }) => {
 })
 
 test.describe('a row of two content types', () => {
-  test.use({ extraContentType: true })
+  test.use({ extraContentTypes: ['second'] })
 
   test('hovering the second item highlights it, and clicking it advances the step', async ({
     page

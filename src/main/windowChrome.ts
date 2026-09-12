@@ -1,12 +1,12 @@
 /**
  * macOS rounds a standard titled window's corners in the WindowServer
  * compositor, outside the app's own layer tree — there is no public AppKit or
- * Core Graphics call that hands the radius back (see CLAUDE.md's "how do I
- * find the curvature" entry). The active-pane outline (`--pane-corner-radius`
- * in global.css) needs a number anyway, so this is a hand-measured table
- * keyed by macOS major version — the same approach window-border tools like
- * FelixKratz's JankyBorders use for the identical problem of drawing an
- * accent outline that has to sweep into a corner it cannot query.
+ * Core Graphics call that hands the radius back. The active-pane outline
+ * (`--pane-corner-radius` in global.css) needs a number anyway, so this is a
+ * hand-measured table keyed by macOS major version — the same approach
+ * window-border tools like FelixKratz's JankyBorders use for the identical
+ * problem of drawing an accent outline that has to sweep into a corner it
+ * cannot query.
  *
  * Keyed by `process.getSystemVersion()`'s marketing version string ("15.5",
  * "26.6.2") — Electron's own note on that call is the reason it's used

@@ -484,3 +484,156 @@ test("the pane's title becomes the repository's own name", async () => {
     expect(JSON.stringify(useLayoutStore.getState().root)).toContain('"title":"tabs"')
   })
 })
+
+test('author and date columns are hidden by default', async () => {
+  await renderGitTree()
+
+  expect(screen.queryByTestId('git-tree-author')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('git-tree-date')).not.toBeInTheDocument()
+})
+
+test('the settings toggles show the author and date columns once enabled', async () => {
+  window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo' })
+  renderApp({
+    root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
+    settings: {
+      disabledContentTypes: [],
+      contentTypes: { gitTree: { showAuthorColumn: true, showDateColumn: true } }
+    }
+  })
+  await screen.findByTestId('git-tree-list')
+
+  expect(screen.getAllByTestId('git-tree-author')).toHaveLength(4)
+  expect(screen.getAllByTestId('git-tree-date')).toHaveLength(4)
+  expect(rows()[0]).toHaveTextContent('Ann')
+})
+
+test('the branch-scope select offers the three filters and defaults to all branches', async () => {
+  await renderGitTree()
+
+  const select = screen.getByTestId('git-tree-branch-scope') as HTMLSelectElement
+  expect(select.value).toBe('all')
+  const options = within(select)
+    .getAllByRole('option')
+    .map((option) => (option as HTMLOptionElement).value)
+  expect(options).toEqual(['current', 'local', 'all'])
+})
+
+test('choosing a branch scope re-reads the log with it and persists it to the pane', async () => {
+  await renderGitTree()
+  const user = userEvent.setup()
+
+  await user.selectOptions(screen.getByTestId('git-tree-branch-scope'), 'local')
+
+  await waitFor(() => {
+    expect(window.__fakeApi?.gitTreeLogScopes().at(-1)).toBe('local')
+  })
+  expect(JSON.stringify(useLayoutStore.getState().root)).toContain('"branchScope":"local"')
+})
+
+test('a pane restored with a branch scope already chosen opens reading it', async () => {
+  window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo' })
+  const leaf = createLeaf(GIT_TREE_TYPE, { cwd: '/repo', branchScope: 'current' })
+  renderApp({ root: leaf, settings: { disabledContentTypes: [] } })
+  await screen.findByTestId('git-tree-list')
+
+  expect((screen.getByTestId('git-tree-branch-scope') as HTMLSelectElement).value).toBe('current')
+  await waitFor(() => {
+    expect(window.__fakeApi?.gitTreeLogScopes().at(-1)).toBe('current')
+  })
+})
+
+/** Finds the working-tree row by its sentinel `data-hash=""`, the same way the app does. */
+function workingTreeRow(): HTMLElement | undefined {
+  return rows().find((row) => row.getAttribute('data-hash') === '')
+}
+
+test('uncommitted changes render as a dimmed row connected into the graph above HEAD', async () => {
+  window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo', hasUncommittedChanges: true })
+  renderApp({
+    root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
+    settings: { disabledContentTypes: [] }
+  })
+  await screen.findByTestId('git-tree-list')
+
+  // A real fifth row now, not a separate decoration — same testid, same
+  // gutter width as every other row (laneCount is a single shared value), and
+  // an outgoing line down into HEAD's own dot below it.
+  expect(rows()).toHaveLength(5)
+  const workingTree = workingTreeRow()
+  expect(workingTree).toBeDefined()
+  expect(workingTree).toHaveTextContent('Uncommitted changes')
+  expect(workingTree).toHaveClass('git-tree-row-phantom')
+  expect(workingTree?.querySelector('.git-tree-hash')).toHaveTextContent('')
+  const headRowWidth = rows()[1]!.querySelector('svg')?.getAttribute('width')
+  expect(headRowWidth).toBe('24')
+  expect(workingTree?.querySelector('svg')).toHaveAttribute('width', headRowWidth!)
+  expect(workingTree?.querySelector('svg path')).toBeTruthy()
+
+  // Selectable — an ordinary listbox option, not decoration.
+  expect(workingTree).toHaveAttribute('role', 'option')
+  // A dirty tree doesn't reroute the default selection away from real
+  // history; the newest real commit is still what opens selected.
+  expect(selectedRow()).toBe(rows()[1])
+  expect(selectedRow()).toHaveTextContent('merge feature')
+})
+
+test('selecting the working-tree row shows its own changed files, like a commit', async () => {
+  window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo', hasUncommittedChanges: true })
+  window.__fakeApi?.setGitTreeWorkingTreeDetail({
+    hash: '',
+    parents: [MERGE],
+    author: '',
+    authorEmail: '',
+    date: '',
+    refs: [],
+    message: 'Uncommitted changes',
+    files: [{ path: 'src/a.ts', insertions: 4, deletions: 1 }],
+    filesTruncated: false
+  })
+  renderApp({
+    root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
+    settings: { disabledContentTypes: [] }
+  })
+  await screen.findByTestId('git-tree-list')
+  const user = userEvent.setup()
+
+  await user.click(workingTreeRow()!)
+
+  expect(selectedRow()).toBe(workingTreeRow())
+  expect(await screen.findByTestId('git-tree-message')).toHaveTextContent('Uncommitted changes')
+  // The file list, exactly the shape a real commit's detail uses.
+  expect(screen.getByTestId('git-tree-file')).toHaveTextContent('src/a.ts')
+  expect(screen.getByTestId('git-tree-file')).toHaveTextContent('+4')
+  expect(screen.getByTestId('git-tree-file')).toHaveTextContent('−1')
+  // No commit-only fields for something that isn't a commit — but the
+  // parent is shown, naming what it's based on.
+  expect(screen.queryByTestId('git-tree-detail-hash')).not.toBeInTheDocument()
+  expect(screen.getByTestId('git-tree-detail')).toHaveTextContent('Parent')
+  expect(screen.getByTestId('git-tree-detail')).toHaveTextContent(MERGE.slice(0, 7))
+})
+
+test('Home reaches the working-tree row, and arrow keys walk into and out of it', async () => {
+  window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo', hasUncommittedChanges: true })
+  renderApp({
+    root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
+    settings: { disabledContentTypes: [] }
+  })
+  await screen.findByTestId('git-tree-list')
+  const user = userEvent.setup()
+  await user.click(screen.getByTestId('git-tree-list'))
+
+  await user.keyboard('{Home}')
+  expect(selectedRow()).toBe(workingTreeRow())
+
+  await user.keyboard('{ArrowDown}')
+  expect(selectedRow()).toBe(rows()[1])
+  expect(selectedRow()).toHaveTextContent('merge feature')
+})
+
+test('no working-tree row when the working tree is clean', async () => {
+  await renderGitTree()
+
+  expect(workingTreeRow()).toBeUndefined()
+  expect(rows()).toHaveLength(4)
+})

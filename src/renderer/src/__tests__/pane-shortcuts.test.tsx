@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { expect, test } from 'vitest'
 import { unhandledShortcutActions } from '../content/paneShortcuts'
 import { dockedPanes, initialPane } from '../testing/domQueries'
-import { clickPaneButton } from '../testing/paneActions'
+import { fillEmptyPane } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
 
 test('every menu-forwarded shortcut action has a renderer handler', () => {
@@ -47,7 +47,7 @@ test('Cmd/Ctrl+T opens a new tab in the active pane, same as its + button', asyn
 test('Cmd/Ctrl+W closes the active pane, same as its × button', async () => {
   renderApp()
   const user = userEvent.setup()
-  await clickPaneButton(user, initialPane(), 'pane-new-stub-button')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
   expect(screen.getByTestId('stub-content')).toBeVisible()
 
   await act(async () => {

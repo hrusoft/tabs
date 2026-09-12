@@ -51,7 +51,7 @@ export function AboutWindow() {
           <p className="about-copyright">Copyright © 2026 Hrusoft. All rights reserved.</p>
         </section>
 
-        {/* Support first, credits last. The credit list is fourteen rows of
+        {/* Support first, credits last. The credit list is over a dozen rows of
             reference material nobody scrolls *to*, and putting it above the
             donation ask pushed that ask entirely below the fold of a window
             that does not resize. Acknowledgements at the bottom is also where
@@ -82,10 +82,7 @@ function AttributionsSection({ info }: { info: ReturnType<typeof useAppInfo> }) 
   return (
     <section className="about-section" data-testid="about-attributions">
       <h2 className="about-section-title">Built with</h2>
-      <p className="about-section-desc">
-        Tabs stands on these projects. Each is used under its own license, with my thanks to the
-        maintainers who keep them going.
-      </p>
+      <p className="about-section-desc">Tabs would not be possible without these projects.</p>
       <ul className="about-credits">
         {RUNTIME_COMPONENTS.map((component) => (
           <CreditItem

@@ -1,6 +1,6 @@
 import { NEW_TAB_TITLE, ROOT_TAB_TITLE } from '@shared/layout'
 import type { ContentNode } from '@shared/model/types'
-import { isEmpty, isSplit, isTabs } from '@shared/model/types'
+import { isEmpty, isLeaf } from '@shared/model/types'
 import { contentRegistry } from './registry'
 
 /** The registry-derived tab title, with `fallback` covering a content-less pane and an unregistered type alike. */
@@ -42,6 +42,6 @@ export function rootTabTitleForContent(node: ContentNode): string {
  * every render, unlike tab titles, which are assigned once at creation.
  */
 export function paneTitleForContent(node: ContentNode): string {
-  const title = !isTabs(node) && !isSplit(node) ? node.title : undefined
+  const title = isLeaf(node) ? node.title : undefined
   return title ?? contentRegistry.get(node.type)?.displayName ?? node.type
 }

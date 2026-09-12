@@ -67,6 +67,11 @@ test('fullscreen collapses the root bar into an ordinary tab bar', async ({
       const style = getComputedStyle(bar)
       return { paddingLeft: style.paddingLeft, height: style.height }
     })
+  // The gutter is a design value (global.css's --traffic-light-gutter), read
+  // back rather than restated so a retune is one edit.
+  const gutter = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--traffic-light-gutter').trim()
+  )
 
   // Out of fullscreen: the traffic-light gutter plus the taller title-bar
   // height (30px — see trafficLightPosition in main/windows.ts). The initial
@@ -76,7 +81,7 @@ test('fullscreen collapses the root bar into an ordinary tab bar', async ({
   expect(
     await page.evaluate(() => (window as unknown as { api: Api }).api.appWindow.isFullScreen())
   ).toBe(false)
-  expect(await barMetrics()).toEqual({ paddingLeft: '108px', height: '30px' })
+  expect(await barMetrics()).toEqual({ paddingLeft: gutter, height: '30px' })
 
   // The change event over the real channel and preload bridge — this is the
   // real-IPC coverage for appWindow.onFullScreenChange (see ipc-smoke.spec.ts's
@@ -98,5 +103,5 @@ test('fullscreen collapses the root bar into an ordinary tab bar', async ({
   await expect.poll(barMetrics).toEqual({ paddingLeft: '7px', height: '24px' })
 
   await send(false)
-  await expect.poll(barMetrics).toEqual({ paddingLeft: '108px', height: '30px' })
+  await expect.poll(barMetrics).toEqual({ paddingLeft: gutter, height: '30px' })
 })

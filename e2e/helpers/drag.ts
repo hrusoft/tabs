@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { centerOf, requireBox } from './geometry'
 
 /**
@@ -29,6 +29,23 @@ export async function grabAndHover(source: Locator, x: number, y: number): Promi
   await page.mouse.down()
   await page.mouse.move(from.x + 20, from.y + 10, { steps: 5 })
   await page.mouse.move(x, y, { steps: 10 })
+}
+
+/**
+ * The negative twin of `grabAndHover`: presses on `control` at its midpoint,
+ * drags well past the engage threshold, and asserts that no pane drag armed
+ * — for a header control (a button, an input, a select) whose press must
+ * stay its own rather than grabbing the drag handle beneath it. Releases
+ * before returning so the next gesture starts clean.
+ */
+export async function expectNoDragFrom(control: Locator): Promise<void> {
+  const page = control.page()
+  const from = centerOf(await requireBox(control))
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 60, from.y + 60, { steps: 8 })
+  await expect(page.locator('.drag-ghost')).toHaveCount(0)
+  await page.mouse.up()
 }
 
 /** `grabAndHover` aimed at the centre of `target` — the common "drag onto that pane" gesture. */

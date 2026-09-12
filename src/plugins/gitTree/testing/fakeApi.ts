@@ -1,7 +1,14 @@
 import type { FakeContentHost } from '@shared/testing/fakeApiHandle'
 import { GitTreeMethod } from '../shared/ipc'
 import type { GitTreeFakeHandle } from '../shared/testing'
-import type { Commit, CommitDetail, GitFailure, GitLogResult } from '../shared/types'
+import type {
+  Commit,
+  CommitDetail,
+  GitBranchScope,
+  GitFailure,
+  GitLogResult
+} from '../shared/types'
+import { UNCOMMITTED_CHANGES_HASH } from '../shared/types'
 
 /**
  * The git tree's fake main entry, installed into the fake content bridge,
@@ -21,11 +28,24 @@ export function installFake(host: FakeContentHost): GitTreeFakeHandle {
   let commits: Commit[] = []
   let root = '/repo'
   let hasMore = false
+  let hasUncommittedChanges = false
   let failure: GitFailure | undefined
   let defaultDirectory = '/repo'
   let chosenDirectory: string | undefined
   const details = new Map<string, CommitDetail>()
   const logCalls: string[] = []
+  const scopeCalls: GitBranchScope[] = []
+  let workingTreeDetail: CommitDetail = {
+    hash: UNCOMMITTED_CHANGES_HASH,
+    parents: [],
+    author: '',
+    authorEmail: '',
+    date: '',
+    refs: [],
+    message: 'Uncommitted changes',
+    files: [],
+    filesTruncated: false
+  }
 
   function detailFor(hash: string): CommitDetail | undefined {
     const explicit = details.get(hash)
@@ -45,8 +65,9 @@ export function installFake(host: FakeContentHost): GitTreeFakeHandle {
     }
   }
 
-  host.handle(GitTreeMethod.log, (dir, _limit, skip): GitLogResult => {
+  host.handle(GitTreeMethod.log, (dir, _limit, skip, branchScope): GitLogResult => {
     logCalls.push(dir as string)
+    scopeCalls.push(branchScope as GitBranchScope)
     if (failure) return { ok: false, reason: failure }
     const limit = _limit as number
     const from = skip as number
@@ -58,7 +79,8 @@ export function installFake(host: FakeContentHost): GitTreeFakeHandle {
       root,
       head: { kind: 'branch', name: 'main' },
       commits: page,
-      hasMore: hasMore || from + limit < commits.length
+      hasMore: hasMore || from + limit < commits.length,
+      hasUncommittedChanges
     }
   })
   host.handle(GitTreeMethod.commit, (_dir, hash) => {
@@ -67,6 +89,10 @@ export function installFake(host: FakeContentHost): GitTreeFakeHandle {
     return detail
       ? { ok: true, detail }
       : { ok: false, reason: { kind: 'failed', message: `no such commit ${String(hash)}` } }
+  })
+  host.handle(GitTreeMethod.workingTree, () => {
+    if (failure) return { ok: false, reason: failure }
+    return { ok: true, detail: workingTreeDetail }
   })
   host.handle(GitTreeMethod.defaultDirectory, () => defaultDirectory)
   host.handle(GitTreeMethod.chooseDirectory, () => chosenDirectory)
@@ -77,6 +103,7 @@ export function installFake(host: FakeContentHost): GitTreeFakeHandle {
       failure = undefined
       if (options?.root !== undefined) root = options.root
       hasMore = options?.hasMore ?? false
+      hasUncommittedChanges = options?.hasUncommittedChanges ?? false
     },
     setGitTreeFailure: (reason) => {
       failure = reason
@@ -84,12 +111,16 @@ export function installFake(host: FakeContentHost): GitTreeFakeHandle {
     setGitTreeCommitDetail: (hash, detail) => {
       details.set(hash, detail)
     },
+    setGitTreeWorkingTreeDetail: (detail) => {
+      workingTreeDetail = detail
+    },
     setGitTreeDefaultDirectory: (dir) => {
       defaultDirectory = dir
     },
     setGitTreeChosenDirectory: (dir) => {
       chosenDirectory = dir
     },
-    gitTreeLogCalls: () => [...logCalls]
+    gitTreeLogCalls: () => [...logCalls],
+    gitTreeLogScopes: () => [...scopeCalls]
   }
 }

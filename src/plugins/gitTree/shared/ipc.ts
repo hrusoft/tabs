@@ -8,6 +8,7 @@
 export const GitTreeMethod = {
   log: 'log',
   commit: 'commit',
+  workingTree: 'workingTree',
   defaultDirectory: 'defaultDirectory',
   chooseDirectory: 'chooseDirectory'
 } as const

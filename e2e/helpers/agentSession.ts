@@ -12,9 +12,8 @@ import type {
   PageElement
 } from '../../src/plugins/browser/shared/externalControl'
 import { PANE_ATTR } from '../../src/shared/paneDomAttrs'
-import { openBrowser } from './browser'
 import { expect } from './launch'
-import { closeInactiveRootTab, closePane, initialPane, paneById } from './pane'
+import { closeInactiveRootTab, closePane, createViaPalette, initialPane, paneById } from './pane'
 import { openSettingsTab } from './settings'
 import { openTerminal, typeAndEnter } from './terminal'
 
@@ -259,9 +258,22 @@ export async function closeAgentSession(page: Page, env: PaneEnv, paneId?: strin
   await closePane(paneById(page, env.TABS_PANE_ID))
 }
 
-/** A browser pane the user opened by hand — never targetable by an agent. */
-export async function openForeignPane(page: Page, env: PaneEnv): Promise<string> {
-  await openBrowser(paneById(page, env.TABS_PANE_ID))
+/**
+ * A browser pane the user opened by hand — never targetable by an agent.
+ * Opened beside `env`'s own terminal pane (which already holds a live shell,
+ * so there's no empty-pane toolbar to press — see `createViaPalette`).
+ */
+export async function openForeignPane(
+  electronApp: ElectronApplication,
+  page: Page,
+  env: PaneEnv
+): Promise<string> {
+  await createViaPalette(
+    electronApp,
+    page,
+    paneById(page, env.TABS_PANE_ID),
+    'pane-new-browser-button'
+  )
   const foreign = await page.locator(`[${PANE_ATTR.dock}]`).last().getAttribute(PANE_ATTR.dock)
   if (!foreign) throw new Error('could not find the hand-opened pane')
   return foreign
@@ -280,11 +292,12 @@ export async function openForeignPane(page: Page, env: PaneEnv): Promise<string>
  * refused with the ownership error.
  */
 export async function expectRefusedForForeignPane(
+  electronApp: ElectronApplication,
   page: Page,
   commands: (foreign: string) => string[][]
 ): Promise<void> {
   const { env } = await openAgentSession(page)
-  const foreign = await openForeignPane(page, env)
+  const foreign = await openForeignPane(electronApp, page, env)
   for (const args of commands(foreign)) {
     const response = await runTabsCtl(args, env)
     expect(response.ok, `${args[0]} should be refused`).toBe(false)

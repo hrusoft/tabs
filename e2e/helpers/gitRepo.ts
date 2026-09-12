@@ -56,7 +56,8 @@ function gitEnv(date: string): NodeJS.ProcessEnv {
   }
 }
 
-function git(cwd: string, args: string[], date = '2026-01-01T00:00:00+00:00'): void {
+/** Runs `git` in `cwd` with the pinned identity and dates — the one spawn path into git from this tier. */
+export function git(cwd: string, args: string[], date = '2026-01-01T00:00:00+00:00'): void {
   execFileSync('git', args, { cwd, env: gitEnv(date), stdio: 'pipe' })
 }
 
@@ -109,6 +110,45 @@ export function createRepoWithMerge(): string {
     ['merge', '-q', '--no-ff', 'feature', '-m', 'merge feature'],
     '2026-01-04T00:00:00+00:00'
   )
+  return dir
+}
+
+/**
+ * A repository whose three branch-filter scopes each answer differently:
+ *
+ *     main (current branch, HEAD): root commit only            → 1 commit
+ *     + local `feature` branch, unmerged: on feature            → 2 commits
+ *     + a remote-tracking ref, no local branch behind it: on remote → 3 commits
+ *
+ * The remote-tracking ref is written with `git update-ref` rather than a real
+ * clone+fetch — that's exactly how git populates `refs/remotes/*` in the first
+ * place, and no actual remote is needed to exercise `git log --remotes`
+ * against one. The local branch that made the commit is deleted afterwards,
+ * so only the remote-tracking ref still reaches it — proving `all` sees more
+ * than `local` does, not just more than `current`.
+ */
+export function createRepoWithBranches(): string {
+  const dir = makeDir('tabs-e2e-branches-')
+  git(dir, ['init', '-q', '-b', 'main'])
+
+  writeFileSync(path.join(dir, 'root.txt'), 'root\n')
+  git(dir, ['add', '-A'], '2026-01-01T00:00:00+00:00')
+  git(dir, ['commit', '-q', '-m', 'root commit'], '2026-01-01T00:00:00+00:00')
+
+  git(dir, ['checkout', '-q', '-b', 'feature'])
+  writeFileSync(path.join(dir, 'feature.txt'), 'feature\n')
+  git(dir, ['add', '-A'], '2026-01-02T00:00:00+00:00')
+  git(dir, ['commit', '-q', '-m', 'on feature'], '2026-01-02T00:00:00+00:00')
+
+  git(dir, ['checkout', '-q', 'main'])
+  git(dir, ['checkout', '-q', '-b', 'remote-only'])
+  writeFileSync(path.join(dir, 'remote.txt'), 'remote\n')
+  git(dir, ['add', '-A'], '2026-01-03T00:00:00+00:00')
+  git(dir, ['commit', '-q', '-m', 'on remote-only'], '2026-01-03T00:00:00+00:00')
+  git(dir, ['update-ref', 'refs/remotes/origin/remote-only', 'remote-only'])
+  git(dir, ['checkout', '-q', 'main'])
+  git(dir, ['branch', '-D', 'remote-only'])
+
   return dir
 }
 

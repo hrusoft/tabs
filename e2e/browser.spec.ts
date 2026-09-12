@@ -3,7 +3,13 @@ import { dataPage, navigateTo, openBrowser } from './helpers/browser'
 import { type Box, requireBox } from './helpers/geometry'
 import { guestEval, guestSnapshots, guestText } from './helpers/guest'
 import { expect, test } from './helpers/launch'
-import { activatePane, initialPane, splitHorizontal, wrapInTabGroup } from './helpers/pane'
+import {
+  activatePane,
+  headerOf,
+  initialPane,
+  splitHorizontal,
+  wrapInTabGroup
+} from './helpers/pane'
 
 const PAGE_A = dataPage('Page A')
 const PAGE_B = dataPage('Page B')
@@ -29,9 +35,10 @@ async function settleOnBlank(app: ElectronApplication): Promise<void> {
 }
 
 test('a new browser pane starts blank', async ({ page }) => {
-  const browser = await openBrowser(initialPane(page))
+  const pane = initialPane(page)
+  await openBrowser(pane)
 
-  await expect(browser.getByTestId('browser-address-input')).toHaveValue('about:blank')
+  await expect(headerOf(pane).getByTestId('browser-address-input')).toHaveValue('about:blank')
 })
 
 /**
@@ -42,13 +49,16 @@ test('a new browser pane starts blank', async ({ page }) => {
  * to override that, so `flex` cannot pass unless the stylesheet really
  * reached this window — unlike a property whose UA default already matches.
  *
- * The Settings window's half of this pairing is in settings.spec.ts.
+ * The Settings window's half of this pairing is in settings.spec.ts. The nav
+ * chrome (BrowserHeaderTitle) side-effect imports the same stylesheet, so its
+ * own rendering already proves the css reached the window too — nothing
+ * separate to assert about a toolbar bar, which no longer exists as its own
+ * element (its geometry is .pane-header's now, covered generically there).
  */
 test('the pane window loads the browser pane stylesheet', async ({ page }) => {
   const browser = await openBrowser(initialPane(page))
 
   await expect(browser.locator('.browser-webview')).toHaveCSS('display', 'flex')
-  await expect(browser.locator('.browser-toolbar')).toHaveCSS('height', '28px')
 })
 
 /**
@@ -69,60 +79,132 @@ test('the pane window loads the browser pane stylesheet', async ({ page }) => {
 test('the toolbar buttons carry a hover tooltip naming what they do, disabled or not', async ({
   page
 }) => {
-  const browser = await openBrowser(initialPane(page))
+  const pane = initialPane(page)
+  await openBrowser(pane)
+  const header = headerOf(pane)
   const bubble = page.getByTestId('tooltip-bubble')
 
-  const back = browser.getByTestId('browser-back-button')
+  const back = header.getByTestId('browser-back-button')
   await expect(back).toBeDisabled()
   await back.hover()
   await expect(bubble).toBeVisible()
   await expect(bubble).toHaveText('Back')
 
-  await browser.getByTestId('browser-forward-button').hover()
+  await header.getByTestId('browser-forward-button').hover()
   await expect(bubble).toHaveText('Forward')
 
-  await browser.getByTestId('browser-refresh-button').hover()
+  await header.getByTestId('browser-refresh-button').hover()
   await expect(bubble).toHaveText('Refresh')
 })
 
-test('typing a URL and pressing Enter navigates, and the page title updates the pane header', async ({
-  page
-}) => {
-  const header = page.getByTestId('pane-header')
-  const browser = await openBrowser(initialPane(page))
+// The page title's own display moved with this pane's chrome: BrowserHeaderTitle
+// replaces the header's whole title slot with nav chrome, so there's no
+// `.pane-title` text left to show it any more for a plain (non-renamed) tab.
+// setLiveTitle (see BrowserRenderer's onTitleUpdated) still updates the leaf's
+// own `title`, and BrowserHeaderTitle now renders it into the address bar's
+// own `.browser-title-segment` — but a Tab carries its own independent title
+// (see Tab in shared/model/types.ts and tree.ts's renameTab), which
+// setLiveTitle never touches, so a bare browser pane's page title still has
+// no surface on the tab strip itself. These tests check navigation through
+// the address bar's own value rather than the title segment, since a fresh
+// `about:blank` pane has no title to show yet.
 
-  await navigateTo(browser, PAGE_A)
+test('typing a URL and pressing Enter navigates', async ({ page }) => {
+  const pane = initialPane(page)
+  await openBrowser(pane)
 
-  await expect(header).toContainText('Page A')
-  await expect(browser.getByTestId('browser-address-input')).toHaveValue(PAGE_A)
+  await navigateTo(pane, PAGE_A)
+
+  await expect(headerOf(pane).getByTestId('browser-address-input')).toHaveValue(PAGE_A)
 })
 
 test('back/forward reflect navigation history', async ({ page, electronApp }) => {
-  const header = page.getByTestId('pane-header')
-  const browser = await openBrowser(initialPane(page))
-  const back = browser.getByTestId('browser-back-button')
-  const forward = browser.getByTestId('browser-forward-button')
+  const pane = initialPane(page)
+  await openBrowser(pane)
+  const header = headerOf(pane)
+  const address = header.getByTestId('browser-address-input')
+  const back = header.getByTestId('browser-back-button')
+  const forward = header.getByTestId('browser-forward-button')
 
   await expect(back).toBeDisabled()
   await expect(forward).toBeDisabled()
 
   await settleOnBlank(electronApp)
-  await navigateTo(browser, PAGE_A)
-  await expect(header).toContainText('Page A')
+  await navigateTo(pane, PAGE_A)
+  await expect(address).toHaveValue(PAGE_A)
   // The pane's own starting blank page is not somewhere the user asked to
   // be, so it's dropped rather than left as a back target — see the
   // clearHistory in BrowserRenderer, which is what makes this hold whether
   // or not the navigation beat that page's own commit.
   await expect(back).toBeDisabled()
 
-  await navigateTo(browser, PAGE_B)
-  await expect(header).toContainText('Page B')
+  await navigateTo(pane, PAGE_B)
+  await expect(address).toHaveValue(PAGE_B)
   await expect(back).toBeEnabled()
   await expect(forward).toBeDisabled()
 
   await back.click()
-  await expect(header).toContainText('Page A')
+  await expect(address).toHaveValue(PAGE_A)
   await expect(forward).toBeEnabled()
+})
+
+test("the address bar's title segment shows the page's live title", async ({ page }) => {
+  const pane = initialPane(page)
+  await openBrowser(pane)
+  const header = headerOf(pane)
+
+  await navigateTo(pane, PAGE_A)
+
+  const titleSegment = header.getByTestId('browser-title-segment')
+  await expect(titleSegment).toHaveText('Page A')
+  await expect(titleSegment).toHaveAttribute('title', 'Page A')
+})
+
+test('the title segment paints a different shade than the address input', async ({ page }) => {
+  const pane = initialPane(page)
+  await openBrowser(pane)
+  const header = headerOf(pane)
+
+  await navigateTo(pane, PAGE_A)
+
+  const titleBackground = await header
+    .getByTestId('browser-title-segment')
+    .evaluate((el) => getComputedStyle(el).backgroundColor)
+  const inputBackground = await header
+    .getByTestId('browser-address-input')
+    .evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(titleBackground).not.toBe(inputBackground)
+})
+
+const LONG_TITLE_PAGE = dataPage(
+  'This Is An Extremely Long Page Title That Should Never Fit Inside Thirty Percent Of The Address Bar'
+)
+
+test('a long page title is capped at 30% of the address bar and keeps its full text for hover', async ({
+  page
+}) => {
+  const pane = initialPane(page)
+  await openBrowser(pane)
+  const header = headerOf(pane)
+
+  await navigateTo(pane, LONG_TITLE_PAGE)
+
+  const titleSegment = header.getByTestId('browser-title-segment')
+  await expect(titleSegment).toHaveAttribute(
+    'title',
+    'This Is An Extremely Long Page Title That Should Never Fit Inside Thirty Percent Of The Address Bar'
+  )
+  await expect(titleSegment).toHaveCSS('text-overflow', 'ellipsis')
+
+  const barBox = await requireBox(header.getByTestId('browser-address-bar'))
+  const segmentBox = await requireBox(titleSegment)
+  // max-width:30% resolves against the bar's own content box (its border-box
+  // minus the 1px border it draws on each side), so allow a couple of pixels
+  // of slack rather than pinning an exact fraction.
+  expect(segmentBox.width).toBeLessThanOrEqual(barBox.width * 0.3 + 2)
+  // Confirms the cap is actually doing something — this title, untruncated,
+  // would be several times wider than 30% of the bar.
+  expect(segmentBox.width).toBeGreaterThan(barBox.width * 0.2)
 })
 
 // Non-URL-input → search-engine-query resolution is pure logic, covered by
@@ -156,8 +238,9 @@ async function browserPaneInBackground(
   const panes = page.getByTestId('pane')
   // Root's own wrapper is permanently pane 0 (see ensureTabsRoot in tree.ts);
   // the split it just made is panes 1 (left) and 2 (right).
-  const browser = await openBrowser(panes.nth(2))
-  await navigateTo(browser, SCROLLABLE_PAGE)
+  const pane = panes.nth(2)
+  const browser = await openBrowser(pane)
+  await navigateTo(pane, SCROLLABLE_PAGE)
   // Asked of the guest rather than of the pane header, so the wait is on the
   // page really being there rather than on a title round-trip.
   await expect.poll(() => guestEval(app, 'document.title')).toBe('Scrollable')
@@ -165,7 +248,9 @@ async function browserPaneInBackground(
   await activatePane(panes.nth(1))
   await expect(panes.nth(1)).toHaveClass(/pane-active/)
 
-  const content = await requireBox(browser.locator('.browser-content'))
+  // `browser` (data-testid="browser") is itself .browser-content now — the
+  // pane body renders nothing else, since the nav chrome moved to the header.
+  const content = await requireBox(browser)
   return { panes, content }
 }
 
@@ -276,8 +361,9 @@ test('click-to-activate survives the guest being rebuilt by a reparent', async (
   await expect.poll(guestIdsNow).not.toEqual(before)
   await expect.poll(() => guestEval(electronApp, 'document.title')).toBe('Scrollable')
 
+  // Itself .browser-content now — see the comment on browserPaneInBackground.
   const rebuilt = page.getByTestId('browser')
-  const box = await requireBox(rebuilt.locator('.browser-content'))
+  const box = await requireBox(rebuilt)
 
   // The left split pane (panes.nth(1) — root's own wrapper permanently
   // occupies nth(0)), untouched by the wrap above, is what "somewhere else"

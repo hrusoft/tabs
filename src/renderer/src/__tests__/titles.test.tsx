@@ -1,7 +1,13 @@
 import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test } from 'vitest'
+import { headerOf, initialPane } from '../testing/domQueries'
+import { fillEmptyPane } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
+import {
+  registerStubHeaderChromeType,
+  unregisterStubHeaderChromeType
+} from '../testing/stubContent'
 
 // Ported from e2e/titles.spec.ts — the rename mechanics are pure renderer
 // behavior (including the right-click menu, which is the app's own DOM
@@ -105,4 +111,19 @@ test('right-click on a pane header offers Edit title', async () => {
   await user.keyboard('Via menu{Enter}')
 
   expect(header).toHaveTextContent('Via menu')
+})
+
+test('right-click on a pane header with a HeaderTitle offers no Edit title entry', async () => {
+  renderApp()
+  const user = userEvent.setup()
+  registerStubHeaderChromeType()
+  try {
+    await fillEmptyPane(user, initialPane(), 'pane-new-stub-header-chrome-button')
+    const header = headerOf(initialPane())
+
+    fireEvent.contextMenu(header, { clientX: 40, clientY: 40 })
+    expect(screen.queryByRole('menuitem', { name: 'Edit title' })).not.toBeInTheDocument()
+  } finally {
+    unregisterStubHeaderChromeType()
+  }
 })

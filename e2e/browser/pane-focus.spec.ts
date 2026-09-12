@@ -1,11 +1,5 @@
 import type { Page } from '@playwright/test'
-import {
-  activatePane,
-  clickPaneRoot,
-  initialPane,
-  openNewTab,
-  splitHorizontal
-} from '../helpers/pane'
+import { activatePane, initialPane, openNewTab, splitHorizontal } from '../helpers/pane'
 import { MOD_KEY } from '../helpers/platform'
 import { expect, test } from './helpers/harness'
 
@@ -24,7 +18,7 @@ import { expect, test } from './helpers/harness'
 
 /** Fills the initial pane with stub content, then adds a second tab holding its clone. */
 async function twoStubTabs(page: Page): Promise<void> {
-  await clickPaneRoot(initialPane(page), 'pane-new-stub-button')
+  await initialPane(page).getByTestId('empty-pane-new-stub-button').click()
   // "New tab" clones the origin pane's own type, so tab 2 gets a stub too —
   // and lands active, backgrounding tab 1.
   await openNewTab(initialPane(page))
@@ -71,7 +65,7 @@ test('cmd+arrow onto another tab hands the keyboard to the pane it reveals', asy
 test('activating a pane across a split hands it the keyboard', async ({ page }) => {
   // The control for the two above: both panes are visible throughout here, so
   // this path worked even while the tab-switch one silently did not.
-  await clickPaneRoot(initialPane(page), 'pane-new-stub-button')
+  await initialPane(page).getByTestId('empty-pane-new-stub-button').click()
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
   await expect(panes).toHaveCount(3)

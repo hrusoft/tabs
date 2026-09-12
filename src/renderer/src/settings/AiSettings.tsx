@@ -1,5 +1,6 @@
 import type { SkillInstallTarget, SkillResult } from '@shared/api'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { SettingsActionRow } from './settingsRows'
 
 /**
  * The "AI" page: what an agent running inside a Tabs pane needs from the app
@@ -10,11 +11,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * bell note below, which is a hint rather than a control: nothing here can
  * write another program's config for it).
  *
- * The install rows are explicit and user-triggered, one per registry target.
- * No generic action row exists in settingsRows.tsx (its SettingRow union is
- * entirely bound to persisted Settings keys, and this isn't one), so this
- * page hand-rolls its markup the way TerminalSettingsPage does for the same
- * reason.
+ * The install rows are explicit and user-triggered, one per registry target,
+ * on the kit's SettingsActionRow rather than a SettingRow: that union is
+ * entirely bound to persisted Settings keys, and this isn't one.
  */
 export function AiSettings() {
   const [targets, setTargets] = useState<SkillInstallTarget[] | null>(null)
@@ -68,36 +67,32 @@ export function AiSettings() {
           const targetBusy = busy[target.id] ?? false
           const error = errors[target.id]
           return (
-            <div key={target.id} className="settings-row settings-row-action">
-              <span className="settings-row-text">
-                <span className="settings-row-title">{target.label}</span>
-                <span className="settings-row-desc">
-                  {error || (target.installed ? 'Installed' : 'Not installed')}
-                </span>
-              </span>
-              <span className="settings-row-buttons">
+            <SettingsActionRow
+              key={target.id}
+              title={target.label}
+              description={error || (target.installed ? 'Installed' : 'Not installed')}
+            >
+              <button
+                type="button"
+                className="settings-secondary-button"
+                data-testid={`settings-skill-install-${target.id}`}
+                disabled={targetBusy}
+                onClick={() => run(target.id, window.api.skills.install)}
+              >
+                {target.installed ? 'Reinstall' : 'Install'}
+              </button>
+              {target.installed && (
                 <button
                   type="button"
                   className="settings-secondary-button"
-                  data-testid={`settings-skill-install-${target.id}`}
+                  data-testid={`settings-skill-uninstall-${target.id}`}
                   disabled={targetBusy}
-                  onClick={() => run(target.id, window.api.skills.install)}
+                  onClick={() => run(target.id, window.api.skills.uninstall)}
                 >
-                  {target.installed ? 'Reinstall' : 'Install'}
+                  Uninstall
                 </button>
-                {target.installed && (
-                  <button
-                    type="button"
-                    className="settings-secondary-button"
-                    data-testid={`settings-skill-uninstall-${target.id}`}
-                    disabled={targetBusy}
-                    onClick={() => run(target.id, window.api.skills.uninstall)}
-                  >
-                    Uninstall
-                  </button>
-                )}
-              </span>
-            </div>
+              )}
+            </SettingsActionRow>
           )
         })}
       </section>

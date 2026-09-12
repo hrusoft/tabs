@@ -4,8 +4,10 @@ import { ipcRenderer } from 'electron'
  * Subscribes `listener` to an IPC channel, dropping the event arg; returns the
  * unsubscriber.
  *
- * Its own module because every namespace needs it and the namespaces now live
- * in separate files — core's in index.ts, each content type's in its package's preload/ entry.
+ * Its own module from when each content type had a preload namespace file of
+ * its own; today index.ts is the only importer — packages ship no preload code
+ * at all, speaking through the generic content bridge instead (see
+ * shared/plugin/bridge.ts).
  */
 export function on<Args extends unknown[]>(
   channel: string,

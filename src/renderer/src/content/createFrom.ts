@@ -2,7 +2,7 @@ import { createLeaf } from '@shared/model/factories'
 import { entryPaneId } from '@shared/model/navigation'
 import { findNode } from '@shared/model/tree'
 import type { ContentNode, LeafContent } from '@shared/model/types'
-import { EMPTY_TYPE, isSplit, isTabs } from '@shared/model/types'
+import { EMPTY_TYPE, isLeaf, isSplit, isTabs } from '@shared/model/types'
 import type { PaneCreationAction } from '../core/registry/registry'
 import { contentRegistry } from '../core/registry/registry'
 
@@ -42,7 +42,7 @@ import { contentRegistry } from '../core/registry/registry'
  */
 export function resolveOriginLeaf(node: ContentNode): LeafContent {
   const leaf = findNode(node, entryPaneId(node))
-  return leaf && !isTabs(leaf) && !isSplit(leaf) ? leaf : createLeaf(EMPTY_TYPE)
+  return leaf && isLeaf(leaf) ? leaf : createLeaf(EMPTY_TYPE)
 }
 
 /**
@@ -71,13 +71,14 @@ export async function applyDerivedConfig(
 
 /**
  * Fresh content from a creation action, refined by the pane it was created
- * from — what both the pane header's creation group and an empty pane's
- * toolbar call.
+ * from — what both an empty pane's own toolbar and the Cmd+P command palette
+ * call.
  *
- * The origin is the pane whose chrome (or whose blank middle) was pressed. It
- * was always available at both call sites and simply never passed, which is
- * what left "open a git tree of the directory this shell is in" unreachable
- * however `deriveConfig` was arranged.
+ * The origin is the pane whose blank middle was pressed, or (for the
+ * palette) whichever pane was active when it opened. It was always available
+ * at both call sites and simply never passed, which is what left "open a git
+ * tree of the directory this shell is in" unreachable however `deriveConfig`
+ * was arranged.
  *
  * No enablement check here, and that is not an omission: the actions these are
  * called with come from `useCreationActions` (./creationActions.ts), which has

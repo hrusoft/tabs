@@ -128,8 +128,8 @@ test('an agent can run script in a pane and fill a form, and gets clean errors w
   await closeAgentSession(page, env, paneId)
 })
 
-test('scripting verbs refuse a pane this caller does not own', async ({ page }) => {
-  await expectRefusedForForeignPane(page, (foreign) => [
+test('scripting verbs refuse a pane this caller does not own', async ({ page, electronApp }) => {
+  await expectRefusedForForeignPane(electronApp, page, (foreign) => [
     ['execute-js', '--pane', foreign, '--code', 'document.title'],
     ['form-input', '--pane', foreign, '--fields', '[]']
   ])

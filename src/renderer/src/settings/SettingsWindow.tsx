@@ -1,3 +1,4 @@
+import './settings.css'
 import { isContentTypeEnabled } from '@shared/content/enablement'
 import { useState, useSyncExternalStore } from 'react'
 import { useSettingsStore } from '../core/store/settingsStore'

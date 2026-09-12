@@ -1,5 +1,5 @@
 import { GitTreeMethod } from '../shared/ipc'
-import type { GitCommitResult, GitLogResult } from '../shared/types'
+import type { GitBranchScope, GitCommitResult, GitLogResult } from '../shared/types'
 import { gitTreeCtx } from './pluginContext'
 
 /**
@@ -19,12 +19,27 @@ export const gitTreeBridge = {
    * A page of history for the repo containing `dir`, newest first, together
    * with where HEAD is. `skip` pages backwards through the same log rather
    * than re-reading it, so "Load more" costs one `git log` per press.
+   * `branchScope` is the pane's branch filter (see `GitBranchScope`).
    */
-  log: (dir: string, limit: number, skip: number): Promise<GitLogResult> =>
-    gitTreeCtx.get().ipc.invoke(GitTreeMethod.log, dir, limit, skip) as Promise<GitLogResult>,
+  log: (
+    dir: string,
+    limit: number,
+    skip: number,
+    branchScope: GitBranchScope
+  ): Promise<GitLogResult> =>
+    gitTreeCtx
+      .get()
+      .ipc.invoke(GitTreeMethod.log, dir, limit, skip, branchScope) as Promise<GitLogResult>,
   /** Everything the detail panel shows for one commit: full message, author, and the files it touched. */
   commit: (dir: string, hash: string): Promise<GitCommitResult> =>
     gitTreeCtx.get().ipc.invoke(GitTreeMethod.commit, dir, hash) as Promise<GitCommitResult>,
+  /**
+   * The same shape of detail, for the working tree's own uncommitted state
+   * rather than a real commit — what answers a selection on the synthetic row
+   * (`UNCOMMITTED_CHANGES_HASH`) the renderer prepends when the tree is dirty.
+   */
+  workingTree: (dir: string): Promise<GitCommitResult> =>
+    gitTreeCtx.get().ipc.invoke(GitTreeMethod.workingTree, dir) as Promise<GitCommitResult>,
   /**
    * Where a pane with no directory of its own should start looking — the
    * fallback for when creation inherited nothing (see CLAUDE.md's

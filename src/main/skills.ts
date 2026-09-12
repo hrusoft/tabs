@@ -32,7 +32,7 @@ const TARGETS: SkillInstallTargetDef[] = [
 ]
 
 /** Injectable seams so this fs/homedir-touching logic is unit-testable without a real home directory (see terminal.ts's ResolveShellDeps for the same pattern). */
-export interface SkillDeps {
+interface SkillDeps {
   skillsDir?: string
   targets?: SkillInstallTargetDef[]
 }

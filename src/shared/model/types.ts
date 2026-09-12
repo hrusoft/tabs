@@ -88,6 +88,11 @@ export function isSplit(node: ContentNode): node is SplitContent {
   return node.type === 'split'
 }
 
+/** Content rather than structure: anything that isn't a tab group or a split, the `empty` placeholder included. */
+export function isLeaf(node: ContentNode): node is LeafContent {
+  return !isTabs(node) && !isSplit(node)
+}
+
 export function isEmpty(node: ContentNode): node is LeafContent {
   return node.type === EMPTY_TYPE
 }

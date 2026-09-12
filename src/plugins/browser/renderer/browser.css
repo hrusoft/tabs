@@ -1,28 +1,63 @@
-/* The browser pane's own styles, side-effect imported by BrowserRenderer.tsx
-   so they load with the renderer that uses them and nowhere else. That module
-   is reached only through registerBuiltins (main.tsx), so the Settings window
-   — which registers page defs, never renderers — never ships these rules.
+/* The browser pane's own styles, side-effect imported by both
+   BrowserRenderer.tsx (the webview body) and BrowserHeaderTitle.tsx (the
+   header's nav chrome) — a harmless double side-effect import, ES modules
+   cache it once. Reached only through registerBuiltins (main.tsx), so the
+   Settings window — which registers page defs, never renderers — never ships
+   these rules.
 
-   The toolbar is app chrome and follows the theme; the guest's page content is
-   someone else's site and doesn't (see CLAUDE.md). Tokens come from
-   installTheme, not from here. */
+   The nav chrome is app chrome and follows the theme; the guest's page
+   content is someone else's site and doesn't (see CLAUDE.md). Tokens come
+   from installTheme, not from here. */
 
-.browser-container {
+/* The pane body now holds nothing but the webview — no toolbar row to share
+   the column with, so this is the root rather than a flex child (compare
+   the pre-HeaderTitle version, which nested this inside .browser-container
+   below a 28px .browser-toolbar; both are gone now that nav chrome lives in
+   .pane-header instead). */
+.browser-content {
   display: flex;
-  flex-direction: column;
   height: 100%;
   width: 100%;
 }
 
-.browser-toolbar {
-  flex: none;
+/* One bordered, rounded pill shared by the title segment and the address
+   input, so the pair reads as a single toolbar rather than two controls
+   glued together. The border/radius live here, not on the children, since
+   overflow:hidden is what clips the title segment's shade to the shared
+   rounded corner. */
+.browser-address-bar {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 6px;
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.browser-address-bar:focus-within {
+  border-color: var(--accent);
+}
+
+/* Non-editable page-title readout. flex-basis is the title's own content
+   width (auto) with grow:0, so a short title sits in a snug pill rather than
+   stretching to fill 30% — the cap only bites once the title is long enough
+   to need it, at which point it ellipsizes and the native `title` attribute
+   on the element covers "show the full title on hover". */
+.browser-title-segment {
+  flex: 0 1 auto;
+  max-width: 30%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-dim);
   background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  cursor: default;
 }
 
 .browser-address-input {
@@ -32,20 +67,13 @@
   font-size: 12px;
   color: inherit;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: none;
   padding: 2px 6px;
-  height: 20px;
+  height: 100%;
 }
 
 .browser-address-input:focus {
   outline: none;
-  border-color: var(--accent);
-}
-
-.browser-content {
-  flex: 1;
-  min-height: 0;
 }
 
 /* Electron's <webview> defaults to display:inline-flex, so it won't fill

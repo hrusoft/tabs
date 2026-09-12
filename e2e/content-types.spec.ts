@@ -10,19 +10,14 @@ import { alive, openTerminal } from './helpers/terminal'
  *
  * What keeps these in the Electron tier rather than in jsdom (where the filter
  * logic itself is covered, against a stub type — see
- * src/renderer/src/__tests__/content-types.test.tsx) is that each one needs
- * something only the real app has: two real windows exchanging a settings
- * change over IPC, the real terminal/browser pair in their real registration
- * order, a real pty that has to survive its own type being disabled, and a
- * relaunch.
+ * src/renderer/src/__tests__/empty-pane-toolbar.test.tsx) is that each one
+ * needs something only the real app has: two real windows exchanging a
+ * settings change over IPC, the real terminal/browser pair, a real pty that
+ * has to survive its own type being disabled, and a relaunch.
  *
  * Every test drives the checkboxes to the state it needs rather than
  * inheriting it, so a future default flip can't quietly change what any of
  * them is testing.
- *
- * `pane-header.ts`'s `openNewBrowser` helper is deliberately unused here: it
- * hovers `pane-new-terminal-button` as the group root, which is the exact
- * assumption these tests break.
  */
 
 const CONTENT_TYPE_ROW = {
@@ -47,56 +42,21 @@ test("turning a type off removes its creation button from the main window's pane
   const settingsPage = await openSettingsWindow(electronApp, page)
   // States the premise rather than assuming the shipped default.
   await settingsPage.getByTestId(CONTENT_TYPE_ROW.browser).check()
-  const header = headerOf(initialPane(page))
-  await expect(header.getByTestId('pane-new-browser-button')).toHaveCount(1)
+  const pane = initialPane(page)
+  await expect(pane.getByTestId('empty-pane-new-browser-button')).toHaveCount(1)
 
   await settingsPage.getByTestId(CONTENT_TYPE_ROW.browser).uncheck()
 
   // Live, over settings:changed into the other window's store — no reload.
-  await expect(header.getByTestId('pane-new-browser-button')).toHaveCount(0)
+  await expect(pane.getByTestId('empty-pane-new-browser-button')).toHaveCount(0)
   // Only that type's button goes; core chrome is untouched.
-  await expect(header.getByTestId('pane-new-terminal-button')).toHaveCount(1)
+  await expect(pane.getByTestId('empty-pane-new-terminal-button')).toHaveCount(1)
+  const header = headerOf(pane)
   await expect(header.getByTestId(PANE_BUTTON.splitHorizontal)).toHaveCount(1)
   await expect(header.getByTestId(PANE_BUTTON.close)).toHaveCount(1)
 
   await settingsPage.getByTestId(CONTENT_TYPE_ROW.browser).check()
-  await expect(header.getByTestId('pane-new-browser-button')).toHaveCount(1)
-})
-
-/**
- * The registration-order consequence, which only this tier can show with real
- * types: the first registered type is the always-visible root button and the
- * rest sit in its dropdown, so disabling the first promotes the next.
- *
- * Reduced to exactly two enabled types on purpose. The closing assertion is
- * about what the promoted button looks like when it is the *only* creation
- * action left — no dropdown at all, not even one repeating the root — and that
- * is a claim about the count, not about which types happen to ship. Stating it
- * here rather than inheriting it is what stops the next content type breaking
- * this test, which is exactly how it broke when the git tree was added.
- */
-test('disabling the first registered type promotes the next one to the root button', async ({
-  page,
-  electronApp
-}) => {
-  const settingsPage = await openSettingsWindow(electronApp, page)
-  await settingsPage.getByTestId(CONTENT_TYPE_ROW.terminal).check()
-  await settingsPage.getByTestId(CONTENT_TYPE_ROW.browser).check()
-  await settingsPage.getByTestId(CONTENT_TYPE_ROW.gitTree).uncheck()
-  const header = headerOf(initialPane(page))
-  // Terminal registers first, so the browser starts life as a menu item.
-  await expect(header.getByTestId('pane-new-browser-button')).toHaveAttribute('role', 'menuitem')
-
-  await settingsPage.getByTestId(CONTENT_TYPE_ROW.terminal).uncheck()
-
-  await expect(header.getByTestId('pane-new-terminal-button')).toHaveCount(0)
-  // Now the root button: no menuitem role, and — being the only *enabled*
-  // creation action left — no dropdown repeating it either.
-  await expect(header.getByTestId('pane-new-browser-button')).not.toHaveAttribute(
-    'role',
-    'menuitem'
-  )
-  await expect(header.getByTestId('pane-new-browser-button-menu-item')).toHaveCount(0)
+  await expect(pane.getByTestId('empty-pane-new-browser-button')).toHaveCount(1)
 })
 
 test("a disabled type's settings page leaves the sidebar, and comes back on re-enabling", async ({
@@ -179,9 +139,7 @@ test('a pane of a disabled type survives a relaunch, and so does the setting', a
     // left behind here). Matched by class — that component carries no test id.
     await expect(page2.getByTestId('terminal')).toBeVisible()
     await expect(page2.locator('.unknown-content')).toHaveCount(0)
-    // And still disabled: no creation affordance, and the checkbox remembers.
-    const header2 = headerOf(initialPane(page2))
-    await expect(header2.getByTestId('pane-new-terminal-button')).toHaveCount(0)
+    // And still disabled: the checkbox remembers.
     const settings2 = await openSettingsWindow(app2, page2)
     await expect(settings2.getByTestId(CONTENT_TYPE_ROW.terminal)).not.toBeChecked()
     await expect(settings2.getByTestId('settings-tab-terminal')).toHaveCount(0)

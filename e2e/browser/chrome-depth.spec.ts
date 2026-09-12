@@ -128,9 +128,12 @@ test('nested tab bars alternate the two chrome surfaces and step their indent', 
 
   // Bar 0 is g0, this layout's docked root, whose bar doubles as the window's
   // title bar — its indent is the fixed traffic-light gutter
-  // (.tab-bar-root), not the depth formula. Every nested bar below it still
-  // steps by 7px per depth.
-  expect(indents[0]).toBe('108px')
+  // (.tab-bar-root's --traffic-light-gutter), not the depth formula. Every
+  // nested bar below it still steps by 7px per depth.
+  const gutter = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--traffic-light-gutter').trim()
+  )
+  expect(indents[0]).toBe(gutter)
   expect(indents.slice(1)).toEqual(['14px', '21px', '28px'])
 })
 

@@ -1,31 +1,12 @@
+import type { NodeId } from '@shared/model/types'
 import type { RingLog, Sequenced } from '@shared/ringLog'
 import { createRingLog } from '@shared/ringLog'
 import type { WebviewTag } from 'electron'
-import { createReattachRegistry, REATTACH_GRACE_MS } from '../../../renderer/src/plugin/api'
-
-/**
- * The UI half of navigation handling: the mounted renderer's own state
- * setters (address bar text, back/forward enablement). Split from the
- * instance's listeners because their lifetimes differ — the listeners are
- * wired once and live as long as the instance, while the React component
- * owning this state is torn down and rebuilt on every structural remount,
- * and calling a previous mount's setters is a silent no-op (the address bar
- * would freeze on the page the pane was moved on). `BrowserRenderer` swaps
- * each mount's setters into `ui.current`; between mounts the slot is null
- * and the next mount re-seeds its UI from the webview directly.
- */
-export interface BrowserUiSync {
-  /** Reflects a navigation in the address bar (unless the user is mid-typing there). */
-  syncAddressBar: (url: string) => void
-  /** Recomputes back/forward button enablement from the webview's history. */
-  syncNavState: () => void
-  /**
-   * A guest has attached under this pane's element. Lets the mount finish
-   * anything it could only ask of a guest that exists yet — see
-   * `focusGuest` in BrowserRenderer.tsx, whose whole job is that gap.
-   */
-  guestAttached: () => void
-}
+import {
+  createPaneValueStore,
+  createReattachRegistry,
+  REATTACH_GRACE_MS
+} from '../../../renderer/src/plugin/api'
 
 /**
  * The client-side half of a browser pane: the live `<webview>` element. Kept
@@ -80,8 +61,17 @@ export interface BrowserInstance {
    * document and deliberately carries the record forward.
    */
   documentStatus: { current: DocumentStatus | null }
-  /** The mounted renderer's UI setters, swapped on every mount — see BrowserUiSync. */
-  ui: { current: BrowserUiSync | null }
+  /**
+   * `BrowserRenderer`'s own guest-attach hook, swapped on every mount. Lets
+   * the body finish anything it could only ask of a guest that exists yet:
+   * see `focusGuest` in BrowserRenderer.tsx, whose whole job is that gap. A
+   * slot rather than a listener captured at creation because the listeners
+   * below live as long as the instance, across remounts, while the mount
+   * that owns the pending focus is torn down and rebuilt on every structural
+   * move. (BrowserHeaderTitle has no slot here: it subscribes to the webview
+   * itself through `useBrowserInstance`.)
+   */
+  onGuestAttached: { current: (() => void) | null }
   /** Electron listeners wired once at creation; torn down only on real disposal. */
   unsubscribe: () => void
 }
@@ -129,5 +119,31 @@ export function createConsoleLog(): RingLog<ConsoleEntry> {
 
 const registry = createReattachRegistry<BrowserInstance>(REATTACH_GRACE_MS)
 
-export const acquireBrowser = registry.acquire
-export const releaseBrowser = registry.release
+/**
+ * Which pane ids currently have a live `BrowserInstance` — the read channel
+ * `BrowserHeaderTitle` (the pane header) uses to reach the instance
+ * `BrowserRenderer` (the pane body, which alone has the DOM container a
+ * webview needs) creates lazily; see `createPaneValueStore` for why it has to
+ * be a subscription. The body stays the sole acquire/release owner — this
+ * adds a reader, not a second lifecycle participant, so `reattachRegistry.ts`
+ * needs no refcounting.
+ */
+const live = createPaneValueStore<BrowserInstance>()
+
+export function acquireBrowser(id: NodeId, create: () => BrowserInstance): BrowserInstance {
+  const instance = registry.acquire(id, create)
+  live.set(id, instance)
+  return instance
+}
+
+export function releaseBrowser(id: NodeId, dispose: (instance: BrowserInstance) => void): void {
+  registry.release(id, (instance) => {
+    live.delete(id)
+    dispose(instance)
+  })
+}
+
+/** This pane's live `BrowserInstance`, reactively — see `live` above. */
+export function useBrowserInstance(id: NodeId): BrowserInstance | undefined {
+  return live.use(id)
+}

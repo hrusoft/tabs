@@ -7,6 +7,20 @@
  * the renderer consumes them; ./graph.ts turns the commit list into rows.
  */
 
+/**
+ * The sentinel `Commit.hash` for the working tree's own uncommitted state.
+ *
+ * The renderer prepends a synthetic `Commit` carrying this hash to the real
+ * list whenever the working tree is dirty (see GitTreeRenderer.tsx), rather
+ * than rendering it as a separate decorative element — that is what lets
+ * `assignLanes` connect it into the real graph (as an ordinary parent/child
+ * edge into the newest real commit) and what lets every other mechanism that
+ * already operates on `Commit[]` — selection, keyboard nav, the detail-panel
+ * fetch — handle it for free, with no special-casing of its own. `''` is safe
+ * as a sentinel because a real git hash is never empty.
+ */
+export const UNCOMMITTED_CHANGES_HASH = ''
+
 /** One commit, as `git log --parents` reports it. */
 export interface Commit {
   /** Full 40-character hash. Abbreviated only for display. */
@@ -80,12 +94,34 @@ export type GitFailure =
   | { kind: 'failed'; message: string }
 
 /**
+ * Which refs a page of history is scoped to — the git tree pane's branch
+ * filter. `current` is `git log HEAD` (nothing else named); `local` is
+ * `--branches` (every `refs/heads/*`); `all` is `--branches --remotes` (local
+ * plus remote-tracking branches — tags are deliberately excluded, since the
+ * filter is about branches, not every ref that happens to exist).
+ */
+export type GitBranchScope = 'current' | 'local' | 'all'
+
+/**
  * A page of history. `hasMore` is "the log had at least one commit past this
  * page", which git answers for free if you ask for one more than you intend
  * to show (see git.ts) — no second `rev-list --count` over the whole DAG.
+ *
+ * `hasUncommittedChanges` is whether the working tree has anything staged or
+ * unstaged (including untracked files) — a `git status --porcelain` question,
+ * independent of which commits `commits` holds. The renderer turns it into a
+ * synthetic `Commit` (see `UNCOMMITTED_CHANGES_HASH`) prepended above the
+ * newest real one.
  */
 export type GitLogResult =
-  | { ok: true; root: string; head: GitHead; commits: Commit[]; hasMore: boolean }
+  | {
+      ok: true
+      root: string
+      head: GitHead
+      commits: Commit[]
+      hasMore: boolean
+      hasUncommittedChanges: boolean
+    }
   | { ok: false; reason: GitFailure }
 
 /**

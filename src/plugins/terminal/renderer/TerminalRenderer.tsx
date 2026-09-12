@@ -202,7 +202,8 @@ export function TerminalRenderer({ node }: ContentRendererProps<LeafContent>) {
 
   // This pane's core handle (see core/registry/paneHandles.ts): how core's
   // focus-follows-active reaches the terminal, and how the Cmd/Ctrl+K menu
-  // action (see core's content/paneShortcuts.ts) reaches its live xterm instance —
+  // action (see core's content/paneShortcuts.ts) and this package's own
+  // header button (ClearScrollbackControl.tsx) reach its live xterm instance —
   // registered separately from the acquire/release effect above so it doesn't
   // participate in that effect's reattach logic, and reading termRef lazily
   // so it keeps resolving as the pane reattaches.

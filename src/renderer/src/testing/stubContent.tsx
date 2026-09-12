@@ -1,8 +1,8 @@
 import { createLeaf } from '@shared/model/factories'
 import type { LeafContent } from '@shared/model/types'
 import { act } from '@testing-library/react'
-import { useEffect, useRef } from 'react'
-import { registerPaneHandle } from '../core/registry/paneHandles'
+import { useEffect, useRef, useState } from 'react'
+import { getPaneCapability, registerPaneHandle } from '../core/registry/paneHandles'
 import type { ContentRendererDef, ContentRendererProps } from '../core/registry/registry'
 import { contentRegistry } from '../core/registry/registry'
 import { useBellStore } from '../core/store/bellStore'
@@ -76,9 +76,9 @@ export const stubContentDef: ContentRendererDef<LeafContent> = {
 export const SECOND_STUB_TYPE = 'stub-two'
 
 /**
- * Registers the second stub type inside act() — four jsdom files need "which
- * one is the root button" to be a real question, and each was writing out the
- * same act-wrapped register plus the same afterEach. Pair with
+ * Registers the second stub type inside act() — for the jsdom files that need
+ * "which one is the root button" to be a real question, each of which was
+ * writing out the same act-wrapped register plus the same afterEach. Pair with
  * `unregisterSecondStubType` in afterEach (or a finally).
  */
 export function registerSecondStubType(): void {
@@ -120,4 +120,90 @@ export const secondStubContentDef: ContentRendererDef<LeafContent> = {
     Icon: SecondStubIcon,
     createContent: () => createLeaf(SECOND_STUB_TYPE)
   }
+}
+
+export const STUB_HEADER_CHROME_TYPE = 'stub-header-chrome'
+
+/**
+ * A HeaderControl exercising the generic mechanism end to end: presses
+ * `getPaneCapability(leaf.id, 'clear')`, the same core capability Cmd/Ctrl+K
+ * uses, which this type's own renderer (below) registers — proof the press
+ * reaches something real, not just that the button renders. (The terminal's
+ * real HeaderControl reads the same capability through its own package
+ * context rather than this core-internal helper, which no package can
+ * import.) A bare button and a bare input, with no press handlers of their
+ * own: the header's drag handle is what ignores a press on an interactive
+ * element (see Pane's `onHeaderPointerDown`), and the browser-tier
+ * pane-drag spec pins that against this very title.
+ */
+function StubHeaderControl({ leaf }: { leaf: LeafContent }) {
+  return (
+    <button
+      type="button"
+      data-testid="stub-header-control"
+      onClick={() => getPaneCapability(leaf.id, 'clear')?.()}
+    >
+      Clear
+    </button>
+  )
+}
+
+function StubHeaderTitle({ leaf }: { leaf: LeafContent }) {
+  return (
+    <input
+      data-testid="stub-header-title"
+      style={{ flex: 1, minWidth: 0 }}
+      defaultValue={leaf.title ?? leaf.id}
+    />
+  )
+}
+
+function StubHeaderChromeRenderer({ node }: ContentRendererProps<LeafContent>) {
+  const [clearCount, setClearCount] = useState(0)
+  useEffect(
+    () =>
+      registerPaneHandle(node.id, {
+        focus: () => {},
+        blur: () => {},
+        extension: { clear: () => setClearCount((count) => count + 1) }
+      }),
+    [node.id]
+  )
+  return (
+    <div data-testid="stub-header-chrome-content">
+      {node.id}
+      <span data-testid="stub-clear-count">{clearCount}</span>
+    </div>
+  )
+}
+
+/**
+ * A third, opt-in stub declaring both HeaderControl and HeaderTitle — kept
+ * separate from stubContentDef (registered by every test via
+ * registerTestContent) so those tests' button-count/ordering assertions
+ * aren't perturbed by a header control that isn't there for most of them.
+ * Registered/unregistered per test like secondStubContentDef above.
+ */
+export function registerStubHeaderChromeType(): void {
+  act(() => {
+    contentRegistry.register(stubHeaderChromeContentDef)
+  })
+}
+
+export function unregisterStubHeaderChromeType(): void {
+  contentRegistry.unregister(STUB_HEADER_CHROME_TYPE)
+}
+
+export const stubHeaderChromeContentDef: ContentRendererDef<LeafContent> = {
+  type: STUB_HEADER_CHROME_TYPE,
+  displayName: 'Stub with header chrome',
+  Component: StubHeaderChromeRenderer,
+  createAction: {
+    testId: 'pane-new-stub-header-chrome-button',
+    label: 'New stub with header chrome',
+    Icon: StubIcon,
+    createContent: () => createLeaf(STUB_HEADER_CHROME_TYPE)
+  },
+  HeaderControl: StubHeaderControl,
+  HeaderTitle: StubHeaderTitle
 }

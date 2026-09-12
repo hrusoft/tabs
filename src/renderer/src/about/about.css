@@ -244,7 +244,7 @@
   overflow-wrap: anywhere;
   color: var(--text-dim);
   /* Spelled out rather than tokenized because the rest of the app does too
-     (.settings-shortcut-chip in global.css) — there is no --mono-font token
+     (.settings-shortcut-chip in settings/settings.css) — there is no --mono-font token
      to follow, and minting one here would leave two spellings. */
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;

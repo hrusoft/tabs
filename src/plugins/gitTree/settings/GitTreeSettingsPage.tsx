@@ -6,6 +6,8 @@ import { manifest as gitTreeManifest } from '../shared/manifest'
 
 function GitTreeSettingsPage() {
   const autoRefreshOnFocus = useGitTreeSetting((settings) => settings.autoRefreshOnFocus)
+  const showAuthorColumn = useGitTreeSetting((settings) => settings.showAuthorColumn)
+  const showDateColumn = useGitTreeSetting((settings) => settings.showDateColumn)
 
   return (
     <div data-testid="settings-page-gitTree">
@@ -17,6 +19,20 @@ function GitTreeSettingsPage() {
           description="Re-read a git tree pane's history whenever it becomes active while the window is focused."
           checked={autoRefreshOnFocus}
           onChange={(checked) => updateGitTreeSettings({ autoRefreshOnFocus: checked })}
+        />
+        <SettingsCheckboxRow
+          testId="settings-show-author-column-checkbox"
+          title="Show author column"
+          description="Show who authored each commit in the commit list, alongside its hash and message."
+          checked={showAuthorColumn}
+          onChange={(checked) => updateGitTreeSettings({ showAuthorColumn: checked })}
+        />
+        <SettingsCheckboxRow
+          testId="settings-show-date-column-checkbox"
+          title="Show date column"
+          description="Show each commit's date in the commit list, alongside its hash and message."
+          checked={showDateColumn}
+          onChange={(checked) => updateGitTreeSettings({ showDateColumn: checked })}
         />
       </section>
     </div>

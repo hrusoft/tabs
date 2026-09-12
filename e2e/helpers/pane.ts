@@ -1,7 +1,9 @@
 import type { Locator, Page } from '@playwright/test'
+import type { ElectronApplication } from 'playwright'
 import { PANE_ATTR, PANE_BUTTON } from '../../src/shared/paneDomAttrs'
 import { PANE_HEADER_SELECTOR } from '../../src/shared/testing/paneSelectors'
 import { requireBox } from './geometry'
+import { clickMenuItem } from './menu'
 
 /**
  * The pane holding layout node `id` — the hand-built [data-dock-id=...]
@@ -37,6 +39,17 @@ export function headerOf(pane: Locator): Locator {
  * `.first()` played before the root was always a tab group. jsdom's twin is
  * `initialPane` in src/renderer/src/testing/domQueries.ts.
  */
+/**
+ * The pane enclosing `content` — for a content-body locator (`git-tree`,
+ * `browser`) whose header chrome sits beside it, not inside it, so
+ * `headerOf(paneOf(content))` reaches that pane's own header. The nearest
+ * `pane` ancestor, however the body happens to be wrapped, rather than a
+ * counted `..` hop.
+ */
+export function paneOf(content: Locator): Locator {
+  return content.locator('xpath=ancestor::*[@data-testid="pane"][1]')
+}
+
 export function initialPane(page: Page): Locator {
   return page.getByTestId('pane').nth(1)
 }
@@ -184,12 +197,38 @@ export const clearPane = (pane: Locator): Promise<void> =>
 
 export const closePane = (pane: Locator): Promise<void> => clickPaneRoot(pane, PANE_BUTTON.close)
 
-// Assumes terminal registers first — see registerBuiltins.ts's own contract
-// comment ("Registration order is the pane-header button order").
-export const openNewBrowser = (pane: Locator): Promise<void> =>
-  openPaneMenuItem(pane, 'pane-new-terminal-button', 'pane-new-browser-button')
+/**
+ * Fills an empty pane with fresh content of `typeTestId`'s type, via its own
+ * toolbar (EmptyPaneRenderer.tsx) — the same `openContent` call the removed
+ * pane-header creation dropdown used to make, reached from inside the pane's
+ * blank body instead of from its chrome. Only works while `pane` is actually
+ * empty; a pane that already holds content has no toolbar to click — see
+ * `createViaPalette` below for that case.
+ */
+export const fillEmptyPane = (pane: Locator, typeTestId: string): Promise<void> =>
+  pane.getByTestId(`empty-${typeTestId}`).click()
 
-// Same assumption, and same dropdown: the git tree registers last, so it is
-// always a menu item under the terminal's root button rather than the root.
-export const openNewGitTree = (pane: Locator): Promise<void> =>
-  openPaneMenuItem(pane, 'pane-new-terminal-button', 'pane-new-git-tree-button')
+/**
+ * Creates content of `typeTestId`'s type as a new tab beside `pane`'s
+ * existing content — what the removed pane-header creation dropdown used to
+ * do when pressed on a pane that wasn't empty (`fillEmptyPane` above has
+ * nothing to click once a pane already holds something). Goes through the
+ * Cmd+P command palette instead, the only surface left that can still place
+ * content beside an existing pane's own: `activatePane` first, since the
+ * palette always targets whichever pane is currently active
+ * (handleOpenCommandPalette in paneShortcuts.ts), not an arbitrary locator.
+ */
+export async function createViaPalette(
+  electronApp: ElectronApplication,
+  page: Page,
+  pane: Locator,
+  typeTestId: string
+): Promise<void> {
+  await activatePane(pane)
+  await clickMenuItem(electronApp, 'New Content…', page)
+  await page.getByTestId(`command-palette-item-${typeTestId}`).click()
+  await page.getByTestId('command-palette-item-new-tab').click()
+}
+
+export const openNewBrowser = (pane: Locator): Promise<void> =>
+  fillEmptyPane(pane, 'pane-new-browser-button')

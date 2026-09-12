@@ -50,17 +50,18 @@ export interface ContentRendererProps<N extends ContentNode = ContentNode> {
 }
 
 /**
- * A content type's "create one of me" button in every pane's chrome (see
- * content/PaneHeaderControls.tsx). Types that shouldn't offer one (empty,
- * tabs, split) simply don't contribute an action.
+ * A content type's "create one of me" action — offered by an empty pane's
+ * own toolbar (content/empty/EmptyPaneRenderer.tsx) and the Cmd+P command
+ * palette (content/CommandPalette.tsx). Types that shouldn't offer one
+ * (empty, tabs, split) simply don't contribute an action.
  */
 export interface PaneCreationAction {
-  /** Stable id for the header button — an e2e contract (e.g. 'pane-new-terminal-button'). */
+  /** Stable id for the creation button/list item — an e2e contract (e.g. 'pane-new-terminal-button'). */
   testId: string
   /** Accessible label and tooltip, e.g. 'New terminal'. */
   label: string
   Icon: ComponentType
-  /** Fresh default content for a press of the header button. */
+  /** Fresh default content for a press of the creation button. */
   createContent(): ContentNode
 }
 
@@ -78,8 +79,74 @@ export interface ContentRendererDef<N extends ContentNode = ContentNode> {
    * silent.
    */
   mayBlockClose?: boolean | undefined
-  /** Offer a pane-header button that creates fresh content of this type. */
+  /** Offer a creation action (empty-pane toolbar, command palette) for this type. */
   createAction?: PaneCreationAction
+  /**
+   * An extra control this content type contributes to its own pane's chrome
+   * — rendered leftmost inside PaneHeaderControls' `.pane-header-controls`
+   * row, ahead of the always-present "Split horizontally" group (see
+   * content/PaneHeaderControls.tsx). Absent means that row starts with that
+   * group exactly as it does today — declaring this costs every other type
+   * nothing.
+   *
+   * Two things hold for both header hooks, this one and `HeaderTitle` below.
+   *
+   * `leaf` is the hook's own pane's content, and the pane's live state is
+   * reached through the declaring package's own machinery — never a new
+   * cross-type lookup added to core: its context's `panes.getHandle`
+   * narrowed to its own extension (the terminal's ClearScrollbackControl
+   * reads the very `clear` Cmd/Ctrl+K dispatches), or a
+   * `createPaneValueStore` its body publishes into (the browser's
+   * `<webview>` instance, the git tree's HEAD). Mind mount order for the
+   * latter: Pane.tsx renders the header slot before `{children}`, so a
+   * hook's own mount effect runs *before* the body's — a one-time read at
+   * mount will not see anything the body creates lazily; a subscription
+   * will.
+   *
+   * Both render inside `.pane-header`, whose own `pointerdown` arms a pane
+   * drag. The header ignores a press that lands on an interactive element (a
+   * button, an input, a select — see Pane's `onHeaderPointerDown`), so a
+   * control needs no handlers of its own for that; `HeaderButton`
+   * (PaneHeaderMenuGroup.tsx, re-exported from plugin/api.ts) is the
+   * primitive for a plain button, the same one every built-in header button
+   * is made of.
+   */
+  HeaderControl?: ComponentType<{ leaf: LeafContent }>
+  /**
+   * Replaces the pane header's entire title slot — the `.pane-title` span
+   * and its `InlineTitleEditor` swap (see DefaultPaneTitle.tsx) — with this
+   * content type's own interactive chrome. The browser's back/forward/
+   * refresh/address bar is the reference implementation
+   * (BrowserHeaderTitle.tsx): it used to be the pane body's own separate
+   * toolbar and now *is* the header, with nothing left in the body but the
+   * `<webview>`. Absent means the slot renders through `DefaultPaneTitle`
+   * exactly as it always has, and the header's right-click "Edit title"
+   * entry keeps working.
+   *
+   * Declaring `HeaderTitle` takes over both: `DefaultPaneTitle`'s rename
+   * affordances (double-click, the "Edit title" context-menu entry) do not
+   * apply once a type supplies its own title chrome, since this component
+   * now occupies that slot and no assumption is made about what "renaming"
+   * would even mean for it (see Pane.tsx, which drops the menu entry
+   * whenever this hook is present).
+   *
+   * Rendered directly inside `.pane-header`'s own flex row (unlike
+   * `HeaderControl`, which lands inside `PaneHeaderControls`' own row) — a
+   * single element or a fragment of several are both fine, since either way
+   * its children become flex items of that row alongside the grip/icons/
+   * controls. Whichever piece is meant to fill the remaining space needs
+   * `flex: 1; min-width: 0` (`.pane-title`'s own rule, global.css) —
+   * `DefaultPaneTitle` puts it on its one root; `BrowserHeaderTitle` puts it
+   * on the address bar alone, leaving its three nav buttons fixed-size
+   * siblings ahead of it. Nothing else in `.pane-header`'s flex row claims
+   * that space on its own.
+   *
+   * Pane-header only: a tab group's own chrome is TabBar, not Pane, and has
+   * no title slot of any kind to replace (a tab chip's inline-rename is
+   * unrelated, driven by `renameTab`/`tab.title`) — this hook is never read
+   * there.
+   */
+  HeaderTitle?: ComponentType<{ leaf: LeafContent }>
   /**
    * Refine the config of content **of this type** that core is creating from
    * some origin pane — a split, a new tab, Cmd/Ctrl+T (content/contentLike.ts),

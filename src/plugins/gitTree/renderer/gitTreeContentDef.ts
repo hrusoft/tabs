@@ -2,14 +2,16 @@ import { createLeaf } from '@shared/model/factories'
 import type { LeafContent } from '@shared/model/types'
 import type { ContentRendererDef } from '../../../renderer/src/plugin/api'
 import { GIT_TREE_TYPE, manifest as gitTreeManifest } from '../shared/manifest'
+import { GitTreeHeaderTitle } from './GitTreeHeaderTitle'
 import { GitTreeRenderer } from './GitTreeRenderer'
 import { GitTreeIcon } from './gitTreeIcons'
 import { gitTreeCtx } from './pluginContext'
 
 /**
- * The git tree's content-registry contribution — registered by
- * registerBuiltins, which must stay this module's only importer: it pulls in
- * GitTreeRenderer and with it the type's CSS side-effect import.
+ * The git tree's content-registry contribution — registered by this package's
+ * `activate`, whose call chain (registerBuiltins → renderer/index.ts) must stay
+ * this module's only route in: it pulls in GitTreeRenderer and with it the
+ * type's CSS side-effect import.
  *
  * Identity comes from the shared census rather than being restated here, so
  * this def and the main-process module cannot disagree about what a git tree
@@ -35,6 +37,7 @@ export const gitTreeContentDef: ContentRendererDef<LeafContent> = {
     Icon: GitTreeIcon,
     createContent: () => createLeaf(GIT_TREE_TYPE)
   },
+  HeaderTitle: GitTreeHeaderTitle,
   /**
    * Open on the repository the pane this was created from is sitting in —
    * "give me the history of what this shell is looking at", which is the
@@ -65,7 +68,7 @@ export const gitTreeContentDef: ContentRendererDef<LeafContent> = {
    * The configured directory rather than a live lookup, and that is exact
    * rather than approximate: unlike a terminal's, a git tree's directory only
    * ever changes through its own path bar or browse button, both of which
-   * write it straight back to config (see GitTreeRenderer). Undefined while a
+   * write it straight back to config (see GitTreeHeaderTitle). Undefined while a
    * freshly created pane is still adopting its default.
    */
   exposeCwd: async (leaf) => leaf.config.cwd as string | undefined

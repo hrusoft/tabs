@@ -1,5 +1,5 @@
 import type { ContentNode, DockZone } from '@shared/model/types'
-import { isTabs } from '@shared/model/types'
+import { isLeaf } from '@shared/model/types'
 import { paneAttr } from '@shared/paneDomAttrs'
 import {
   type CSSProperties,
@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useState
 } from 'react'
+import { contentRegistry } from '../core/registry/registry'
 import { paneTitleForContent } from '../core/registry/titles'
 import { useBellStore } from '../core/store/bellStore'
 import { useContextMenuStore } from '../core/store/contextMenuStore'
@@ -15,12 +16,15 @@ import { useDragStore } from '../core/store/dragStore'
 import { useLayoutStore } from '../core/store/layoutStore'
 import { useSettingsStore } from '../core/store/settingsStore'
 import { CueIcon } from './CueIcon'
+import { DefaultPaneTitle } from './DefaultPaneTitle'
 import { useTabDepth } from './depth'
 import { chromePointerDown, pinOrUnpinItem } from './floating/chrome'
 import { useFloatingWindow } from './floating/floatingContext'
-import { InlineTitleEditor } from './InlineTitleEditor'
 import { BellIcon, RobotIcon } from './icons'
 import { PaneGrip, PaneHeaderControls } from './PaneHeaderControls'
+
+/** What a press inside `.pane-header` must land on to be a control's own rather than the drag handle's — see `onHeaderPointerDown`. */
+const INTERACTIVE_HEADER_CONTROL = 'button, input, select, textarea'
 
 // All four properties stay explicit so a zone change transitions smoothly and
 // the inline style wins over the pane's flex layout.
@@ -76,9 +80,11 @@ export function Pane({
   cornerRight?: boolean | undefined
 }) {
   const nodeId = node.id
+  // Non-reactive, like paneTitleForContent below — the registry is
+  // populated once at boot, before the first render.
+  const HeaderTitle = contentRegistry.get(node.type)?.HeaderTitle
   const isActive = useLayoutStore((state) => state.activePaneId === nodeId)
   const setActivePane = useLayoutStore((state) => state.setActivePane)
-  const renamePane = useLayoutStore((state) => state.renamePane)
   const dockZone = useDragStore((state) =>
     state.drag?.target?.kind === 'dock' && state.drag.target.targetId === nodeId
       ? state.drag.target.zone
@@ -149,6 +155,11 @@ export function Pane({
 
   const onHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (isEditingTitle) return
+    // A press on one of the header's own controls — a button, a HeaderTitle's
+    // input or select — is that control's, not the drag handle's. Decided
+    // here once rather than by every control stopping propagation itself: a
+    // control that forgot would silently turn its own clicks into pane drags.
+    if ((event.target as Element).closest(INTERACTIVE_HEADER_CONTROL)) return
     // Never the docked root — see the component comment — so always draggable.
     chromePointerDown(event, floating, nodeId, false, paneTitleForContent(node))
   }
@@ -174,7 +185,7 @@ export function Pane({
       {/* The header is the drag handle for the pane, not a discrete widget:
           its buttons are the interactive elements — except right-click,
           which opens the header's own "Edit title" menu. */}
-      {!isTabs(node) && (
+      {isLeaf(node) && (
         // biome-ignore lint/a11y/noStaticElementInteractions: see above
         <div
           className="pane-header"
@@ -187,7 +198,9 @@ export function Pane({
             event.stopPropagation()
             const pin = pinOrUnpinItem(floating, nodeId)
             openContextMenu(event.clientX, event.clientY, [
-              { label: 'Edit title', onSelect: () => setIsEditingTitle(true) },
+              ...(HeaderTitle
+                ? []
+                : [{ label: 'Edit title', onSelect: () => setIsEditingTitle(true) }]),
               ...(pin ? [pin] : [])
             ])
           }}
@@ -208,24 +221,14 @@ export function Pane({
               <RobotIcon />
             </CueIcon>
           )}
-          {isEditingTitle ? (
-            <InlineTitleEditor
-              initialValue={paneTitleForContent(node)}
-              className="pane-title-input"
-              ariaLabel="Pane title"
-              // Saving an emptied box reverts to the derived content-type
-              // label rather than being rejected — unlike a tab's title, a
-              // pane's is an optional override.
-              onSave={(trimmed) => renamePane(nodeId, trimmed === '' ? undefined : trimmed)}
-              onDone={() => setIsEditingTitle(false)}
-            />
+          {HeaderTitle ? (
+            <HeaderTitle leaf={node} />
           ) : (
-            // Double-click to rename — the header above already carries the
-            // equivalent right-click "Edit title" entry point.
-            // biome-ignore lint/a11y/noStaticElementInteractions: see above
-            <span className="pane-title" onDoubleClick={() => setIsEditingTitle(true)}>
-              {paneTitleForContent(node)}
-            </span>
+            <DefaultPaneTitle
+              node={node}
+              isEditingTitle={isEditingTitle}
+              setIsEditingTitle={setIsEditingTitle}
+            />
           )}
           <PaneHeaderControls node={node} />
         </div>

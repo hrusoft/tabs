@@ -6,10 +6,12 @@ import { gitTreeSettingsDescriptor } from './settings'
  * declarations the discovery gates reconcile (see shared/content/registry.ts
  * for the format, src/plugins/index.ts for how packages are found).
  *
- * Declares one setting (auto-refresh-on-focus, see ./settings.ts) — small
- * enough that it's still true nothing about the commit list itself is a
- * preference (the page size is a constant, the graph has no options). No
- * `controlVerbs`: this type answers nothing on the external-control socket.
+ * Declares one settings blob (auto-refresh-on-focus, and the two column
+ * visibility toggles, see ./settings.ts) — the page size stays a constant,
+ * and the branch filter is per-pane state (`config.branchScope`) rather than
+ * a setting here, since it's what a specific pane is pointed at, the same way
+ * `config.cwd` is. No `controlVerbs`: this type answers nothing on the
+ * external-control socket.
  */
 export const GIT_TREE_TYPE = 'gitTree'
 

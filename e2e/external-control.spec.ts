@@ -109,13 +109,14 @@ test('an agent-owned pane pulses the control indicator, and it never propagates 
 })
 
 test('list-panes shows only the panes this caller created, and close-pane revokes ownership', async ({
-  page
+  page,
+  electronApp
 }) => {
   const { env } = await openAgentSession(page)
 
   // A browser pane the *user* opened by hand, which must never show up in an
   // agent's listing however many browser panes are on screen.
-  await openForeignPane(page, env)
+  await openForeignPane(electronApp, page, env)
 
   const paneId = await createAgentPane(env, '--url', 'about:blank')
 
@@ -511,9 +512,6 @@ test('create-browser-pane is refused while the browser content type is turned of
   const paneId = await createAgentPane(env, '--url', 'about:blank')
 
   await settingsPage.getByTestId('settings-content-type-browser-checkbox').uncheck()
-  await expect(
-    page.locator('[data-dock-id]').first().getByTestId('pane-new-browser-button')
-  ).toHaveCount(0)
 
   const refused = await runTabsCtl(['create-browser-pane', '--url', 'about:blank'], env)
   expect(refused.ok).toBe(false)

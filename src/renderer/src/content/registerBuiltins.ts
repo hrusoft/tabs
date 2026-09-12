@@ -12,11 +12,10 @@ import { registerStructuralContent } from './registerStructural'
  * plus a PLUGIN_PACKAGES line, and this file never changes.
  *
  * Activation order is PLUGIN_PACKAGES order, and it is a UI contract: the
- * registry's iteration order drives the pane-header creation buttons
- * (structure first, then terminal before browser, matching the chrome row as
- * it has always read). The first entry is the always-visible root button and
- * the rest sit in its dropdown, so reordering the list silently moves every
- * button — and breaks the e2e helpers that hover them by name.
+ * registry's iteration order drives the order creation actions appear in
+ * (structure first, then terminal before browser) — the empty-pane toolbar's
+ * row of buttons and the Cmd+P command palette's list, so reordering the
+ * list silently reorders both.
  *
  * This glob is the only route into a package's renderer graph, and it must
  * stay per-boundary: these entries pull in xterm and the `<webview>` tag, so

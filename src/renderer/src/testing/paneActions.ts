@@ -38,3 +38,14 @@ export const clearPane = (user: UserEvent, pane: HTMLElement): Promise<void> =>
 
 export const closePane = (user: UserEvent, pane: HTMLElement): Promise<void> =>
   clickPaneButton(user, pane, PANE_BUTTON.close)
+
+/**
+ * Fills an empty pane with fresh content of `typeTestId`'s type via its own
+ * toolbar (empty/EmptyPaneRenderer.tsx) — the jsdom twin of
+ * e2e/helpers/pane.ts's fillEmptyPane, with the same `empty-` id prefixing.
+ */
+export const fillEmptyPane = (
+  user: UserEvent,
+  pane: HTMLElement,
+  typeTestId: string
+): Promise<void> => user.click(within(pane).getByTestId(`empty-${typeTestId}`))

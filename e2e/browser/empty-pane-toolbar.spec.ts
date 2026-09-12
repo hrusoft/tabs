@@ -10,7 +10,7 @@ import { expect, test } from './helpers/harness'
  * (src/renderer/src/__tests__/empty-pane-toolbar.test.tsx).
  *
  * The default harness registers exactly one creation-capable content type, so
- * the multi-button cases opt into a second through `extraContentType` — see
+ * the multi-button cases opt into a second through `extraContentTypes` — see
  * testing/mountTestApp.tsx for why that is opt-in. Two stub types is this
  * file's own stated premise, not a count read off the real registry: the
  * shipping app's type list is not what these measurements are about.
@@ -22,7 +22,7 @@ function toolbarButtons(page: import('@playwright/test').Page) {
 }
 
 test.describe('a row of two', () => {
-  test.use({ extraContentType: true })
+  test.use({ extraContentTypes: ['second'] })
 
   test('every button is exactly 32x32', async ({ page }) => {
     const buttons = toolbarButtons(page)
@@ -99,7 +99,7 @@ test.describe('a row of two', () => {
 })
 
 test('a lone button is rounded on both ends', async ({ page }) => {
-  // No `extraContentType`: the default harness registers one creation-capable
+  // No `extraContentTypes`: the default harness registers one creation-capable
   // type, which is also what a user who has turned every other type off sees.
   const buttons = toolbarButtons(page)
   await expect(buttons).toHaveCount(1)
