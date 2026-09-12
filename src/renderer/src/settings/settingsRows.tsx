@@ -5,7 +5,7 @@ import {
   SPAWN_COLUMNS
 } from '@shared/model/floating'
 import type { Settings } from '@shared/settings'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import type { SettingsState } from '../core/store/settingsStore'
 
 /** Keys of the boolean settings, i.e. every setting rendered as a checkbox row. */
@@ -79,12 +79,22 @@ export interface SettingsRowSection {
   rows: SettingRow[]
 }
 
-/** The title/description pair every row carries, text-left of its control. */
-function RowText({ title, description }: { title: string; description: string }) {
+/** The title/description pair every row carries, text-left of its control. `tone` stamps `data-tone` on the description — see SettingsActionRow. */
+function RowText({
+  title,
+  description,
+  tone
+}: {
+  title: string
+  description: string
+  tone?: string | undefined
+}) {
   return (
     <span className="settings-row-text">
       <span className="settings-row-title">{title}</span>
-      <span className="settings-row-desc">{description}</span>
+      <span className="settings-row-desc" data-tone={tone}>
+        {description}
+      </span>
     </span>
   )
 }
@@ -182,7 +192,7 @@ export function parseNumberInput(raw: string): number | undefined {
 
 /**
  * A number field on the select row's layout — same text-left, control-right
- * chrome (`.settings-row-select input[type="number"]` in global.css).
+ * chrome (`.settings-row-select input[type="number"]` in settings.css).
  * `onChange` gets `parseNumberInput`'s reading of the field — undefined
  * while it holds no number.
  */
@@ -215,6 +225,34 @@ export function SettingsNumberRow({
         onChange={(event) => onChange(parseNumberInput(event.target.value))}
       />
     </label>
+  )
+}
+
+/**
+ * A row whose control is one or more buttons rather than a bound setting —
+ * what the skill installer (AiSettings.tsx) and the shortcut editor
+ * (KeyboardSettings.tsx) share. Presentational like the rows above, and
+ * deliberately not a `SettingRow` member: that union is bound to persisted
+ * Settings keys, and an action row persists nothing. `tone` lands on the
+ * description as `data-tone`, which is how the shortcut row colours a notice
+ * shown in place of the description (`.settings-row-desc[data-tone]`).
+ */
+export function SettingsActionRow({
+  title,
+  description,
+  tone,
+  children
+}: {
+  title: string
+  description: string
+  tone?: string | undefined
+  children: ReactNode
+}) {
+  return (
+    <div className="settings-row settings-row-action">
+      <RowText title={title} description={description} tone={tone} />
+      <span className="settings-row-buttons">{children}</span>
+    </div>
   )
 }
 

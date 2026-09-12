@@ -1,14 +1,18 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type {
   ChangedFile,
   Commit,
+  GitBranchScope,
   GitCommitResult,
   GitFailure,
   GitHead,
   GitLogResult
 } from '../shared/types'
+import { UNCOMMITTED_CHANGES_HASH } from '../shared/types'
 
 const run = promisify(execFile)
 
@@ -183,37 +187,64 @@ async function readHead(dir: string): Promise<GitHead> {
   return { kind: 'detached', hash: hash.ok ? hash.stdout.trim() : 'HEAD' }
 }
 
+/** The `git log` ref-selection args for each branch scope — see `GitBranchScope`. */
+function scopeArgs(scope: GitBranchScope): string[] {
+  switch (scope) {
+    case 'current':
+      return ['HEAD']
+    case 'local':
+      return ['--branches']
+    case 'all':
+      return ['--branches', '--remotes']
+  }
+}
+
 /**
- * A page of history.
- *
- * `--all` rather than HEAD's ancestry, because the point of drawing a graph is
- * to show the branches — a single-lane picture of `--first-parent` would be a
- * list wearing a gutter. `--date-order` keeps the rows in a shape a reader
- * expects while still being a valid topological order for lane assignment.
+ * A page of history, scoped to `branchScope` — the point of drawing a graph is
+ * to show the branches, so even the narrowest scope still asks git for real
+ * ref-reachable history rather than `--first-parent`, which would be a list
+ * wearing a gutter. `--date-order` keeps the rows in a shape a reader expects
+ * while still being a valid topological order for lane assignment.
  *
  * `hasMore` is answered by asking for one commit more than the caller wanted
  * and throwing it away: git stops walking as soon as it has that many, so this
  * costs nothing, whereas `rev-list --count --all` walks the entire DAG on
  * every page.
  */
-export async function readLog(dir: string, limit: number, skip: number): Promise<GitLogResult> {
-  // The three invocations are independent — git resolves the repository from
-  // `dir` exactly as it would from the root, whose value only the result needs
-  // — so they run concurrently rather than paying three spawns in sequence.
-  const [root, result, head] = await Promise.all([
+export async function readLog(
+  dir: string,
+  limit: number,
+  skip: number,
+  branchScope: GitBranchScope
+): Promise<GitLogResult> {
+  // The invocations are independent — git resolves the repository from `dir`
+  // exactly as it would from the root, whose value only the result needs —
+  // so they run concurrently rather than paying the spawns in sequence.
+  const [root, result, head, status] = await Promise.all([
     repoRoot(dir),
     git(dir, [
       'log',
-      '--all',
+      ...scopeArgs(branchScope),
       '--date-order',
       '--parents',
       `--max-count=${limit + 1}`,
       `--skip=${skip}`,
       `--pretty=format:${LOG_FORMAT}`
     ]),
-    readHead(dir)
+    readHead(dir),
+    // Only the first page asks about the working tree: `loadMore` keeps the
+    // list's existing answer, and `status` walks the whole tree and index —
+    // the most expensive call here, and the one `Promise.all` would wait on.
+    // Submodules are ignored: a submodule pointer that merely drifted from
+    // its recorded commit is not a change to *this* repository's own working
+    // tree, and would otherwise make the uncommitted-changes row appear for a
+    // repo the user did nothing to.
+    skip === 0 ? git(dir, ['status', '--porcelain', '--ignore-submodules']) : undefined
   ])
   if (!root.ok) return { ok: false, reason: root.reason }
+  // Best-effort: a failed status call (unlikely, given root/log already
+  // succeeded) just means "nothing to report" rather than a new failure kind.
+  const dirty = status?.ok === true && status.stdout.trim().length > 0
   if (!result.ok) {
     // `log` is where an empty repo fails, so re-aim the failure at the root we
     // did successfully resolve rather than at the directory asked about.
@@ -234,16 +265,18 @@ export async function readLog(dir: string, limit: number, skip: number): Promise
    * An empty repository, detected here rather than from stderr.
    *
    * A bare `git log` in a freshly `git init`ed directory fails with "does not
-   * have any commits yet", which `classify` recognizes — but **`git log --all`
-   * succeeds with empty output instead**, because it is asked for every ref
-   * and there are none. Measured, after the stderr classification alone
-   * silently rendered an empty *list* for an empty repo rather than saying so.
+   * have any commits yet", which `classify` recognizes — but **asking for a
+   * ref-reachable log (any of the three scopes) succeeds with empty output
+   * instead**, because there is nothing yet for any of them to reach. Measured,
+   * after the stderr classification alone silently rendered an empty *list*
+   * for an empty repo rather than saying so.
    *
-   * Zero commits from `--all` at the first page means no commit is reachable
-   * from any ref, which is exactly "no commits yet" — there is nowhere else
-   * they could be hiding.
+   * Zero commits at the first page means no commit is reachable, which is
+   * exactly "no commits yet" — unless the working tree is dirty, in which case
+   * there is something real to show (its own row) and reporting a hard
+   * failure would hide the very thing the user just did.
    */
-  if (skip === 0 && commits.length === 0) {
+  if (skip === 0 && commits.length === 0 && !dirty) {
     return { ok: false, reason: { kind: 'no-commits', root: root.root } }
   }
 
@@ -253,7 +286,8 @@ export async function readLog(dir: string, limit: number, skip: number): Promise
     root: root.root,
     head,
     commits: hasMore ? commits.slice(0, limit) : commits,
-    hasMore
+    hasMore,
+    hasUncommittedChanges: dirty
   }
 }
 
@@ -337,6 +371,116 @@ export async function readCommit(dir: string, hash: string): Promise<GitCommitRe
       message,
       files,
       filesTruncated: truncated
+    }
+  }
+}
+
+/**
+ * Paths out of `git status --porcelain`.
+ *
+ * Each line is two status letters, a separating space, then the path (`XY
+ * <path>`, or `XY <old> -> <new>` for a rename) — `line.slice(3)` skips
+ * straight past the fixed-width prefix, and only the arrow's right side
+ * matters for a rename, since that is the path as it exists on disk now.
+ */
+function parseStatusPaths(stdout: string): string[] {
+  const paths: string[] = []
+  for (const line of stdout.split('\n')) {
+    if (line.length <= 3) continue
+    const rest = line.slice(3)
+    const arrow = rest.indexOf(' -> ')
+    paths.push(arrow === -1 ? rest : rest.slice(arrow + 4))
+  }
+  return paths
+}
+
+/**
+ * One file's stats read directly off disk, for the working-tree files a
+ * tracked-diff has nothing to compare against: an untracked file, or (when
+ * the repository has no commits at all yet) any file `git status` names.
+ * There is no prior version to diff, so "how much changed" is just "how big
+ * is the file" — every line is an insertion, never a deletion.
+ *
+ * Binary detection mirrors git's own heuristic (a NUL byte in the first 8000
+ * bytes), so a binary file gets the same `null`/`null` "unknown" the numstat
+ * parser already gives one, rather than a byte count masquerading as lines.
+ */
+async function fileStatsFromDisk(dir: string, relativePath: string): Promise<ChangedFile> {
+  try {
+    const buffer = await readFile(join(dir, relativePath))
+    if (buffer.subarray(0, 8000).includes(0)) {
+      return { path: relativePath, insertions: null, deletions: null }
+    }
+    // Counted on the bytes: a line count needs no decoded string and no
+    // per-line array, and an untracked file can be anything up to a dump.
+    // A trailing newline ends the last line rather than starting an empty
+    // one, which is how git counts too.
+    let newlines = 0
+    for (let at = buffer.indexOf(0x0a); at !== -1; at = buffer.indexOf(0x0a, at + 1)) newlines++
+    const endsWithNewline = buffer.length > 0 && buffer[buffer.length - 1] === 0x0a
+    return {
+      path: relativePath,
+      insertions: endsWithNewline ? newlines : buffer.length === 0 ? 0 : newlines + 1,
+      deletions: 0
+    }
+  } catch {
+    // Deleted, permission-denied, or renamed out from under us between the
+    // status read and this one — nothing to count, the same "unknown" a
+    // binary file gets rather than a false zero.
+    return { path: relativePath, insertions: null, deletions: null }
+  }
+}
+
+/**
+ * Everything the working tree's own uncommitted state touched, shaped exactly
+ * like a real commit's detail. The renderer's synthetic `Commit` (see
+ * `UNCOMMITTED_CHANGES_HASH`) is what makes this selectable through the same
+ * mechanism as any real row; this is what answers that selection.
+ *
+ * Tracked changes — staged and unstaged, combined — come from one
+ * `git diff --numstat HEAD`, the same comparison `readLog`'s dirty check is a
+ * yes/no version of. Untracked files never appear in that diff (git only
+ * diffs what it already knows about), so they are read straight off disk
+ * instead (`fileStatsFromDisk`) rather than shelled through git a second time
+ * each. When the repository has no commits yet, HEAD does not resolve, so
+ * there is no tree to diff against for *any* status entry — every one of them
+ * is read the same way as an untracked file, staged or not.
+ */
+export async function readWorkingTreeChanges(dir: string): Promise<GitCommitResult> {
+  // All four at once: the diff needs no answer from the others — with no
+  // commits yet it simply fails on the unresolvable HEAD, which is the same
+  // "nothing tracked to compare" the fallback below already means.
+  const [root, head, status, numstat] = await Promise.all([
+    repoRoot(dir),
+    git(dir, ['rev-parse', 'HEAD']),
+    git(dir, ['status', '--porcelain', '--ignore-submodules']),
+    git(dir, ['diff', '--numstat', 'HEAD'])
+  ])
+  if (!root.ok) return { ok: false, reason: root.reason }
+
+  const hasHead = head.ok
+  const tracked = numstat.ok ? parseNumstat(numstat.stdout) : { files: [], truncated: false }
+  const trackedPaths = new Set(tracked.files.map((file) => file.path))
+
+  const statusPaths = status.ok ? parseStatusPaths(status.stdout) : []
+  const remainingPaths = statusPaths.filter((path) => !trackedPaths.has(path))
+  const remainingBudget = Math.max(FILE_CAP - tracked.files.length, 0)
+  const extra = await Promise.all(
+    remainingPaths.slice(0, remainingBudget).map((path) => fileStatsFromDisk(dir, path))
+  )
+
+  return {
+    ok: true,
+    detail: {
+      hash: UNCOMMITTED_CHANGES_HASH,
+      parents: hasHead ? [head.stdout.trim()] : [],
+      author: '',
+      authorEmail: '',
+      date: '',
+      refs: [],
+      message: 'Uncommitted changes',
+      files: [...tracked.files, ...extra],
+      filesTruncated: tracked.truncated || remainingPaths.length > extra.length
     }
   }
 }

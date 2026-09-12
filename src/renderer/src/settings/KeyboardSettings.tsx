@@ -23,6 +23,7 @@ import { flushSync } from 'react-dom'
 import { platform } from '../core/platform'
 import { useSettingsStore } from '../core/store/settingsStore'
 import { IconButton } from '../IconButton'
+import { SettingsActionRow } from './settingsRows'
 
 /** Keys that only ever modify another key — held down while a combination is being formed. */
 const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'AltGraph'])
@@ -379,24 +380,19 @@ export function KeyboardSettings() {
         </section>
       ))}
       <section className="settings-section">
-        <div className="settings-row settings-row-action">
-          <span className="settings-row-text">
-            <span className="settings-row-title">Restore defaults</span>
-            <span className="settings-row-desc">
-              Put every shortcut back to the combination it ships with.
-            </span>
-          </span>
-          <span className="settings-row-buttons">
-            <button
-              type="button"
-              className="settings-secondary-button"
-              data-testid="settings-shortcuts-restore-defaults"
-              onClick={() => settleAnd(() => setSetting('shortcuts', {}))}
-            >
-              Restore Defaults
-            </button>
-          </span>
-        </div>
+        <SettingsActionRow
+          title="Restore defaults"
+          description="Put every shortcut back to the combination it ships with."
+        >
+          <button
+            type="button"
+            className="settings-secondary-button"
+            data-testid="settings-shortcuts-restore-defaults"
+            onClick={() => settleAnd(() => setSetting('shortcuts', {}))}
+          >
+            Restore Defaults
+          </button>
+        </SettingsActionRow>
       </section>
     </div>
   )
@@ -424,44 +420,40 @@ function ShortcutRow({
   onReset: () => void
 }) {
   return (
-    <div className="settings-row settings-row-action">
-      <span className="settings-row-text">
-        <span className="settings-row-title">{action.label}</span>
-        <span className="settings-row-desc" data-tone={notice?.tone}>
-          {notice?.text ?? action.description}
-        </span>
-      </span>
-      <span className="settings-row-buttons">
-        <button
-          type="button"
-          className="settings-shortcut-chip"
-          data-testid={`settings-shortcut-${action.id}`}
-          data-capturing={capturing || undefined}
-          data-unbound={binding === null || undefined}
-          onClick={onCapture}
-        >
-          {capturing ? preview || 'Press keys…' : formatBinding(binding, platform)}
-        </button>
+    <SettingsActionRow
+      title={action.label}
+      description={notice?.text ?? action.description}
+      tone={notice?.tone}
+    >
+      <button
+        type="button"
+        className="settings-shortcut-chip"
+        data-testid={`settings-shortcut-${action.id}`}
+        data-capturing={capturing || undefined}
+        data-unbound={binding === null || undefined}
+        onClick={onCapture}
+      >
+        {capturing ? preview || 'Press keys…' : formatBinding(binding, platform)}
+      </button>
+      <button
+        type="button"
+        className="settings-secondary-button"
+        data-testid={`settings-shortcut-clear-${action.id}`}
+        disabled={binding === null}
+        onClick={onClear}
+      >
+        Clear
+      </button>
+      {overridden && (
         <button
           type="button"
           className="settings-secondary-button"
-          data-testid={`settings-shortcut-clear-${action.id}`}
-          disabled={binding === null}
-          onClick={onClear}
+          data-testid={`settings-shortcut-reset-${action.id}`}
+          onClick={onReset}
         >
-          Clear
+          Reset
         </button>
-        {overridden && (
-          <button
-            type="button"
-            className="settings-secondary-button"
-            data-testid={`settings-shortcut-reset-${action.id}`}
-            onClick={onReset}
-          >
-            Reset
-          </button>
-        )}
-      </span>
-    </div>
+      )}
+    </SettingsActionRow>
   )
 }

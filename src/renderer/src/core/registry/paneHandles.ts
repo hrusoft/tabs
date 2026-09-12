@@ -1,5 +1,5 @@
 import type { NodeId } from '@shared/model/types'
-import { isSplit, isTabs } from '@shared/model/types'
+import { isLeaf } from '@shared/model/types'
 import { useLayoutEffect, useRef } from 'react'
 import { findNodeAnywhere, useLayoutStore } from '../store/layoutStore'
 
@@ -92,8 +92,7 @@ export function registerPaneHandle(id: NodeId, handle: PaneHandle): () => void {
   const state = useLayoutStore.getState()
   if (id === state.activePaneId) {
     const node = findNodeAnywhere(state, id)
-    const agentCreated =
-      node !== null && !isTabs(node) && !isSplit(node) && node.agentCreated === true
+    const agentCreated = node !== null && isLeaf(node) && node.agentCreated === true
     if (!agentCreated) dispatchFocus(handle, 'focus')
   }
   return () => {

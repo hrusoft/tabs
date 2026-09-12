@@ -582,8 +582,8 @@ test('the near-miss diagnosis also reaches type/form-input, via the shared match
   await closeAgentSession(page, env, paneId)
 })
 
-test('input verbs refuse a pane this caller does not own', async ({ page }) => {
-  await expectRefusedForForeignPane(page, (foreign) => [
+test('input verbs refuse a pane this caller does not own', async ({ page, electronApp }) => {
+  await expectRefusedForForeignPane(electronApp, page, (foreign) => [
     ['read-page', '--pane', foreign],
     ['find', '--pane', foreign, '--description', 'anything'],
     ['click', '--pane', foreign, '--x', '10', '--y', '10'],

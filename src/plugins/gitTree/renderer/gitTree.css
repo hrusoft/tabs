@@ -1,17 +1,24 @@
-/* The git tree pane's own styles, side-effect imported by GitTreeRenderer.tsx
-   so they load with the renderer that uses them and nowhere else. That module
-   is reached only through registerBuiltins (main.tsx), so the Settings window
-   — which registers page defs, never renderers — never ships these rules.
+/* The git tree pane's own styles, side-effect imported by both
+   GitTreeRenderer.tsx (the list/detail body) and GitTreeHeaderTitle.tsx (the
+   header's path bar/branch-scope chrome) — a harmless double side-effect
+   import, ES modules cache it once. That module is reached only through
+   registerBuiltins (main.tsx), so the Settings window — which registers page
+   defs, never renderers — never ships these rules.
 
-   Everything that is chrome (toolbar, text, borders, selection) uses the theme
-   tokens installTheme writes, so this pane follows light/dark like the rest of
-   the app.
+   Everything that is chrome (path bar, branch select, text, borders,
+   selection) uses the theme tokens installTheme writes, so this pane follows
+   light/dark like the rest of the app.
 
    The `--git-lane-*` colours are deliberately not declared here: they are
    content, not chrome (see LANE_COLORS in GitGraph.tsx), and GitTreeRenderer
    publishes them onto the container the way it publishes --git-row-height —
    one owner for the swatches and the cycle length alike. */
 
+/* No toolbar row to share the column with any more — the path bar, browse
+   button, HEAD label and branch-scope select all moved into .pane-header via
+   GitTreeHeaderTitle. Still a flex column, though: unlike the browser's
+   equivalent (which collapsed to a single child), this still wraps three
+   mutually-exclusive states (loading/body/empty notice). */
 .git-tree-container {
   display: flex;
   flex-direction: column;
@@ -19,17 +26,6 @@
   width: 100%;
   min-height: 0;
   overflow: hidden;
-}
-
-.git-tree-toolbar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 6px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
 }
 
 .git-tree-path-input {
@@ -50,26 +46,6 @@
   border-color: var(--accent);
 }
 
-.git-tree-browse-button {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  color: var(--text-dim);
-  background: none;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-.git-tree-browse-button:hover {
-  color: var(--text);
-  background: rgb(var(--hover-rgb) / 0.12);
-}
-
 .git-tree-head {
   flex: none;
   font-size: 11px;
@@ -79,6 +55,23 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git-tree-branch-select {
+  flex: none;
+  font: inherit;
+  font-size: 11px;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  height: 20px;
+}
+
+.git-tree-branch-select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* List above, detail below. A column rather than two side-by-side panes
@@ -126,6 +119,16 @@
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
+/* The uncommitted-changes indicator: receded rather than selectable, so it
+   reads as a state of the working tree rather than one more row to click. */
+.git-tree-row-phantom {
+  opacity: 0.6;
+}
+
+.git-tree-row-phantom:hover {
+  background: none;
+}
+
 /* The gutter must not shrink when a subject is long, or the graph would
    compress and stop lining up row to row. */
 .git-graph {
@@ -146,6 +149,11 @@
   text-overflow: ellipsis;
 }
 
+/* Ordered after the plain rule above so specificity only rises, never falls. */
+.git-tree-row-phantom .git-tree-subject {
+  font-style: italic;
+}
+
 .git-tree-ref {
   display: inline-block;
   margin-right: 6px;
@@ -156,6 +164,13 @@
   font-size: 10px;
   line-height: 14px;
   vertical-align: 1px;
+}
+
+/* The refs on the commit HEAD points at, inverted so the checked-out commit
+   reads at a glance instead of only by its literal "HEAD" text. */
+.git-tree-ref-head {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .git-tree-author,

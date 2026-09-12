@@ -79,12 +79,12 @@ const appWindow: AppWindowApi = {
 }
 
 /**
- * Menu-driven shortcuts (New Tab, New Horizontal Split, New Vertical Split,
- * New Unpinned Pane, Close Pane, Clear Buffer) — see src/main/menu.ts's
- * buildMenu for why these come from a native menu accelerator instead of a
- * renderer-side keydown listener, and src/shared/shortcuts.ts for the
- * bindings they carry, which the user can rebind. `setCaptureMode` is the
- * Settings window arming its recorder.
+ * Menu-driven shortcuts (every action with `layer: 'menu'` in
+ * src/shared/shortcuts.ts) — see src/main/menu.ts's buildMenu for why these
+ * come from a native menu accelerator instead of a renderer-side keydown
+ * listener, and the shared action registry for the bindings they carry, which
+ * the user can rebind. `setCaptureMode` is the Settings window arming its
+ * recorder.
  *
  * Every action arrives on one channel carrying its id, so the filtering
  * happens here rather than in the channel name — which is what lets a new

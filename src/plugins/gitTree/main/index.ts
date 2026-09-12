@@ -1,11 +1,11 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import { e2eHidden, type MainPluginContext, type MainPluginModule } from '../../../main/plugin/api'
 import { GitTreeMethod } from '../shared/ipc'
-import type { GitCommitResult, GitLogResult } from '../shared/types'
-import { isRepo, readCommit, readLog } from './git'
+import type { GitBranchScope, GitCommitResult, GitLogResult } from '../shared/types'
+import { isRepo, readCommit, readLog, readWorkingTreeChanges } from './git'
 
 /**
- * The git tree content type's main-process contributions: four IPC handlers
+ * The git tree content type's main-process contributions: five IPC handlers
  * and nothing else.
  *
  * Notably absent, and each absence is a decision rather than an omission:
@@ -50,13 +50,18 @@ async function defaultDirectory(): Promise<string> {
 function registerGitTreeIpc(ipc: MainPluginContext['ipc']): void {
   ipc.handle(
     GitTreeMethod.log,
-    (_event, dir, limit, skip): Promise<GitLogResult> =>
-      readLog(dir as string, limit as number, skip as number)
+    (_event, dir, limit, skip, branchScope): Promise<GitLogResult> =>
+      readLog(dir as string, limit as number, skip as number, branchScope as GitBranchScope)
   )
 
   ipc.handle(
     GitTreeMethod.commit,
     (_event, dir, hash): Promise<GitCommitResult> => readCommit(dir as string, hash as string)
+  )
+
+  ipc.handle(
+    GitTreeMethod.workingTree,
+    (_event, dir): Promise<GitCommitResult> => readWorkingTreeChanges(dir as string)
   )
 
   ipc.handle(GitTreeMethod.defaultDirectory, (): Promise<string> => defaultDirectory())

@@ -26,6 +26,26 @@ import type { ContentRendererDef } from '../core/registry/registry'
  * ceremony with no consumer.
  */
 
+// The pane-header button primitive (see PaneHeaderMenuGroup.tsx) — pure and
+// core-stateless like IconButton above, and the required building block for
+// a ContentRendererDef.HeaderControl/HeaderTitle: it already carries the
+// stopPropagation contract those need to avoid arming a pane drag.
+export { HeaderButton } from '../content/PaneHeaderMenuGroup'
+/**
+ * Whether focus is inside a pane's own chrome bar — what a content type's
+ * `PaneHandle.focus` checks before taking the keyboard, so a click on its own
+ * header control (an address bar, a path input) isn't undone by the
+ * activation that click also causes. A helper rather than the attribute name
+ * it queries, so no package restates the DOM contract `.pane-header` carries.
+ */
+export { focusIsInPaneChrome } from '../content/paneDom'
+/**
+ * Per-pane published values (see paneValueStore.ts) — how a type's
+ * `HeaderTitle` reads state its body `Component` owns, across the mount-order
+ * gap `Pane.tsx` puts between them. Pure and core-stateless like the reattach
+ * registry below: each package instantiates its own.
+ */
+export { createPaneValueStore, type PaneValueStore } from '../content/paneValueStore'
 // Pure and core-stateless, so it needs no context ride: the instances a
 // reattach registry holds are the package's own.
 export {

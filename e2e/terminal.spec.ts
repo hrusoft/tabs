@@ -8,7 +8,14 @@ import { grabAndHover } from './helpers/drag'
 import { type Box, centerOf, requireBox } from './helpers/geometry'
 import { expect, test, withApp } from './helpers/launch'
 import { clickMenuItem } from './helpers/menu'
-import { clickPaneRoot, closePane, initialPane, openNewTab, splitHorizontal } from './helpers/pane'
+import {
+  closePane,
+  createViaPalette,
+  headerOf,
+  initialPane,
+  openNewTab,
+  splitHorizontal
+} from './helpers/pane'
 import { openSettingsTab } from './helpers/settings'
 import { alive, openTerminal, terminalWithPid, typeAndEnter } from './helpers/terminal'
 
@@ -401,12 +408,16 @@ test("splitting a sibling pane doesn't wipe an unrelated terminal's scrollback",
 })
 
 test('opening a terminal on a live terminal gives two tabs running two shells', async ({
-  page
+  page,
+  electronApp
 }) => {
   const first = await openTerminal(initialPane(page))
   const firstPid = Number(await first.getAttribute('data-pty-pid'))
 
-  await clickPaneRoot(initialPane(page), 'pane-new-terminal-button')
+  // The removed pane-header creation dropdown used to add a second terminal
+  // as a sibling tab of a pane that already held one; createViaPalette is
+  // its replacement.
+  await createViaPalette(electronApp, page, initialPane(page), 'pane-new-terminal-button')
 
   const terms = page.getByTestId('terminal')
   await expect(terms).toHaveCount(2)
@@ -760,6 +771,47 @@ test('Cmd/Ctrl+K leaves a full-screen TUI on the alternate buffer alone', async 
 
   await typeAndEnter(term, "printf '\\033[?1049l'")
   await closePane(initialPane(page))
+})
+
+test("the header's Clear scrollback control clears the terminal, scrollback included", async ({
+  page
+}) => {
+  const pane = initialPane(page)
+  const term = await openTerminal(pane)
+
+  await typeAndEnter(term, "printf 'filler-%s\\n' $(seq 1 200)")
+  await expect(term).toContainText('filler-200')
+
+  await scrollUp(term)
+  await expect(term).not.toContainText('filler-200')
+  await expect(term).toContainText('filler-')
+
+  await headerOf(pane).getByTestId('pane-terminal-clear-scrollback-button').click()
+
+  await expect(term).not.toContainText('filler-')
+  await scrollUp(term)
+  await expect(term).not.toContainText('filler-')
+
+  await closePane(pane)
+})
+
+test("the header's Clear scrollback control leaves a full-screen TUI on the alternate buffer alone", async ({
+  page
+}) => {
+  const pane = initialPane(page)
+  const term = await openTerminal(pane)
+
+  await typeAndEnter(term, "printf '\\033[?1049h'; echo alt-screen-content")
+  await expect(term).toContainText('alt-screen-content')
+
+  await headerOf(pane).getByTestId('pane-terminal-clear-scrollback-button').click()
+
+  await typeAndEnter(term, 'echo after-clear-attempt')
+  await expect(term).toContainText('after-clear-attempt')
+  await expect(term).toContainText('alt-screen-content')
+
+  await typeAndEnter(term, "printf '\\033[?1049l'")
+  await closePane(pane)
 })
 
 test('clicking a terminal link without the modifier held does not open anything', async ({

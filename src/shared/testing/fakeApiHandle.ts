@@ -11,6 +11,19 @@ export interface TestSeed {
 }
 
 /**
+ * The opt-in stub content types a non-Electron tier can register on top of
+ * the always-present plain stub (see stubContent.tsx): `second` is another
+ * creation-capable type, for tests that need a *row* of creation buttons;
+ * `header-chrome` declares HeaderControl/HeaderTitle, for the generic header
+ * hooks. Opt-in per test because most specs only care about the plain
+ * stub's own button/pane-count assertions and would be perturbed by another
+ * type appearing beside it. Deliberately not a `TestSeed` field: the seed is
+ * state the real app would read from disk, and this is a registration, which
+ * the real app takes from registerBuiltins.
+ */
+export type ExtraStubType = 'second' | 'header-chrome'
+
+/**
  * Core's half of the driver surface both non-Electron test tiers use to script
  * the fake `window.api` (implemented in src/renderer/src/testing/fakeApi.ts):
  * jsdom component tests import the handle directly; Playwright browser-mode

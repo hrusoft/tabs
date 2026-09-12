@@ -1,9 +1,10 @@
-import { screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { act, screen, waitFor } from '@testing-library/react'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest'
 import { contentRegistry } from '../../../../renderer/src/core/registry/registry'
 import { createRendererPluginContext } from '../../../../renderer/src/plugin/context'
 import { initialPane } from '../../../../renderer/src/testing/domQueries'
+import { fillEmptyPane } from '../../../../renderer/src/testing/paneActions'
 import { renderApp } from '../../../../renderer/src/testing/renderApp'
 import { GIT_TREE_TYPE } from '../../shared/manifest'
 import { gitTreeContentDef } from '../gitTreeContentDef'
@@ -63,7 +64,26 @@ beforeEach(() => {
 /** Presses the empty pane's New git tree button and waits for the pane to appear. */
 async function openGitTreeFromEmptyPane(): Promise<void> {
   const user = userEvent.setup()
-  await user.click(within(initialPane()).getByTestId('empty-pane-new-git-tree-button'))
+  await fillEmptyPane(user, initialPane(), 'pane-new-git-tree-button')
+  await screen.findByTestId('git-tree')
+}
+
+/**
+ * Opens a git tree as a new tab beside whatever the active pane already
+ * holds, via the Cmd+P command palette — the removed pane-header creation
+ * dropdown's replacement for "create beside real content" (the empty-pane
+ * toolbar only ever has an empty origin to offer, which is the wrong shape
+ * for these tests: the whole point is a non-empty origin exposing its
+ * directory). The palette always targets the currently active pane
+ * (handleOpenCommandPalette in paneShortcuts.ts), which here is the one
+ * `renderApp` seeded as `root`.
+ */
+async function openGitTreeViaPalette(user: UserEvent): Promise<void> {
+  await act(async () => {
+    window.__fakeApi?.fireShortcut('command-palette')
+  })
+  await user.click(screen.getByTestId('command-palette-item-pane-new-git-tree-button'))
+  await user.click(screen.getByTestId('command-palette-item-new-tab'))
   await screen.findByTestId('git-tree')
 }
 
@@ -76,9 +96,10 @@ test('a git tree created from a pane that exposes a directory opens on it', asyn
   })
   const user = userEvent.setup()
 
-  // Pressing the git tree button on this pane's own header tabs a git tree in
-  // beside it, with the origin resolved from that pane.
-  await user.click(within(initialPane()).getByTestId('pane-new-git-tree-button'))
+  // Driving the command palette targets whichever pane is active — this one
+  // — and "New tab" tabs a git tree in beside its existing content, with the
+  // origin resolved from that pane.
+  await openGitTreeViaPalette(user)
 
   await waitFor(() => {
     expect(window.__fakeApi?.gitTreeLogCalls()).toContain('/origin/repo')
@@ -98,7 +119,7 @@ test('an origin that exposes no directory falls back to the default, not to a bl
   })
   const user = userEvent.setup()
 
-  await user.click(within(initialPane()).getByTestId('pane-new-git-tree-button'))
+  await openGitTreeViaPalette(user)
 
   await waitFor(() => {
     expect(window.__fakeApi?.gitTreeLogCalls()).toContain('/fallback/default')
@@ -117,7 +138,7 @@ test('an origin that exposes a directory only sometimes still degrades cleanly',
   })
   const user = userEvent.setup()
 
-  await user.click(within(initialPane()).getByTestId('pane-new-git-tree-button'))
+  await openGitTreeViaPalette(user)
 
   await waitFor(() => {
     expect(screen.getByTestId('git-tree-path-input')).toHaveValue('/fallback/default')

@@ -27,10 +27,11 @@ import { themeWindowBackground } from './theme'
  * docked root is always a tab group, and that group's own tab bar carries the
  * gutter (.tab-bar-root in global.css, see content/tabs/TabBar.tsx), while the
  * Settings window still draws a plain title bar (.settings-titlebar) — both
- * sized by --window-titlebar-height (30px) in global.css. Shared by both
- * windows rather than spelled out at each call site, so the two can never
- * drift into looking like different apps — `y` centers the lights in that
- * shared height, so changing the token means retuning this too.
+ * sized by --window-titlebar-height (30px) in global.css, as is the About
+ * window's own bar (.about-titlebar in about.css, the Settings bar's twin).
+ * Shared by all three windows rather than spelled out at each call site, so
+ * none of them can drift into looking like a different app — `y` centers the
+ * lights in that shared height, so changing the token means retuning this too.
  *
  * `y` is eyeballed against the real, rendered window: this value can't be
  * screenshotted or otherwise verified from here, since the traffic lights are

@@ -130,8 +130,8 @@ test('screenshot clips to one element, in CSS pixels, at the same scale factor',
   await closeAgentSession(page, env, paneId)
 })
 
-test('read-back verbs refuse a pane this caller does not own', async ({ page }) => {
-  await expectRefusedForForeignPane(page, (foreign) => [
+test('read-back verbs refuse a pane this caller does not own', async ({ page, electronApp }) => {
+  await expectRefusedForForeignPane(electronApp, page, (foreign) => [
     ['pane-info', '--pane', foreign],
     ['screenshot', '--pane', foreign],
     ['get-page-text', '--pane', foreign],
@@ -922,8 +922,8 @@ test('read-network narrows to what broke and collapses a poll loop into one coun
   await closeAgentSession(page, env, paneId)
 })
 
-test('capture verbs refuse a pane this caller does not own', async ({ page }) => {
-  await expectRefusedForForeignPane(page, (foreign) => [
+test('capture verbs refuse a pane this caller does not own', async ({ page, electronApp }) => {
+  await expectRefusedForForeignPane(electronApp, page, (foreign) => [
     ['read-console', '--pane', foreign],
     ['read-network', '--pane', foreign],
     ['capture-bodies', '--pane', foreign]

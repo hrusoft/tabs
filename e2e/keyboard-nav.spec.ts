@@ -137,8 +137,9 @@ test('typing follows cmd+arrow into a browser pane, and cmd+arrow escapes it aga
   // new sibling at 2.
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
-  const browser = await openBrowser(panes.nth(2))
-  await navigateTo(browser, probePage)
+  const browserPane = panes.nth(2)
+  await openBrowser(browserPane)
+  await navigateTo(browserPane, probePage)
   await expect.poll(() => guestText(electronApp, '#status')).toBe('idle')
 
   await activatePane(panes.nth(1))

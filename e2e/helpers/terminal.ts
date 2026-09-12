@@ -1,13 +1,14 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import type { ElectronApplication } from 'playwright'
 import { centerOf, requireBox } from './geometry'
-import { clickPaneRoot } from './pane'
+import { fillEmptyPane } from './pane'
 
 /**
- * Opens a terminal in `pane` via its own header controls, waiting until the
+ * Opens a terminal in `pane` via its own (empty) toolbar, waiting until the
  * pty is genuinely up: create() resolves asynchronously over IPC (the pid
  * attribute lands once it does), and the real login shell's prompt landing
- * (vs. a blank pty) means it's safe to start typing.
+ * (vs. a blank pty) means it's safe to start typing. `pane` must be empty —
+ * see fillEmptyPane in helpers/pane.ts.
  *
  * Close what you open: if the terminal is incidental setup (real content to
  * drag, focus, etc. — not the thing under test), close its pane/tab before
@@ -23,7 +24,7 @@ import { clickPaneRoot } from './pane'
  * layout.spec.ts) — there, leaving it running is the point.
  */
 export async function openTerminal(pane: Locator): Promise<Locator> {
-  await clickPaneRoot(pane, 'pane-new-terminal-button')
+  await fillEmptyPane(pane, 'pane-new-terminal-button')
   // Resolve the new terminal scoped to the pane it was opened in, so a
   // second/third terminal is unambiguous — then hand back a pid-anchored
   // locator, which keeps following this terminal across structural moves

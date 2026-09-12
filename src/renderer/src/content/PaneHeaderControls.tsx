@@ -1,12 +1,10 @@
 import type { ContentNode, SplitDirection } from '@shared/model/types'
-import { isEmpty } from '@shared/model/types'
+import { isEmpty, isLeaf } from '@shared/model/types'
 import { PANE_BUTTON } from '@shared/paneDomAttrs'
-import type { PaneCreationAction } from '../core/registry/registry'
+import { contentRegistry } from '../core/registry/registry'
 import { closeTargetNode, useLayoutStore } from '../core/store/layoutStore'
 import { confirmClosingContent } from './closeConfirmation'
 import { createContentLike } from './contentLike'
-import { createContentFor } from './createFrom'
-import { useCreationActions } from './creationActions'
 import {
   ClearPaneIcon,
   ClosePaneIcon,
@@ -34,15 +32,15 @@ export function PaneGrip() {
 
 /**
  * The controls every pane's chrome carries, all acting on `node` directly —
- * three hover-expand groups, roughly increasing destructiveness left to
- * right: split/tab actions (rooted on Split horizontally), content-type
- * creation (rooted on the first registered type), then close/clear. Each
+ * two hover-expand groups, roughly increasing destructiveness left to right:
+ * split/tab actions (rooted on Split horizontally), then close/clear. Each
  * root button is always visible once the chrome itself is hovered; hovering
  * a root in turn reveals its own dropdown of related actions — see
- * PaneHeaderMenuGroup.
+ * PaneHeaderMenuGroup. A content type's own creation action lives elsewhere
+ * now: an empty pane's own toolbar (empty/EmptyPaneRenderer.tsx) and the
+ * Cmd+P command palette (CommandPalette.tsx).
  */
 export function PaneHeaderControls({ node }: { node: ContentNode }) {
-  const openContent = useLayoutStore((state) => state.openContent)
   const closePane = useLayoutStore((state) => state.closePane)
   const clearPane = useLayoutStore((state) => state.clearPane)
   const wrapPaneInTabs = useLayoutStore((state) => state.wrapPaneInTabs)
@@ -55,7 +53,10 @@ export function PaneHeaderControls({ node }: { node: ContentNode }) {
   // path one. New Tab, already the obvious top-level action, takes over as
   // this group's own root button.
   const isDockedRoot = useLayoutStore((state) => state.root.id === node.id)
-  const creationActions = useCreationActions()
+  // Only a leaf ever declares HeaderControl — registerStructural's 'tabs'/
+  // 'split' defs never do.
+  const leaf = isLeaf(node) ? node : null
+  const HeaderControl = leaf ? contentRegistry.get(leaf.type)?.HeaderControl : undefined
 
   /**
    * Split horizontally/vertically and New tab — one call, because they differ
@@ -68,16 +69,6 @@ export function PaneHeaderControls({ node }: { node: ContentNode }) {
 
   const handleNewUnpinnedTab = async (): Promise<void> => {
     placeNewUnpinnedPane(node.id, await createContentLike(node))
-  }
-
-  /**
-   * A content type's own creation button, aimed at this pane — and told which
-   * pane it was pressed on, which is what lets the new content pick something
-   * up from it (a git tree opening on the directory this terminal is in). The
-   * origin was always available here; it simply used not to be passed.
-   */
-  const handleCreate = async (action: PaneCreationAction): Promise<void> => {
-    openContent(node.id, await createContentFor(action, node))
   }
 
   // Both ask about `closeTargetNode` rather than about `node` itself, because
@@ -95,8 +86,6 @@ export function PaneHeaderControls({ node }: { node: ContentNode }) {
       clearPane(node.id)
   }
 
-  const [rootCreationAction, ...restCreationActions] = creationActions
-
   const newTabItem = {
     testId: PANE_BUTTON.newTab,
     label: 'New tab',
@@ -113,6 +102,7 @@ export function PaneHeaderControls({ node }: { node: ContentNode }) {
 
   return (
     <div className="pane-header-controls">
+      {HeaderControl && leaf && <HeaderControl leaf={leaf} />}
       {isDockedRoot ? (
         <PaneHeaderMenuGroup root={newTabItem} items={[newUnpinnedTabItem]} />
       ) : (
@@ -139,22 +129,6 @@ export function PaneHeaderControls({ node }: { node: ContentNode }) {
               onPress: () => wrapPaneInTabs(node.id)
             }
           ]}
-        />
-      )}
-      {rootCreationAction && (
-        <PaneHeaderMenuGroup
-          root={{
-            testId: rootCreationAction.testId,
-            label: rootCreationAction.label,
-            onPress: () => handleCreate(rootCreationAction),
-            icon: <rootCreationAction.Icon />
-          }}
-          items={restCreationActions.map((createAction) => ({
-            testId: createAction.testId,
-            label: createAction.label,
-            icon: <createAction.Icon />,
-            onPress: () => handleCreate(createAction)
-          }))}
         />
       )}
       <span className="pane-header-separator" aria-hidden="true" />

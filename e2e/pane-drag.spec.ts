@@ -1,6 +1,7 @@
 import { REATTACH_GRACE_MS } from '../src/shared/reattach'
 import { openBrowser } from './helpers/browser'
 import {
+  expectNoDragFrom,
   grabAndHover,
   grabAndHoverCenter,
   holdPastSpringLoad,
@@ -144,9 +145,9 @@ test('a pane dragged onto a browser pane previews there and drops there', async 
   const panes = page.getByTestId('pane')
   const browser = await openBrowser(panes.nth(2))
 
-  // Aimed well inside the guest's own area, below the pane's toolbar — the
-  // region the host used to hear nothing from, so no dock zone ever previewed
-  // and a browser pane could not be dropped onto at all.
+  // Aimed at the guest's own area — the region the host used to hear
+  // nothing from, so no dock zone ever previewed and a browser pane could
+  // not be dropped onto at all.
   const target = await requireBox(browser.locator('.browser-webview'))
   await grabAndHover(
     headerOf(panes.nth(1)),
@@ -171,6 +172,31 @@ test('a pane dragged onto a browser pane previews there and drops there', async 
   await grabAndHover(headerOf(panes.nth(1)), 40, 400)
   await expect(page.locator('.drag-ghost')).toBeVisible()
   await page.mouse.up()
+})
+
+/**
+ * The real, shipping counterpart to the synthetic stub's own drag-immunity
+ * test in e2e/browser/pane-drag.spec.ts: BrowserHeaderTitle's four controls
+ * (the three nav buttons plus the address input, the latter now nested one
+ * level deeper inside its own `.browser-address-bar` wrapper) all sit within
+ * `.pane-header`'s own drag-arming row, for the first time — they used to
+ * live in the pane body's own `.browser-toolbar`, which had no such
+ * pointerdown handler at all. Electron-tier because it needs a real
+ * `BrowserHeaderTitle` to exercise, which a Chromium-tier stub cannot render.
+ */
+test("a browser pane's header controls do not start a pane drag", async ({ page }) => {
+  const pane = initialPane(page)
+  await openBrowser(pane)
+  const header = headerOf(pane)
+
+  for (const testId of [
+    'browser-back-button',
+    'browser-forward-button',
+    'browser-refresh-button',
+    'browser-address-input'
+  ]) {
+    await expectNoDragFrom(header.getByTestId(testId))
+  }
 })
 
 // A `<webview>`'s `focus()` is Electron's override, not the element's: it
@@ -207,11 +233,16 @@ test('a browser pane dragged out of a nested group onto an ancestor bar survives
   await expect(page.getByRole('tablist')).toHaveCount(2)
 
   // Now drag that child back out, onto root's bar — the move that walks the
-  // guest through destroy-and-rebuild.
+  // guest through destroy-and-rebuild. Grabbed from the grip specifically,
+  // not the header's own center: this child is a browser pane, whose header
+  // is now BrowserHeaderTitle's nav chrome (an address bar filling most of
+  // the row), and that chrome's own stopPropagation correctly refuses to
+  // arm a drag from a click landing on it — the grip is the one spot every
+  // pane's header keeps draggable regardless of content type.
   const childId = await panes.last().getAttribute('data-dock-id')
   const rootTab = await requireBox(rootTabs.first())
   await grabAndHover(
-    headerOf(paneById(page, childId)),
+    headerOf(paneById(page, childId)).locator('.pane-grip'),
     rootTab.x + rootTab.width * 0.75,
     rootTab.y + rootTab.height / 2
   )

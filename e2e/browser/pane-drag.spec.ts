@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
 import {
+  expectNoDragFrom,
   grabAndHover,
   grabAndHoverCenter,
   holdPastSpringLoad,
@@ -88,8 +89,8 @@ test('dropping a pane at the center of another pane merges the two into one tab 
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
   // The split activated the second pane: stub B lives there.
-  await headerOf(panes.nth(2)).getByTestId('pane-new-stub-button').click()
-  await headerOf(panes.nth(1)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(2).getByTestId('empty-pane-new-stub-button').click()
+  await panes.nth(1).getByTestId('empty-pane-new-stub-button').click()
   await expect(page.getByTestId('stub-content')).toHaveCount(2)
 
   const targetBox = await requireBox(panes.nth(2))
@@ -123,7 +124,7 @@ test('center-docking a tab-group pane onto another group nests it as a single ta
   // …group B on the right, its blank tab filled with stub content so its
   // content is a dock target rather than an empty-pane target.
   await openNewTab(panes.nth(3))
-  await headerOf(panes.nth(4)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(4).getByTestId('empty-pane-new-stub-button').click()
   // Root's own tablist (0), plus A (1) and B (2).
   await expect(page.getByRole('tablist')).toHaveCount(3)
 
@@ -157,10 +158,10 @@ test("edge-docking near a tab's own content splits within that tab, leaving the 
   // Group A on the left, with a second tab (active) holding stub content…
   await openNewTab(panes.nth(1))
   await openNewTab(panes.nth(2))
-  await headerOf(panes.nth(3)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(3).getByTestId('empty-pane-new-stub-button').click()
 
   // …and a bare stub pane B on the right, the drag subject.
-  await headerOf(panes.nth(4)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(4).getByTestId('empty-pane-new-stub-button').click()
 
   // Root's own tablist plus group A's.
   const tablist = page.getByRole('tablist').last()
@@ -202,10 +203,10 @@ test("edge-docking in the thin sliver at a group's true edge still splits the wh
   // Group A on the left, with a second tab (active) holding stub content…
   await openNewTab(panes.nth(1))
   await openNewTab(panes.nth(2))
-  await headerOf(panes.nth(3)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(3).getByTestId('empty-pane-new-stub-button').click()
 
   // …and a bare stub pane B on the right, the drag subject.
-  await headerOf(panes.nth(4)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(4).getByTestId('empty-pane-new-stub-button').click()
 
   // Root's own tablist plus group A's.
   const tablist = page.getByRole('tablist').last()
@@ -236,7 +237,7 @@ test("edge-docking in the thin sliver at a group's true edge still splits the wh
 test('dropping a pane onto a tab bar inserts it as a tab at that position', async ({ page }) => {
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
-  await headerOf(panes.nth(2)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(2).getByTestId('empty-pane-new-stub-button').click()
 
   await openNewTab(panes.nth(1))
   await openNewTab(panes.nth(2))
@@ -263,7 +264,7 @@ test('dropping a pane into an empty pane moves it there bare, collapsing the sou
 }) => {
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
-  await headerOf(panes.nth(2)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(2).getByTestId('empty-pane-new-stub-button').click()
 
   const emptyBox = await requireBox(panes.nth(1))
   await grabAndHover(
@@ -295,7 +296,7 @@ test('spring-loaded hover opens a tab mid pane-drag, allowing a drop inside its 
   // Group A: tab 1 holds stub content, tab 2 (also a stub, mirroring tab
   // 1's type) is selected on top of it.
   await openNewTab(panes.nth(1))
-  await headerOf(panes.nth(2)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(2).getByTestId('empty-pane-new-stub-button').click()
   await openNewTab(panes.nth(2))
   // Root's own tablist plus group A's.
   const groupTabs = page.getByRole('tablist').last().getByRole('tab')
@@ -305,7 +306,7 @@ test('spring-loaded hover opens a tab mid pane-drag, allowing a drop inside its 
   // Stub pane B in the second split pane is the drag subject. From here on,
   // address it by node id: the drag collapses the split and shifts pane
   // indices, so an index-based locator wouldn't reliably follow it.
-  await headerOf(panes.nth(4)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(4).getByTestId('empty-pane-new-stub-button').click()
   const draggedId = await panes.nth(4).getAttribute('data-dock-id')
   const paneB = paneById(page, draggedId)
   const paneBBox = await requireBox(panes.nth(4))
@@ -356,7 +357,7 @@ test('spring-loading a sibling tab of the drag’s own bar is not gated on that 
   // the bar itself refuses the drop: detaching the pane collapses its tab, so
   // re-adding it to the same bar changes nothing (`canMovePaneToTabs`). The
   // reveal still has to happen, or the sibling tab's content is unreachable.
-  await headerOf(initialPane(page)).getByTestId('pane-new-stub-button').click()
+  await initialPane(page).getByTestId('empty-pane-new-stub-button').click()
   // Clones the origin's own type, so the second tab arrives holding stub
   // content of its own rather than a placeholder.
   await openNewTab(initialPane(page))
@@ -400,7 +401,7 @@ test('spring-loading a sibling tab of the drag’s own bar is not gated on that 
 test.describe('a pane dragged out of a nested tab group onto an ancestor bar', () => {
   // Everything below starts from the reported sequence, so it is built once.
   async function dockTabTwoIntoTabOne(page: Page): Promise<void> {
-    await headerOf(initialPane(page)).getByTestId('pane-new-stub-button').click()
+    await initialPane(page).getByTestId('empty-pane-new-stub-button').click()
     await openNewTab(initialPane(page))
     const panes = page.getByTestId('pane')
     const tabs = page.getByRole('tablist').first().getByRole('tab')
@@ -500,7 +501,7 @@ test.describe('a pane dragged out of a nested tab group onto an ancestor bar', (
   }) => {
     // A group inside a group inside root's tab — the same gesture with one
     // more level for the removal to walk up through.
-    await headerOf(initialPane(page)).getByTestId('pane-new-stub-button').click()
+    await initialPane(page).getByTestId('empty-pane-new-stub-button').click()
     await wrapInTabGroup(initialPane(page))
     await wrapInTabGroup(page.getByTestId('pane').last())
     await expect(page.getByRole('tablist')).toHaveCount(3)
@@ -562,7 +563,7 @@ test('a targetless release flies the pane ghost home and changes nothing', async
 test('a release this window never saw cancels the drag instead of wedging it', async ({ page }) => {
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
-  await headerOf(panes.nth(2)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(2).getByTestId('empty-pane-new-stub-button').click()
   const idsBefore = await panes.evaluateAll((els) =>
     els.map((el) => el.getAttribute('data-dock-id'))
   )
@@ -617,16 +618,20 @@ test('a release this window never saw cancels the drag instead of wedging it', a
 })
 
 test("the root pane's header does not start a drag", async ({ page }) => {
-  const header = headerOf(page.getByTestId('pane').first())
-  const box = await requireBox(header)
-
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 60, { steps: 8 })
-
-  await expect(page.locator('.drag-ghost')).toHaveCount(0)
-  await page.mouse.up()
+  await expectNoDragFrom(headerOf(page.getByTestId('pane').first()))
   await expect(page.getByTestId('pane')).toHaveCount(2)
+})
+
+test.describe('a content type with its own HeaderTitle', () => {
+  test.use({ extraContentTypes: ['header-chrome'] })
+
+  test("a HeaderTitle's own interactive child does not start a pane drag", async ({ page }) => {
+    const pane = initialPane(page)
+    await pane.getByTestId('empty-pane-new-stub-header-chrome-button').click()
+
+    await expectNoDragFrom(headerOf(pane).getByTestId('stub-header-title'))
+    await expect(page.getByTestId('pane')).toHaveCount(2)
+  })
 })
 
 test('dragging a pane out of a multi-tab group closes only its tab behind it', async ({ page }) => {
@@ -664,7 +669,7 @@ test("dragging the sole tab's pane out dissolves its group entirely", async ({ p
 
   // A one-tab group holding stub content on the left, a placeholder right.
   await openNewTab(panes.nth(1))
-  await headerOf(panes.nth(2)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(2).getByTestId('empty-pane-new-stub-button').click()
   // Root's own tablist plus group A's.
   await expect(page.getByRole('tablist')).toHaveCount(2)
 
@@ -723,7 +728,7 @@ test('hovering a dragged pane over itself shows no preview, and releasing there 
 }) => {
   await splitHorizontal(initialPane(page))
   const panes = page.getByTestId('pane')
-  await headerOf(panes.nth(2)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(2).getByTestId('empty-pane-new-stub-button').click()
 
   const own = await requireBox(panes.nth(2))
 
@@ -761,7 +766,7 @@ test('dragging a top-level pane to the window edge never splits the docked root 
   // Three top-level tabs, so the pane being dragged is a direct tab of the
   // docked root — the shape whose enclosing group IS the root, and the only
   // one that could reach the root's own edge zone.
-  await headerOf(initialPane(page)).getByTestId('pane-new-stub-button').click()
+  await initialPane(page).getByTestId('empty-pane-new-stub-button').click()
   const rootBar = page.getByTestId('pane').nth(0)
   await clickPaneRoot(rootBar, PANE_BUTTON.newTab)
   await clickPaneRoot(rootBar, PANE_BUTTON.newTab)

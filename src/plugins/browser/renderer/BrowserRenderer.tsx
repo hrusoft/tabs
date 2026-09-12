@@ -2,14 +2,11 @@ import './browser.css'
 import type { LeafContent } from '@shared/model/types'
 import type { RingLog } from '@shared/ringLog'
 import type { WebviewTag } from 'electron'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { type ContentRendererProps, IconButton } from '../../../renderer/src/plugin/api'
+import { useCallback, useEffect, useRef } from 'react'
+import { type ContentRendererProps, focusIsInPaneChrome } from '../../../renderer/src/plugin/api'
 import { BrowserGuestMethod } from '../shared/ipc'
-import { resolveAddressInput } from './addressInput'
-import { BackIcon, ForwardIcon, RefreshIcon } from './browserIcons'
 import {
   acquireBrowser,
-  type BrowserUiSync,
   type ConsoleEntry,
   consoleLevelName,
   createConsoleLog,
@@ -21,26 +18,22 @@ import { createGuestReporter } from './guestReport'
 import { browserCtx } from './pluginContext'
 
 /**
- * Renders a tiny embedded web browser: back/forward/refresh + an address bar
- * above a live `<webview>` (`src/main/windows.ts` merges in the `webviewTag`
- * preference this needs; `src/plugins/browser/main/index.ts` is what hardens
- * what an attached guest may then do — popups, navigation). `node.config.url`
- * seeds the webview's starting page and is kept in sync on every navigation via
+ * Renders the live `<webview>` behind a browser pane (`src/main/windows.ts`
+ * merges in the `webviewTag` preference this needs; `src/plugins/browser/
+ * main/index.ts` is what hardens what an attached guest may then do —
+ * popups, navigation). The nav chrome (back/forward/refresh + address bar)
+ * is not here — it's BrowserHeaderTitle, this type's `ContentRendererDef.
+ * HeaderTitle`, in the pane's own header. `node.config.url` seeds the
+ * webview's starting page and is kept in sync on every navigation via
  * `setLeafConfig`, so a remount, a duplicated pane, or an app restart all
  * resume at the current page rather than the original seed URL.
  */
 export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const addressInputRef = useRef<HTMLInputElement>(null)
   const webviewRef = useRef<WebviewTag | null>(null)
   const consoleRef = useRef<RingLog<ConsoleEntry> | null>(null)
   const loadFailureRef = useRef<{ current: string | null } | null>(null)
   const documentStatusRef = useRef<{ current: DocumentStatus | null } | null>(null)
-  const [addressValue, setAddressValue] = useState(
-    () => (node.config.url as string | undefined) ?? 'about:blank'
-  )
-  const [canGoBack, setCanGoBack] = useState(false)
-  const [canGoForward, setCanGoForward] = useState(false)
   // A focus this pane owes its guest, deferred because the guest didn't exist
   // when it was asked for — see focusGuest.
   const pendingFocusRef = useRef(false)
@@ -79,27 +72,28 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
    * arrives today, and would silently stop arriving the day those two
    * commits collapse into one.
    *
-   * Stable across renders (it closes over refs only) so the handle effect
-   * below can name it as a dependency honestly: re-registering the handle
-   * re-runs `registerPaneHandle`, which focuses an already-active pane, so a
-   * fresh identity per render would refocus this guest on every keystroke in
-   * the address bar.
+   * Stable across renders (it closes over refs and `node.id`, which doesn't
+   * change for a mounted pane) so the handle effect below can name it as a
+   * dependency honestly: re-registering the handle re-runs
+   * `registerPaneHandle`, which focuses an already-active pane, so a fresh
+   * identity per render would refocus this guest on every keystroke in the
+   * address bar.
    */
   const focusGuest = useCallback((): void => {
     const webview = webviewRef.current
     if (!webview) return
-    // A click on this pane's own address bar activates the pane too — the
-    // guest must not yank focus off the input the user just chose. Checked
-    // on the deferred path as well, since the user can reach the bar during
-    // the attach.
-    if (document.activeElement === addressInputRef.current) return
+    // A click on this pane's own header chrome (the address bar, a nav
+    // button) activates the pane too — the guest must not yank focus off
+    // whatever the user just chose there. Checked on the deferred path as
+    // well, since the user can reach the header during the attach.
+    if (focusIsInPaneChrome(node.id)) return
     try {
       webview.focus()
       pendingFocusRef.current = false
     } catch {
       pendingFocusRef.current = true
     }
-  }, [])
+  }, [node.id])
 
   // node.config.url is read directly (not through a dependency) each time
   // this effect runs, rather than reacting to it changing: it's only ever
@@ -121,10 +115,13 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
       const documentStatus: { current: DocumentStatus | null } = { current: null }
 
       // These listeners live as long as the instance, across remounts —
-      // anything mount-scoped (React state setters) must be reached through
-      // `ui.current`, never captured here, or a structural remount leaves
-      // them calling a dead mount's setters (see BrowserUiSync).
-      const ui: { current: BrowserUiSync | null } = { current: null }
+      // anything mount-scoped must be reached through
+      // `onGuestAttached.current`, never captured here, or a structural
+      // remount leaves them calling a dead mount's closure (see
+      // BrowserInstance.onGuestAttached). The header's own address-bar and
+      // nav-state sync is not here at all: BrowserHeaderTitle listens on the
+      // webview itself, per mount.
+      const onGuestAttached: { current: (() => void) | null } = { current: null }
 
       // A pane opened with no URL starts on about:blank (browserContentDef),
       // and Chromium counts that commit as an ordinary history entry: the
@@ -146,8 +143,6 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
           atInitialBlank = false
           webview.clearHistory()
         }
-        ui.current?.syncAddressBar(event.url)
-        ui.current?.syncNavState()
         // A new document means a new console. Safe to clear on commit: the
         // new page's own scripts don't run until after this fires, so nothing
         // belonging to it has been captured yet. Deliberately not done for
@@ -165,8 +160,6 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
         })
       }
       const onDidNavigateInPage = (event: Electron.DidNavigateInPageEvent): void => {
-        ui.current?.syncAddressBar(event.url)
-        ui.current?.syncNavState()
         browserCtx.get().layout.setLeafConfig(node.id, { url: event.url })
       }
       // The HTTP status lives only on the commit event, and only on the
@@ -207,7 +200,7 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
         // in both `did-attach` and the microtask after it, and first readable
         // here.
         setTimeout(reportGuest, 0)
-        ui.current?.guestAttached()
+        onGuestAttached.current?.()
       }
       // A load failure has to be recorded here, not just wherever someone is
       // awaiting a load: the guest starts loading the moment it attaches, and
@@ -236,7 +229,7 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
         console: consoleLog,
         loadFailure,
         documentStatus,
-        ui,
+        onGuestAttached,
         unsubscribe: () => {
           webview.removeEventListener('did-navigate', onDidNavigate)
           webview.removeEventListener('did-frame-navigate', onDidFrameNavigate)
@@ -268,47 +261,27 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
     consoleRef.current = instance.console
     loadFailureRef.current = instance.loadFailure
     documentStatusRef.current = instance.documentStatus
-    // This mount's state setters, for the instance-lifetime listeners above.
-    instance.ui.current = {
-      syncAddressBar: (url) => {
-        // A background navigation (the user clicked a link on the page)
-        // shouldn't stomp on address-bar text the user is mid-typing.
-        if (document.activeElement === addressInputRef.current) return
-        setAddressValue(url)
-      },
-      syncNavState: () => {
-        setCanGoBack(instance.webview.canGoBack())
-        setCanGoForward(instance.webview.canGoForward())
-      },
-      guestAttached: () => {
-        if (pendingFocusRef.current) focusGuest()
-      }
-    }
-    try {
-      // Throws if the guest hasn't finished attaching yet (a brand-new
-      // instance, appended for the first time above) — the useState
-      // defaults already seeded from node.config.url cover that case, and
-      // the did-navigate handler fills in the real values once it fires.
-      setAddressValue(instance.webview.getURL() || instance.webview.src)
-      setCanGoBack(instance.webview.canGoBack())
-      setCanGoForward(instance.webview.canGoForward())
-    } catch {
-      // See comment above — expected for a just-created instance.
+    // This mount's own attach hook.
+    instance.onGuestAttached.current = () => {
+      if (pendingFocusRef.current) focusGuest()
     }
 
     return () => {
-      instance.ui.current = null
+      instance.onGuestAttached.current = null
       releaseBrowser(node.id, (dying) => dying.unsubscribe())
     }
   }, [node.id])
 
   // This pane's core handle (see core/registry/paneHandles.ts): how core's
-  // focus-follows-active reaches the guest, and how external-control requests
-  // (see ../externalControl.ts) reach this pane's live webview the same way
-  // the toolbar does — registered separately from the acquire/release effect
-  // above so it doesn't participate in that effect's reattach/no-op-guard
-  // logic, and lazily (getters, not the element) so it keeps resolving
-  // correctly as the pane reattaches.
+  // focus-follows-active reaches the guest, and how external-control
+  // requests (see ../externalControl.ts) reach this pane's live webview.
+  // BrowserHeaderTitle reaches the same webview a different way — through
+  // useBrowserInstance (browserRegistry.ts), not this handle — since it
+  // already knows this pane is a browser and has no need for core's
+  // type-agnostic capability lookup. Registered separately from the
+  // acquire/release effect above so it doesn't participate in that effect's
+  // reattach/no-op-guard logic, and lazily (getters, not the element) so it
+  // keeps resolving correctly as the pane reattaches.
   useEffect(
     () =>
       browserCtx.get().panes.registerHandle(node.id, {
@@ -334,56 +307,5 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
     [node.id, focusGuest]
   )
 
-  const navigateTo = (value: string): void => {
-    const url = resolveAddressInput(value)
-    if (url) webviewRef.current?.loadURL(url)
-  }
-
-  return (
-    <div className="browser-container" data-testid="browser">
-      <div className="browser-toolbar">
-        <IconButton
-          label="Back"
-          testId="browser-back-button"
-          className="pane-header-button"
-          disabled={!canGoBack}
-          onClick={() => webviewRef.current?.goBack()}
-        >
-          <BackIcon />
-        </IconButton>
-        <IconButton
-          label="Forward"
-          testId="browser-forward-button"
-          className="pane-header-button"
-          disabled={!canGoForward}
-          onClick={() => webviewRef.current?.goForward()}
-        >
-          <ForwardIcon />
-        </IconButton>
-        <IconButton
-          label="Refresh"
-          testId="browser-refresh-button"
-          className="pane-header-button"
-          onClick={() => webviewRef.current?.reload()}
-        >
-          <RefreshIcon />
-        </IconButton>
-        <input
-          ref={addressInputRef}
-          type="text"
-          className="browser-address-input"
-          data-testid="browser-address-input"
-          aria-label="Address"
-          value={addressValue}
-          onChange={(event) => setAddressValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return
-            navigateTo(addressValue)
-            addressInputRef.current?.blur()
-          }}
-        />
-      </div>
-      <div className="browser-content" ref={containerRef} />
-    </div>
-  )
+  return <div className="browser-content" data-testid="browser" ref={containerRef} />
 }

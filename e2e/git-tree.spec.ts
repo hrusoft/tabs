@@ -1,20 +1,26 @@
+import { readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
+import type { ElectronApplication } from 'playwright'
+import { expectNoDragFrom } from './helpers/drag'
 import {
   createEmptyRepo,
   createPlainDirectory,
+  createRepoWithBranches,
   createRepoWithMerge,
+  git,
   removeTestRepos
 } from './helpers/gitRepo'
 import { expect, test, withApp } from './helpers/launch'
 import { clickMenuItem } from './helpers/menu'
 import {
-  clickPaneRoot,
   closeInactiveRootTab,
   closePane,
+  createViaPalette,
+  headerOf,
   initialPane,
-  openNewGitTree
+  paneOf
 } from './helpers/pane'
 import { openSettingsTab } from './helpers/settings'
 import { alive, openTerminal, typeAndEnter } from './helpers/terminal'
@@ -53,10 +59,21 @@ async function openGitTree(page: Page): Promise<Locator> {
   return pane
 }
 
+/**
+ * The enclosing pane's own header — where the path bar, browse button, HEAD
+ * label and branch-scope select all live now (moved out of the git-tree body
+ * via GitTreeHeaderTitle, the same way BrowserHeaderTitle moved the
+ * browser's toolbar).
+ */
+function headerOfGitTree(gitTree: Locator): Locator {
+  return headerOf(paneOf(gitTree))
+}
+
 /** Points an open pane at `dir` through its path bar — the real control, and the one a picker only fills in. */
 async function pointAt(pane: Locator, dir: string): Promise<void> {
-  await pane.getByTestId('git-tree-path-input').fill(dir)
-  await pane.getByTestId('git-tree-path-input').press('Enter')
+  const pathInput = headerOfGitTree(pane).getByTestId('git-tree-path-input')
+  await pathInput.fill(dir)
+  await pathInput.press('Enter')
 }
 
 /** The common setup: a merge-bearing repo, a fresh git tree pane pointed at it. */
@@ -76,7 +93,7 @@ test('a fresh pane lands on a real repository rather than on an error', async ({
   // app's own cwd when that is a repository, else home). Under the harness
   // that is this checkout, so the honest assertion is that it found *a* repo
   // and read real commits out of it — not which.
-  await expect(pane.getByTestId('git-tree-path-input')).not.toHaveValue('')
+  await expect(headerOfGitTree(pane).getByTestId('git-tree-path-input')).not.toHaveValue('')
   await expect(pane.getByTestId('git-tree-row').first()).toBeVisible()
 })
 
@@ -105,7 +122,7 @@ test('renders a real merge as a two-lane graph, newest first', async ({ page }) 
 test('reads the branch HEAD is on', async ({ page }) => {
   const { pane } = await openGitTreeOn(page)
 
-  await expect(pane.getByTestId('git-tree-head')).toHaveText('main')
+  await expect(headerOfGitTree(pane).getByTestId('git-tree-head')).toHaveText('main')
 })
 
 test('shows a real commit’s files, with counts from git itself', async ({ page }) => {
@@ -212,15 +229,33 @@ test('a directory that does not exist says so, not that git is missing', async (
 test('the browse button cannot block the app, and cancelling changes nothing', async ({ page }) => {
   const { repo, pane } = await openGitTreeOn(page)
 
-  await pane.getByTestId('git-tree-browse-button').click()
+  await headerOfGitTree(pane).getByTestId('git-tree-browse-button').click()
 
-  await expect(pane.getByTestId('git-tree-path-input')).toHaveValue(repo)
+  await expect(headerOfGitTree(pane).getByTestId('git-tree-path-input')).toHaveValue(repo)
   await expect(pane.getByTestId('git-tree-row')).toHaveCount(4)
 })
 
 /**
+ * The path bar, browse button and branch-scope select now sit inside
+ * `.pane-header`'s own drag-arming row for the first time (they used to live
+ * in the pane body's own `.git-tree-toolbar`, which had no such pointerdown
+ * handler at all) — the same real, shipping counterpart the browser's
+ * HeaderTitle got in issue #13. The header's own press exclusion for
+ * interactive elements (Pane's `onHeaderPointerDown`) is what keeps a click
+ * there from also starting a pane drag.
+ */
+test("a git tree pane's header controls do not start a pane drag", async ({ page }) => {
+  const { pane } = await openGitTreeOn(page)
+  const header = headerOfGitTree(pane)
+
+  for (const testId of ['git-tree-path-input', 'git-tree-browse-button', 'git-tree-branch-scope']) {
+    await expectNoDragFrom(header.getByTestId(testId))
+  }
+})
+
+/**
  * Commits an empty change into `repo` from a real shell, opened as a new tab
- * alongside `pane`'s own git tree content (the same root-button path the
+ * alongside `pane`'s own git tree content (the same command-palette path the
  * cross-type inheritance tests below use) and left open — closing it would
  * collapse the two-tab group back down to a lone tab (`withTabRemoved` in
  * tree.ts), which remounts the surviving content and would refetch on its
@@ -228,8 +263,13 @@ test('the browse button cannot block the app, and cancelling changes nothing', a
  * pid so the caller can close it, and its own commitment to closing it,
  * after every assertion that cares about the *not-yet-collapsed* shape.
  */
-async function commitBehindItsBack(page: Page, pane: Locator, repo: string): Promise<number> {
-  await clickPaneRoot(pane, 'pane-new-terminal-button')
+async function commitBehindItsBack(
+  electronApp: ElectronApplication,
+  page: Page,
+  pane: Locator,
+  repo: string
+): Promise<number> {
+  await createViaPalette(electronApp, page, pane, 'pane-new-terminal-button')
   const term = page.getByTestId('terminal')
   await expect(term).toBeVisible()
   const pid = Number(await term.getAttribute('data-pty-pid'))
@@ -265,9 +305,9 @@ test('Cmd/Ctrl+R re-reads the pane after a commit lands behind its back', async 
   // fresh shell-out per call means the git tree pane has no way to notice on
   // its own — see TODO/feature-git-tree-refresh-action.md. `openGitTree`
   // fills root's own initial pane in place, so that pane (not the `git-tree`
-  // content locator, which is scoped inside it) is what the header button
-  // acts on.
-  const pid = await commitBehindItsBack(page, initialPane(page), repo)
+  // content locator, which is scoped inside it) is what the command palette
+  // targets.
+  const pid = await commitBehindItsBack(electronApp, page, initialPane(page), repo)
   await backToGitTree(page)
 
   await clickMenuItem(electronApp, 'Refresh', page)
@@ -292,7 +332,7 @@ test('auto-refresh-on-focus re-reads a git tree pane when it becomes active agai
   await pointAt(gitTree, repo)
   await expect(gitTree.getByTestId('git-tree-row')).toHaveCount(4)
 
-  const pid = await commitBehindItsBack(page, initialPane(page), repo)
+  const pid = await commitBehindItsBack(electronApp, page, initialPane(page), repo)
 
   // No Refresh click: switching back to git tree's own tab, with the window
   // focused (which the harness always reports — see the bell spec's header
@@ -316,7 +356,7 @@ test('...and does not, with the setting at its off-by-default value', async ({
   await pointAt(gitTree, repo)
   await expect(gitTree.getByTestId('git-tree-row')).toHaveCount(4)
 
-  const pid = await commitBehindItsBack(page, initialPane(page), repo)
+  const pid = await commitBehindItsBack(electronApp, page, initialPane(page), repo)
   await backToGitTree(page)
 
   // Nothing to wait for succeeding, so prove the negative by giving a real
@@ -354,11 +394,11 @@ test('a git tree created from a terminal opens on the directory that shell is in
   await typeAndEnter(term, 'pwd')
   await expect(term).toContainText(repo)
 
-  await openNewGitTree(initialPane(page))
+  await createViaPalette(electronApp, page, initialPane(page), 'pane-new-git-tree-button')
 
   const pane = page.getByTestId('git-tree')
   await expect(pane).toBeVisible()
-  await expect(pane.getByTestId('git-tree-path-input')).toHaveValue(repo)
+  await expect(headerOfGitTree(pane).getByTestId('git-tree-path-input')).toHaveValue(repo)
   // ...and it really read that repository, rather than merely displaying its
   // path: this is the graph built earlier in this file.
   await expect(pane.getByTestId('git-tree-row')).toHaveCount(4)
@@ -391,7 +431,7 @@ test('a terminal created from a git tree pane starts in that repository', async 
   await pointAt(gitTree, repo)
   await expect(gitTree.getByTestId('git-tree-row')).toHaveCount(4)
 
-  await clickPaneRoot(initialPane(page), 'pane-new-terminal-button')
+  await createViaPalette(electronApp, page, initialPane(page), 'pane-new-terminal-button')
 
   const term = page.getByTestId('terminal')
   await expect(term).toBeVisible()
@@ -428,7 +468,7 @@ test("...and stays at its own default when the terminal's inheritance setting is
   await pointAt(gitTree, repo)
   await expect(gitTree.getByTestId('git-tree-row')).toHaveCount(4)
 
-  await clickPaneRoot(initialPane(page), 'pane-new-terminal-button')
+  await createViaPalette(electronApp, page, initialPane(page), 'pane-new-terminal-button')
 
   const term = page.getByTestId('terminal')
   await expect(term).toHaveAttribute('data-pty-pid', /^\d+$/)
@@ -461,7 +501,140 @@ test('the repository a pane is reading survives a relaunch', async ({ userDataDi
     const pane = page2.getByTestId('git-tree')
     await expect(pane).toBeVisible()
     // Restored pointing at the same repository, not back at the default one.
-    await expect(pane.getByTestId('git-tree-path-input')).toHaveValue(repo)
+    await expect(headerOfGitTree(pane).getByTestId('git-tree-path-input')).toHaveValue(repo)
     await expect(pane.getByTestId('git-tree-row')).toHaveCount(4)
   })
+})
+
+test('the branch filter narrows and widens which commits are shown, against real refs', async ({
+  page
+}) => {
+  const { pane } = await openGitTreeOn(page, createRepoWithBranches())
+  const branchScope = headerOfGitTree(pane).getByTestId('git-tree-branch-scope')
+
+  // Default is "All branches" — local and remote-tracking — matching what
+  // the pane showed before this filter existed.
+  await expect(branchScope).toHaveValue('all')
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(3)
+
+  await branchScope.selectOption('current')
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(1)
+  await expect(pane.getByTestId('git-tree-row')).toContainText('root commit')
+
+  await branchScope.selectOption('local')
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(2)
+  await expect(pane.getByTestId('git-tree-row')).toContainText(['on feature', 'root commit'])
+
+  await branchScope.selectOption('all')
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(3)
+  await expect(pane.getByTestId('git-tree-row')).toContainText([
+    'on remote-only',
+    'on feature',
+    'root commit'
+  ])
+})
+
+test('uncommitted changes appear as a row connected into the graph, and disappear once resolved', async ({
+  page,
+  electronApp
+}) => {
+  const repo = createRepoWithMerge()
+  const { pane } = await openGitTreeOn(page, repo)
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(4)
+  // The sentinel every real row can never carry.
+  await expect(pane.locator('[data-hash=""]')).toHaveCount(0)
+
+  // A real unstaged change to a tracked file — made directly on disk, the
+  // same way the fixture itself was built, rather than through a shell.
+  const mainFile = join(repo, 'main.txt')
+  const original = readFileSync(mainFile, 'utf8')
+  writeFileSync(mainFile, `${original}a new line\n`)
+  await clickMenuItem(electronApp, 'Refresh', page)
+
+  const workingTreeRow = pane.locator('[data-hash=""]')
+  await expect(workingTreeRow).toBeVisible()
+  await expect(workingTreeRow).toContainText('Uncommitted changes')
+  // A genuine fifth row — not a separate decoration — with the same gutter
+  // width as the real graph immediately below it, i.e. actually connected
+  // rather than floating on its own.
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(5)
+  const [workingTreeSvgWidth, headSvgWidth] = await Promise.all([
+    workingTreeRow.locator('svg').getAttribute('width'),
+    pane.getByTestId('git-tree-row').nth(1).locator('svg').getAttribute('width')
+  ])
+  expect(workingTreeSvgWidth).toBe(headSvgWidth)
+
+  writeFileSync(mainFile, original)
+  await clickMenuItem(electronApp, 'Refresh', page)
+  await expect(pane.locator('[data-hash=""]')).toHaveCount(0)
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(4)
+})
+
+test('selecting the uncommitted-changes row shows real changed files, with real counts', async ({
+  page,
+  electronApp
+}) => {
+  const repo = createRepoWithMerge()
+  const { pane } = await openGitTreeOn(page, repo)
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(4)
+
+  // A tracked file gains two lines, and a brand new untracked file appears
+  // alongside it — both should show up with real counts, not placeholders,
+  // exactly like a real commit's own file list.
+  const mainFile = join(repo, 'main.txt')
+  writeFileSync(mainFile, `${readFileSync(mainFile, 'utf8')}line three\nline four\n`)
+  writeFileSync(join(repo, 'untracked.txt'), 'one\ntwo\nthree\n')
+  await clickMenuItem(electronApp, 'Refresh', page)
+
+  const workingTreeRow = pane.locator('[data-hash=""]')
+  await expect(workingTreeRow).toBeVisible()
+  await workingTreeRow.click()
+
+  const detail = pane.getByTestId('git-tree-detail')
+  await expect(detail).toContainText('Uncommitted changes')
+  await expect(pane.getByTestId('git-tree-file')).toHaveCount(2)
+  await expect(detail).toContainText('main.txt')
+  await expect(detail).toContainText('+2')
+  await expect(detail).toContainText('untracked.txt')
+  await expect(detail).toContainText('+3')
+  // Not a real commit, so no commit-only fields — but it does name what it's
+  // based on, the same connection the graph shows visually.
+  await expect(detail).not.toContainText('Commit')
+  await expect(detail).toContainText('Parent')
+})
+
+test('a repository with no commits but a staged file shows a selectable working-tree row, not the no-commits notice', async ({
+  page
+}) => {
+  const empty = createEmptyRepo()
+  writeFileSync(join(empty, 'staged.txt'), 'staged\n')
+  git(empty, ['add', '-A'])
+
+  const { pane } = await openGitTreeOn(page, empty)
+
+  await expect(pane.getByTestId('git-tree-empty')).not.toBeVisible()
+  await expect(pane.getByTestId('git-tree-row')).toHaveCount(1)
+  const workingTreeRow = pane.getByTestId('git-tree-row').first()
+  await expect(workingTreeRow).toHaveAttribute('data-hash', '')
+  await expect(workingTreeRow).toContainText('Uncommitted changes')
+
+  await workingTreeRow.click()
+  await expect(pane.getByTestId('git-tree-file')).toContainText('staged.txt')
+  await expect(pane.getByTestId('git-tree-file')).toContainText('+1')
+})
+
+test('configurable columns: author and date stay hidden until turned on in Settings', async ({
+  page,
+  electronApp
+}) => {
+  const { pane } = await openGitTreeOn(page)
+  await expect(pane.getByTestId('git-tree-author')).toHaveCount(0)
+  await expect(pane.getByTestId('git-tree-date')).toHaveCount(0)
+
+  const settingsPage = await openSettingsTab(electronApp, page, 'gitTree')
+  await settingsPage.getByTestId('settings-show-author-column-checkbox').check()
+  await settingsPage.getByTestId('settings-show-date-column-checkbox').check()
+
+  await expect(pane.getByTestId('git-tree-author').first()).toContainText('Ann Example')
+  await expect(pane.getByTestId('git-tree-date').first()).toBeVisible()
 })

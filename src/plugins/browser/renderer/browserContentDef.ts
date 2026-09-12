@@ -2,6 +2,7 @@ import { createLeaf } from '@shared/model/factories'
 import type { LeafContent } from '@shared/model/types'
 import type { ContentRendererDef } from '../../../renderer/src/plugin/api'
 import { BROWSER_TYPE, manifest as browserManifest } from '../shared/manifest'
+import { BrowserHeaderTitle } from './BrowserHeaderTitle'
 import { BrowserRenderer } from './BrowserRenderer'
 import { BrowserIcon } from './browserIcons'
 
@@ -22,5 +23,6 @@ export const browserContentDef: ContentRendererDef<LeafContent> = {
     label: 'New browser',
     Icon: BrowserIcon,
     createContent: () => createLeaf(BROWSER_TYPE, { url: 'about:blank' })
-  }
+  },
+  HeaderTitle: BrowserHeaderTitle
 }

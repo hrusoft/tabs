@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import { useBellStore } from '../core/store/bellStore'
 import { headerOf, initialPane, panes } from '../testing/domQueries'
-import { clickPaneButton, openNewTab, splitHorizontal } from '../testing/paneActions'
+import { fillEmptyPane, openNewTab, splitHorizontal } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
 
 afterEach(() => {
@@ -26,7 +26,7 @@ afterEach(() => {
 test('a bell inside a backgrounded tab flags the tab and clears when its pane is focused', async () => {
   renderApp()
   const user = userEvent.setup()
-  await clickPaneButton(user, initialPane(), 'pane-new-stub-button')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
   const ringingLeafId = initialPane().getAttribute('data-dock-id') ?? ''
 
   // "New tab" on the content pane adds a sibling tab to root's own group and

@@ -2,6 +2,7 @@ import { createLeaf } from '@shared/model/factories'
 import type { LeafContent } from '@shared/model/types'
 import type { ContentRendererDef } from '../../../renderer/src/plugin/api'
 import { TERMINAL_TYPE, manifest as terminalManifest } from '../shared/manifest'
+import { ClearScrollbackControl } from './ClearScrollbackControl'
 import { terminalCtx } from './pluginContext'
 import { TerminalIcon } from './TerminalIcon'
 import { TerminalRenderer } from './TerminalRenderer'
@@ -29,6 +30,7 @@ export const terminalContentDef: ContentRendererDef<LeafContent> = {
     Icon: TerminalIcon,
     createContent: () => createLeaf(TERMINAL_TYPE, { cwd: '~' })
   },
+  HeaderControl: ClearScrollbackControl,
   /**
    * A new terminal should open where the pane it came from *is*, not where
    * that pane started — and, since this hook belongs to the type being

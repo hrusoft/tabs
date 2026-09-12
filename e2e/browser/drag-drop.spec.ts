@@ -1,7 +1,7 @@
 import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
 import { grabAndHover, holdPastSpringLoad } from '../helpers/drag'
 import { requireBox } from '../helpers/geometry'
-import { clickPaneRoot, headerOf, initialPane, openNewTab, splitHorizontal } from '../helpers/pane'
+import { clickPaneRoot, initialPane, openNewTab, splitHorizontal } from '../helpers/pane'
 import { expect, test } from './helpers/harness'
 
 // Ported from the Electron tier: tab drag-and-drop is real-geometry behavior
@@ -190,7 +190,7 @@ test('docking a tab on a pane edge shows a preview and splits the pane', async (
   // Real content first: `openNewTab` on a *placeholder* replaces it rather
   // than adding a tab beside it (see `openContent`), which would leave a
   // one-tab group with nothing to split out of.
-  await headerOf(panes.nth(1)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(1).getByTestId('empty-pane-new-stub-button').click()
   await openNewTab(panes.nth(1))
 
   const tabs = page.getByRole('tablist').last().getByRole('tab')
@@ -235,7 +235,7 @@ test("a tab dropped on the docked root's own edge is declined", async ({ page })
   // single-tab group: the window's strip became a stranger holding one tab
   // called "Split", and every tab the user had became a sub-pane one level
   // down. Root has no slot to be split into, so there is no target.
-  await headerOf(initialPane(page)).getByTestId('pane-new-stub-button').click()
+  await initialPane(page).getByTestId('empty-pane-new-stub-button').click()
   const panes = page.getByTestId('pane')
   await clickPaneRoot(panes.nth(0), PANE_BUTTON.newTab)
   const tabs = page.locator('.tab-bar-root .tab')
@@ -271,7 +271,7 @@ test("docking a tab in the center of another pane's content merges into its grou
   await openNewTab(panes.nth(3))
   // Fill group B's blank tab with stub content: real content, so its pane
   // center is a dock target rather than an empty-pane target.
-  await headerOf(panes.nth(4)).getByTestId('pane-new-stub-button').click()
+  await panes.nth(4).getByTestId('empty-pane-new-stub-button').click()
 
   // Root's own tablist (0) is untouched; A (1) and B (2) are the two created
   // above.

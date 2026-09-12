@@ -2,7 +2,7 @@ import type { Api, CoreApi } from '@shared/api'
 import type { LayoutSnapshot } from '@shared/layout'
 import { DEFAULT_SETTINGS, type Settings } from '@shared/settings'
 import type { ShortcutActionId } from '@shared/shortcuts'
-import type { FakeApiHandle, TestSeed } from '@shared/testing/fakeApiHandle'
+import type { ExtraStubType, FakeApiHandle, TestSeed } from '@shared/testing/fakeApiHandle'
 import { createFakeContentBridge } from './content'
 import { Emitter } from './emitter'
 
@@ -12,14 +12,8 @@ declare global {
     __fakeApi?: FakeApiHandle
     /** Seed the browser-tier harness reads before mounting (set via page.addInitScript). */
     __tabsTestSeed?: TestSeed
-    /**
-     * Ask the browser-tier harness to register a *second* creation-capable
-     * content type (set via page.addInitScript — see mountTestApp.tsx for why
-     * it is opt-in rather than always on). Deliberately not a `TestSeed`
-     * field: the seed is state the real app would read from disk, and this is
-     * a registration, which the real app takes from registerBuiltins.
-     */
-    __tabsTestExtraContent?: boolean
+    /** Extra stub content types the browser-tier harness registers before mounting (set via page.addInitScript) — see ExtraStubType. */
+    __tabsTestExtraContent?: ExtraStubType[]
   }
 }
 

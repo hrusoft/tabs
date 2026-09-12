@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test } from 'vitest'
 import { contentRegistry } from '../core/registry/registry'
 import { initialPane, panes } from '../testing/domQueries'
+import { fillEmptyPane } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
 import {
   registerSecondStubType,
@@ -72,7 +73,7 @@ test('pressing one fills the pane in place rather than opening anything beside i
   expect(panes()).toHaveLength(2)
   expect(screen.getAllByRole('tab')).toHaveLength(1)
 
-  await user.click(within(initialPane()).getByTestId('empty-pane-new-stub-button'))
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
 
   // Same slot, new content: no new pane, no new tab, and the placeholder gone.
   expect(panes()).toHaveLength(2)
@@ -85,7 +86,7 @@ test('pressing one leaves the pane it filled active, not some stale id', async (
   renderApp({ settings: { disabledContentTypes: [] } })
   const user = userEvent.setup()
 
-  await user.click(within(initialPane()).getByTestId('empty-pane-new-stub-button'))
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
 
   // The click bubbling into Pane's own activate handler would aim
   // setActivePane at the leaf this call just replaced.
@@ -99,10 +100,18 @@ test('a disabled content type contributes no button', () => {
   expect(toolbarButtonTestIds()).toEqual(['empty-pane-new-stub-two-button'])
 })
 
-// "Re-enabling from another window restores the button" is pinned once, in
-// content-types.test.tsx: both surfaces render from the same
-// useCreationActions gate, so the mechanism under test there — settingsStore
-// mirroring — covers this toolbar identically.
+test('re-enabling a type from another window restores its button without a reload', () => {
+  renderApp({ settings: { disabledContentTypes: [STUB_TYPE] } })
+  expect(screen.queryByTestId('empty-pane-new-stub-button')).not.toBeInTheDocument()
+
+  // The real cross-window path: the Settings window writes, main broadcasts
+  // settings:changed, and this window's store mirrors it (see settingsStore).
+  act(() => {
+    window.__fakeApi?.emitSettingsChange({ disabledContentTypes: [] })
+  })
+
+  expect(screen.getByTestId('empty-pane-new-stub-button')).toBeInTheDocument()
+})
 
 test('disabling every content type replaces the row with the way back to Settings', () => {
   renderApp({ settings: { disabledContentTypes: [] } })
@@ -112,9 +121,9 @@ test('disabling every content type replaces the row with the way back to Setting
     window.__fakeApi?.emitSettingsChange({ disabledContentTypes: [STUB_TYPE, SECOND_STUB_TYPE] })
   })
 
-  // No empty row left behind, and the sentence names where the state came from
-  // — the pane is otherwise a dead end, since its header's creation group is
-  // gone for the same reason.
+  // No empty row left behind, and the sentence names where the state came
+  // from — the pane is otherwise a dead end, since the header carries no
+  // creation affordance of its own to fall back on (see issue #14).
   expect(screen.queryByTestId('empty-pane-toolbar')).not.toBeInTheDocument()
   expect(screen.getByTestId('empty-pane')).toHaveTextContent(
     'No content types are enabled — turn one on in Settings → General → Content types.'

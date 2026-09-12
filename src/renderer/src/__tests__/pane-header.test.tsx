@@ -5,8 +5,8 @@ import { expect, test, vi } from 'vitest'
 import { contentRegistry } from '../core/registry/registry'
 import { dockedPanes, headerOf, initialPane, panes } from '../testing/domQueries'
 import {
-  clickPaneButton,
   closePane,
+  fillEmptyPane,
   openNewTab,
   openNewUnpinnedTab,
   splitHorizontal,
@@ -38,7 +38,7 @@ test('every pane wears chrome: a titled bar, or the tab strip standing in for on
   expect(within(headerOf(panes()[0]!)).getByTestId(PANE_BUTTON.close)).toBeVisible()
 
   // Filling the blank tab retitles its pane's bar to what it now holds.
-  await clickPaneButton(user, initialPane(), 'pane-new-stub-button')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
   expect(screen.getByTestId('pane-header')).toHaveTextContent('Stub')
 })
 
@@ -57,7 +57,7 @@ test("clicking a pane's title bar activates that pane", async () => {
 test('closing the root pane resets it to a fresh empty pane', async () => {
   renderApp()
   const user = userEvent.setup()
-  await clickPaneButton(user, initialPane(), 'pane-new-stub-button')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
   expect(screen.getByTestId('stub-content')).toBeVisible()
 
   await closePane(user, panes()[0]!)
@@ -156,25 +156,32 @@ test('the split-group dropdown opens a new pane as an unpinned floating window',
   expect(dockedPanes()).toHaveLength(2)
 })
 
-test("a third registered content type appears in the content group's dropdown, not as a new root button", async () => {
+// The content-type creation dropdown this header used to carry is gone —
+// see issue #14. Creating a specific type now goes through an empty pane's
+// own toolbar (empty-pane-toolbar.test.tsx) or the Cmd+P command palette
+// (commandPalette.test.tsx); this pins that the header itself contributes
+// none of it, with more than one registered type so there'd be something for
+// a dropdown to hold if one still existed.
+test('the header never contributes a content-type creation button, however many types are registered', async () => {
   renderApp()
-  const user = userEvent.setup()
 
   registerSecondStubType()
 
   try {
-    const header = headerOf(panes()[0]!)
-    // The first-registered content type (the stub content tests always run
-    // with) stays the visible root button.
-    expect(within(header).getByTestId('pane-new-stub-button')).toBeInTheDocument()
+    // Both bar kinds: a leaf's own title bar, and the docked root's tab strip
+    // (whose own root button is New tab rather than Split horizontally — see
+    // isDockedRoot in PaneHeaderControls.tsx).
+    const leafHeader = headerOf(initialPane())
+    expect(within(leafHeader).queryByTestId('pane-new-stub-button')).not.toBeInTheDocument()
+    expect(within(leafHeader).queryByTestId('pane-new-stub-two-button')).not.toBeInTheDocument()
+    expect(within(leafHeader).getByTestId(PANE_BUTTON.splitHorizontal)).toBeInTheDocument()
+    expect(within(leafHeader).getByTestId(PANE_BUTTON.close)).toBeInTheDocument()
 
-    // The newly-registered type shows up as a menu item, not a sibling root
-    // button — registry order drives the dropdown, not a hardcoded list.
-    const item = within(header).getByTestId('pane-new-stub-two-button')
-    expect(item).toHaveAttribute('role', 'menuitem')
-
-    await user.click(item)
-    expect(screen.getByTestId('stub-two-content')).toBeVisible()
+    const rootHeader = headerOf(panes()[0]!)
+    expect(within(rootHeader).queryByTestId('pane-new-stub-button')).not.toBeInTheDocument()
+    expect(within(rootHeader).queryByTestId('pane-new-stub-two-button')).not.toBeInTheDocument()
+    expect(within(rootHeader).getByTestId(PANE_BUTTON.newTab)).toBeInTheDocument()
+    expect(within(rootHeader).getByTestId(PANE_BUTTON.close)).toBeInTheDocument()
   } finally {
     unregisterSecondStubType()
   }
@@ -194,7 +201,7 @@ test("a third registered content type appears in the content group's dropdown, n
 
 /** Root's own bar, plus two more top-level tabs beside the first — three in all. */
 async function threeTopLevelTabs(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-  await clickPaneButton(user, initialPane(), 'pane-new-stub-button')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
   await openNewTab(user, panes()[0]!)
   await openNewTab(user, panes()[0]!)
   expect(screen.getAllByRole('tab')).toHaveLength(3)

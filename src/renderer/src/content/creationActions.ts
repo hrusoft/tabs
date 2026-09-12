@@ -18,13 +18,13 @@ export const NO_CONTENT_TYPES_MESSAGE =
  *
  * This is one of the two creation gates CLAUDE.md counts —
  * `createAction.createContent()` — and it lives alone in its own module
- * because it now has two consumers: the pane header's creation group
- * (PaneHeaderControls.tsx) and the toolbar an empty pane shows in place of a
- * placeholder (empty/EmptyPaneRenderer.tsx). Both offer exactly the same set
- * of types and call exactly the same factory, so a second copy of this filter
- * would be a second gate to keep in step — which is the thing "there are
- * exactly two gates" exists to prevent. A new user-facing way to create
- * content belongs here rather than beside a third `isContentTypeEnabled` call.
+ * because it now has two consumers: the toolbar an empty pane shows in place
+ * of a placeholder (empty/EmptyPaneRenderer.tsx) and the Cmd+P command
+ * palette (CommandPalette.tsx). Both offer exactly the same set of types and
+ * call exactly the same factory, so a second copy of this filter would be a
+ * second gate to keep in step — which is the thing "there are exactly two
+ * gates" exists to prevent. A new user-facing way to create content belongs
+ * here rather than beside a third `isContentTypeEnabled` call.
  *
  * Subscribed to the one settings key rather than to the store as a whole: this
  * hook runs once per mounted pane, and a whole-store subscription would

@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import { headerOf, initialPane } from '../testing/domQueries'
-import { clickPaneButton, openNewTab } from '../testing/paneActions'
+import { fillEmptyPane, openNewTab } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
 
 afterEach(() => {
@@ -20,7 +20,7 @@ afterEach(() => {
 test('an owned pane shows the control indicator even backgrounded, and never flags its parent tab', async () => {
   renderApp()
   const user = userEvent.setup()
-  await clickPaneButton(user, initialPane(), 'pane-new-stub-button')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
   const controlledPane = initialPane()
   const controlledId = controlledPane.getAttribute('data-dock-id') ?? ''
 

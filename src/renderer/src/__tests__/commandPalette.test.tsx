@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test } from 'vitest'
 import { dockedPanes, initialPane, panes } from '../testing/domQueries'
-import { clickPaneButton } from '../testing/paneActions'
+import { fillEmptyPane } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
 import { registerSecondStubType, STUB_TYPE, unregisterSecondStubType } from '../testing/stubContent'
 
@@ -126,7 +126,7 @@ test('Escape closes the overlay and returns focus to the pane that was active', 
   const user = userEvent.setup()
   // Fill and, by filling in place, focus the active pane's own content —
   // registerPaneHandle focuses on mount when its id is already active.
-  await clickPaneButton(user, initialPane(), 'pane-new-stub-button')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-button')
   const content = screen.getByTestId('stub-content')
   expect(content).toHaveFocus()
 
