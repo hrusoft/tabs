@@ -36,7 +36,7 @@ test('a modifier chord cannot reach the editing commands, and --command can', as
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url())
 
   const fill = (value: string) =>
@@ -139,7 +139,7 @@ test('scroll reports where it landed, on a smooth page and on a hidden one', asy
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/smooth'))
 
   const scrolled = await runTabsCtl(['scroll', '--pane', paneId, '--direction', 'down'], env)
@@ -187,7 +187,7 @@ test('hover opens a hover-only menu without committing the click', async ({
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/hovery'))
 
   // Before: the submenu is display:none, so it is invisible to read-page's
@@ -222,7 +222,7 @@ test('an agent can read the page structure and drive it: click, type, submit, sc
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -300,8 +300,11 @@ test('an agent can read the page structure and drive it: click, type, submit, sc
   await closeAgentSession(page, env, paneId)
 })
 
-test('a stale element ref reports why rather than clicking something else', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('a stale element ref reports why rather than clicking something else', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -346,7 +349,7 @@ test('a click whose target moved since read-page lands on the element, not the o
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const { paneId, target } = await openShiftyTarget(page, env)
 
   // Shift the layout out from under the ref: 500px of new content above the
@@ -379,7 +382,7 @@ test('a click whose target is covered fails naming both elements instead of pres
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const { paneId, target } = await openShiftyTarget(page, env)
 
   // A fixed full-viewport overlay now owns every point on the page — the
@@ -413,7 +416,7 @@ test('semantic targets drive the page by role, name, and selector in one call', 
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -481,7 +484,7 @@ test('an ambiguous semantic target fails listing its candidates, and --nth picks
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -524,7 +527,7 @@ test('a role that is too strict diagnoses the near-miss instead of a generic no-
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -559,9 +562,10 @@ test('a role that is too strict diagnoses the near-miss instead of a generic no-
 })
 
 test('the near-miss diagnosis also reaches type/form-input, via the shared matcher', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -598,7 +602,7 @@ test('form-input picks select options by value with real change events', async (
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect.poll(() => guestText(electronApp, '#status')).toBe('idle')
@@ -652,7 +656,7 @@ test('form-input sets multiline values verbatim, reads them back, and refuses fi
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect.poll(() => guestText(electronApp, '#status')).toBe('idle')
@@ -748,7 +752,7 @@ test('type refuses text its keystrokes cannot carry, before touching the page', 
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect.poll(() => guestText(electronApp, '#status')).toBe('idle')
@@ -782,7 +786,7 @@ test('key delivers arrow keys with an intact key/code under every modifier, alt 
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect.poll(() => guestText(electronApp, '#status')).toBe('idle')

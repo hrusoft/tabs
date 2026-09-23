@@ -95,13 +95,6 @@ describe('compilePattern', () => {
     expect(matches('GET /api/users')).toBe(true)
     expect(matches('POST /api/users')).toBe(false)
   })
-
-  it('falls back to a substring test when the pattern is not valid regex', () => {
-    // An unbalanced group is a plausible thing to filter for literally.
-    const matches = compilePattern('console.log(')
-    expect(matches('console.log( x )')).toBe(true)
-    expect(matches('console.warn(x)')).toBe(false)
-  })
 })
 
 describe('patternFilterError', () => {
@@ -118,12 +111,5 @@ describe('patternFilterError', () => {
     // The engine's own reason, not a generic "invalid pattern" — this is
     // what "naming the parse failure" means in practice.
     expect(error?.toLowerCase()).toContain('unterminated character class')
-  })
-
-  it('refuses without ever falling back to a substring match', () => {
-    // compilePattern's own fallback exists for exactly this input — this
-    // function is for callers that want the opposite answer.
-    expect(compilePattern('[')('[')).toBe(true)
-    expect(patternFilterError('[')).toBeDefined()
   })
 })

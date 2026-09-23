@@ -2,10 +2,8 @@ import { session, type WebContents, webContents } from 'electron'
 import type { MainPluginIpc } from '../../../main/plugin/api'
 import { BrowserGuestMethod } from '../shared/ipc'
 import { dropGuestBodySession, reapplyBodyCapture } from './networkBodyCapture'
-import type { NetworkEntry, NetworkReadOptions } from './networkLog'
 import {
   forgetGuestRequests,
-  listRequests,
   recordRequestStart,
   recordRequestUpdate,
   resetNetworkLogsForTests
@@ -13,7 +11,8 @@ import {
 
 /**
  * Which guest `WebContents` currently backs each browser pane, reported by
- * the renderer (see preload's BrowserGuestApi) because only it knows both
+ * the renderer (over this package's content-bridge method; see
+ * createGuestReporter in renderer/guestReport.ts) because only it knows both
  * halves of the mapping: the pane id is a layout-tree concept that never
  * reaches main, and `webContentsId` is read off the live `<webview>` element.
  *
@@ -36,10 +35,22 @@ const guestOf = new Map<string, number>()
 /** Reverse of `guestOf`, so a webContentsId-keyed Electron event can find its pane in O(1). */
 const paneOf = new Map<number, string>()
 
-function setGuest(paneId: string, webContentsId: number): void {
+/**
+ * The renderer that reported each pane's current guest — the only one whose
+ * detach may clear it. A pane dragged into another window is reported by
+ * the destination while the source's reattach cache still holds the old
+ * instance; its disposal a grace period later sends a detach for the same
+ * pane id, which would otherwise wipe the mapping the destination just
+ * made (the same stale-dispose race the terminal's `disposeTerminalFrom`
+ * refuses).
+ */
+const reporterOf = new Map<string, WebContents>()
+
+function setGuest(paneId: string, webContentsId: number, reporter: WebContents): void {
   clearGuest(paneId)
   guestOf.set(paneId, webContentsId)
   paneOf.set(webContentsId, paneId)
+  reporterOf.set(paneId, reporter)
   // A pane whose caller enabled body capture keeps it across guest churn:
   // the intent is per pane, the CDP session is per guest, and this report is
   // the moment the new guest becomes attributable. The reparented page began
@@ -61,6 +72,18 @@ function clearGuest(paneId: string): void {
     isGuest.delete(previous)
   }
   guestOf.delete(paneId)
+  reporterOf.delete(paneId)
+}
+
+/**
+ * Drops every pane whose reporting renderer is gone — a closed window's,
+ * whose panes will not be remounted (see MainPluginModule.onWindowDiscarded)
+ * and so will never send the detach that would otherwise clear them.
+ */
+export function forgetGuestsOfClosedWindows(): void {
+  for (const [paneId, reporter] of [...reporterOf]) {
+    if (reporter.isDestroyed()) clearGuest(paneId)
+  }
 }
 
 /** The live guest `WebContents` id for `paneId`, or undefined if no browser pane is mounted for it. */
@@ -168,11 +191,6 @@ function registerNetworkCapture(): void {
   })
 }
 
-/** The requests captured for whichever guest currently backs `paneId`. */
-export function listRequestsForPane(paneId: string, options: NetworkReadOptions): NetworkEntry[] {
-  return listRequests(guestOf.get(paneId), options)
-}
-
 /** Response headers arrive as name → value*[]*; join them into the flat shape the protocol returns. */
 function flattenHeaders(
   headers: Record<string, string[]> | undefined
@@ -187,11 +205,12 @@ function flattenHeaders(
 
 /** Wires the renderer's attach/detach reports and the network capture. Call once, at app startup. */
 export function registerBrowserGuestIpc(ipc: MainPluginIpc): void {
-  ipc.on(BrowserGuestMethod.attached, (_event, paneId, webContentsId) => {
-    setGuest(paneId as string, webContentsId as number)
+  ipc.on(BrowserGuestMethod.attached, (event, paneId, webContentsId) => {
+    setGuest(paneId as string, webContentsId as number, event.sender)
   })
-  ipc.on(BrowserGuestMethod.detached, (_event, paneId) => {
-    clearGuest(paneId as string)
+  // Only from the renderer that reported the current guest — see `reporterOf`.
+  ipc.on(BrowserGuestMethod.detached, (event, paneId) => {
+    if (reporterOf.get(paneId as string) === event.sender) clearGuest(paneId as string)
   })
   registerNetworkCapture()
 }
@@ -200,6 +219,7 @@ export function registerBrowserGuestIpc(ipc: MainPluginIpc): void {
 export function resetBrowserGuestsForTests(): void {
   guestOf.clear()
   paneOf.clear()
+  reporterOf.clear()
   isGuest.clear()
   resetNetworkLogsForTests()
 }

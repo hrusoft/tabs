@@ -99,6 +99,11 @@ export function runContentModuleQuitHooks(): void {
   })
 }
 
+/** Tells every type a closed window's panes are gone for good — see MainPluginModule.onWindowDiscarded. */
+export function runContentModuleWindowDiscardHooks(): void {
+  forEachPackageQuietly('window discard', (_type, module) => module.onWindowDiscarded?.())
+}
+
 /**
  * e2e only: resets every type's mutable main-process state. See main/e2e.ts.
  * This runs first in the e2e reset, and an unguarded throw would skip every

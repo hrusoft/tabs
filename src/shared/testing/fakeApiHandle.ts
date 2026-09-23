@@ -1,5 +1,9 @@
-import type { Api } from '../api'
+import type { Api, CaffeinateFlags } from '../api'
 import type { LayoutSnapshot } from '../layout'
+import type {
+  CrossWindowMessageFromMain,
+  CrossWindowMessageFromRenderer
+} from '../layoutCrossWindow'
 import type { Settings } from '../settings'
 import type { ShortcutActionId } from '../shortcuts'
 import type { ContentFakeApiHandle } from './content/api'
@@ -59,6 +63,10 @@ interface CoreFakeApiHandle {
    * that store has no imperative writer of its own to call directly.
    */
   emitOwnershipChanged(paneId: string, owned: boolean): void
+  /** Delivers one main-side message of the cross-window drag protocol; what the app sends back lands in `crossWindowSent`. */
+  emitCrossWindow(message: CrossWindowMessageFromMain): void
+  /** Every message the app sent through layout.sendCrossWindow, oldest first. */
+  crossWindowSent(): CrossWindowMessageFromRenderer[]
   /** Every snapshot the app persisted through layout.set, oldest first. */
   layoutSets(): LayoutSnapshot[]
   /** Every partial the app persisted through settings.set, oldest first. */
@@ -74,14 +82,27 @@ interface CoreFakeApiHandle {
   copiedText(): string[]
   /** Whether shortcut capture is currently armed — what main would be suspending accelerators for. */
   captureMode(): boolean
-  /** What pane.confirmClose resolves with (default true — nothing blocks the close). */
-  confirmCloseResponse: boolean
+  /**
+   * Fires caffeinate.onOpenDialog's subscribers — the same push the native
+   * File → Caffeinate… item makes when nothing is running yet (see
+   * main/menu.ts).
+   */
+  fireCaffeinateOpenDialog(): void
+  /**
+   * Broadcasts a running-state change through caffeinate.onRunningChanged,
+   * the same push main's broadcastRunning makes on start/stop/self-exit —
+   * also flips what isRunningSync would answer next.
+   */
+  emitCaffeinateRunningChanged(running: boolean): void
+  /** Every flags object the app passed to caffeinate.start, oldest first. */
+  caffeinateStarts(): CaffeinateFlags[]
+  /** How many times the app called caffeinate.stop. */
+  caffeinateStops(): number
 }
 
 /**
  * The whole driver handle: core plus whatever the registered content types
- * contribute (see ./content/api.ts). Same shape of decomposition as `Api`
- * itself, and for the same reason — a type's surface belongs with the type,
+ * contribute (see ./content/api.ts) — a type's surface belongs with the type,
  * including the surface that only exists for tests.
  */
 export type FakeApiHandle = CoreFakeApiHandle & ContentFakeApiHandle

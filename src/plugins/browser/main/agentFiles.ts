@@ -5,12 +5,13 @@ import { browserMainCtx } from './pluginContext'
 
 /**
  * The on-disk sink for bytes an agent verb produces — screenshots, saved
- * resources and execute-js file output, each into its own subdirectory. Every
+ * resources, execute-js and read-network file output, each into its own
+ * subdirectory. Every
  * one of these hands main some bytes and gets back a *path*, because
  * `tabs-ctl`'s stdout becomes the calling agent's context verbatim and inline
  * bytes there are both enormous and unreadable.
  *
- * Generalized out of `writeScreenshot` so the three don't each reinvent the
+ * One module so the verbs that write files don't each reinvent the
  * directory-under-userData choice, the TTL sweep, and the guard around a
  * userData dir that can vanish under a live app (see persist.ts). Each caller
  * names its own subdirectory, so a sweep of one kind never touches another's.
@@ -81,7 +82,7 @@ export function sweepStaleAgentFiles(dir: string): void {
  * that subdirectory's stale files first, and returns the absolute path. `ext`
  * is without a dot. Throws on a write failure (a vanished/unwritable userData
  * dir); the caller — inside verb dispatch, owing a socket a ControlResponse —
- * turns that into a clean error, the same as `writeScreenshot` always has.
+ * turns that into a clean error.
  */
 function writeAgentFile(subdir: string, bytes: Uint8Array, ext: string): string {
   const dir = agentFileDir(subdir)

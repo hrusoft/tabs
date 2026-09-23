@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createLeaf, createSplit, createTab, createTabs } from '../factories'
 import {
   addTab,
+  canDockExternalTarget,
   canDockPane,
   canDockTab,
   canMovePaneToTabs,
@@ -14,6 +15,8 @@ import {
   findNode,
   findTab,
   firstPaneId,
+  insertPaneAt,
+  insertTabAt,
   MIN_PANE_SIZE,
   mapLeaves,
   movePaneToTabs,
@@ -30,10 +33,11 @@ import {
   splitContent,
   ungroupTabs,
   withPaneDetached,
+  withTabDetached,
   wrapInTabs
 } from '../tree'
-import type { ContentNode, LeafContent, SplitContent, TabsContent } from '../types'
-import { isSplit, isTabs } from '../types'
+import type { ContentNode, LeafContent, SplitContent, Tab, TabsContent } from '../types'
+import { EMPTY_TYPE, isSplit, isTabs } from '../types'
 
 function welcomeTab(title = 'Welcome'): ReturnType<typeof createTab> {
   return createTab(title, createLeaf('welcome'))
@@ -1339,6 +1343,200 @@ describe('withPaneDetached', () => {
   })
 })
 
+describe('withTabDetached', () => {
+  it('splices the tab out of a multi-tab group', () => {
+    const moved = createTab('B', createLeaf('terminal'))
+    const root = createTabs([welcomeTab('A'), moved, welcomeTab('C')])
+
+    const result = withTabDetached(root, moved.id)
+
+    expect((result as TabsContent).tabs.map((tab) => tab.title)).toEqual(['A', 'C'])
+  })
+
+  it('collapses a one-tab group entirely, leaving no placeholder behind', () => {
+    const pane = createLeaf('terminal')
+    const only = createTab('Only', pane)
+    const survivor = createLeaf('browser')
+    const root = createSplit('horizontal', [createTabs([only]), survivor])
+
+    const result = withTabDetached(root, only.id)
+
+    expect((result as SplitContent).children.map((child) => child.id)).toEqual([survivor.id])
+  })
+
+  it('returns null when the tab is the whole tree', () => {
+    const only = welcomeTab('Only')
+    const root = createTabs([only])
+
+    expect(withTabDetached(root, only.id)).toBeNull()
+  })
+
+  it('returns null when the tab id does not resolve', () => {
+    const root = createTabs([welcomeTab('A')])
+
+    expect(withTabDetached(root, 'missing')).toBeNull()
+  })
+})
+
+describe('canDockExternalTarget', () => {
+  it('accepts a bare leaf', () => {
+    const target = createLeaf('terminal')
+    expect(canDockExternalTarget(target, target.id)).toBe(true)
+  })
+
+  it('accepts a tabs group', () => {
+    const target = createTabs([welcomeTab()])
+    expect(canDockExternalTarget(target, target.id)).toBe(true)
+  })
+
+  it('refuses a split — only its children are ever real drop targets', () => {
+    const split = createSplit('horizontal', [createLeaf('terminal'), createLeaf('browser')])
+    expect(canDockExternalTarget(split, split.id)).toBe(false)
+  })
+
+  it('refuses an id that does not resolve', () => {
+    const root = createLeaf('terminal')
+    expect(canDockExternalTarget(root, 'missing')).toBe(false)
+  })
+})
+
+describe('insertPaneAt', () => {
+  it("center-inserts onto an empty leaf, taking over its slot under the pane's own id", () => {
+    const empty = createLeaf('empty')
+    const stays = createLeaf('welcome')
+    const root = createSplit('horizontal', [stays, empty])
+    const incoming = createLeaf('terminal')
+
+    const next = insertPaneAt(root, incoming, empty.id, 'center', titleOf) as SplitContent
+
+    expect(next.children[0]).toBe(stays)
+    expect(next.children[1]).toBe(incoming)
+    expect(findNode(next, empty.id)).toBeNull()
+  })
+
+  it('center-inserts onto a tabs group, appending one tab holding the pane', () => {
+    const target = createTabs([welcomeTab('Existing')])
+    const incoming = createLeaf('terminal')
+
+    const next = insertPaneAt(target, incoming, target.id, 'center', titleOf) as TabsContent
+
+    expect(next.id).toBe(target.id)
+    expect(next.tabs).toHaveLength(2)
+    expect(next.tabs[1]!.content).toBe(incoming)
+    expect(next.activeTabId).toBe(next.tabs[1]!.id)
+  })
+
+  it('lands the new tab at a given index rather than appending — a tab-bar drop between tabs', () => {
+    const target = createTabs([welcomeTab('First'), welcomeTab('Second')])
+    const incoming = createLeaf('terminal')
+
+    const next = insertPaneAt(target, incoming, target.id, 'center', titleOf, 1) as TabsContent
+
+    expect(next.tabs.map((tab) => tab.title)).toEqual(['First', 'terminal', 'Second'])
+    expect(next.tabs[1]!.content).toBe(incoming)
+    expect(next.activeTabId).toBe(next.tabs[1]!.id)
+  })
+
+  it('center-inserts onto a bare leaf, promoting both into a two-tab group by reference', () => {
+    const target = createLeaf('welcome')
+    const incoming = createLeaf('terminal')
+
+    const next = insertPaneAt(target, incoming, target.id, 'center', titleOf) as TabsContent
+
+    expect(next.tabs).toHaveLength(2)
+    expect(next.tabs[0]!.content).toBe(target)
+    expect(next.tabs[1]!.content).toBe(incoming)
+  })
+
+  it('edge-inserts by splitting the target, the pane landing bare', () => {
+    const target = createLeaf('welcome')
+    const incoming = createLeaf('terminal')
+
+    const next = insertPaneAt(target, incoming, target.id, 'right', titleOf) as SplitContent
+
+    expect(next.direction).toBe('horizontal')
+    expect(next.children[0]).toBe(target)
+    expect(next.children[1]).toBe(incoming)
+  })
+
+  it('is a no-op against a split target', () => {
+    const split = createSplit('horizontal', [createLeaf('terminal'), createLeaf('browser')])
+    const incoming = createLeaf('welcome')
+
+    expect(insertPaneAt(split, incoming, split.id, 'center', titleOf)).toBe(split)
+  })
+
+  it('is a no-op when the target id does not resolve', () => {
+    const root = createLeaf('welcome')
+    const incoming = createLeaf('terminal')
+
+    expect(insertPaneAt(root, incoming, 'missing', 'center', titleOf)).toBe(root)
+  })
+})
+
+describe('insertTabAt', () => {
+  it("center-inserts onto an empty leaf, converting it into a group under the leaf's own id", () => {
+    const empty = createLeaf('empty')
+    const incoming = createTab('Incoming', createLeaf('terminal'))
+
+    const next = insertTabAt(empty, incoming, empty.id, 'center', titleOf) as TabsContent
+
+    expect(next.id).toBe(empty.id)
+    expect(next.tabs).toEqual([incoming])
+    expect(next.activeTabId).toBe(incoming.id)
+  })
+
+  it('center-inserts onto a tabs group, appending the tab', () => {
+    const target = createTabs([welcomeTab('Existing')])
+    const incoming = createTab('Incoming', createLeaf('terminal'))
+
+    const next = insertTabAt(target, incoming, target.id, 'center', titleOf) as TabsContent
+
+    expect(next.id).toBe(target.id)
+    expect(next.tabs.map((tab) => tab.id)).toEqual([target.tabs[0]!.id, incoming.id])
+  })
+
+  it('lands the tab at a given index rather than appending — a tab-bar drop between tabs', () => {
+    const target = createTabs([welcomeTab('First'), welcomeTab('Second')])
+    const incoming = createTab('Incoming', createLeaf('terminal'))
+
+    const next = insertTabAt(target, incoming, target.id, 'center', titleOf, 0) as TabsContent
+
+    expect(next.tabs.map((tab) => tab.title)).toEqual(['Incoming', 'First', 'Second'])
+    expect(next.activeTabId).toBe(incoming.id)
+  })
+
+  it('center-inserts onto a bare leaf, promoting both into a two-tab group', () => {
+    const target = createLeaf('welcome')
+    const incoming = createTab('Incoming', createLeaf('terminal'))
+
+    const next = insertTabAt(target, incoming, target.id, 'center', titleOf) as TabsContent
+
+    expect(next.tabs).toHaveLength(2)
+    expect(next.tabs[0]!.content).toBe(target)
+    expect(next.tabs[1]).toBe(incoming)
+  })
+
+  it('edge-inserts by splitting the target, the tab landing wrapped in a fresh group', () => {
+    const target = createLeaf('welcome')
+    const incoming = createTab('Incoming', createLeaf('terminal'))
+
+    const next = insertTabAt(target, incoming, target.id, 'right', titleOf) as SplitContent
+
+    expect(next.direction).toBe('horizontal')
+    expect(next.children[0]).toBe(target)
+    const landed = next.children[1] as TabsContent
+    expect(landed.tabs).toEqual([incoming])
+  })
+
+  it('is a no-op against a split target', () => {
+    const split = createSplit('horizontal', [createLeaf('terminal'), createLeaf('browser')])
+    const incoming = createTab('Incoming', createLeaf('welcome'))
+
+    expect(insertTabAt(split, incoming, split.id, 'center', titleOf)).toBe(split)
+  })
+})
+
 describe('movePaneToTabs', () => {
   it('moves a pane into a group as a tab at the index, activated', () => {
     const moved = createLeaf('terminal')
@@ -1432,6 +1630,42 @@ describe('normalize', () => {
     expect(next.children.map((n) => n.id)).toEqual([a.id, b.id, c.id])
     expect(next.sizes[0]).toBeCloseTo(0.25)
     expect(next.sizes[2]).toBeCloseTo(0.5)
+  })
+
+  it('repairs hollow nodes off disk away instead of throwing', () => {
+    const good = createLeaf('welcome')
+    const hollowTabs = { id: 'ht', type: 'tabs' } as unknown as TabsContent
+    const hollowSplit = {
+      id: 'hs',
+      type: 'split',
+      direction: 'horizontal'
+    } as unknown as SplitContent
+    const root = createTabs([
+      welcomeTab('A'),
+      { id: 'bad-tab', title: 'bad', content: null } as unknown as Tab,
+      createTab('B', createSplit('vertical', [good, hollowSplit, 42 as unknown as LeafContent])),
+      createTab('C', hollowTabs)
+    ])
+
+    const next = normalize(root) as TabsContent
+
+    expect(next.tabs.map((tab) => tab.title)).toEqual(['A', 'B', 'C'])
+    // The split lost both malformed children and unwrapped to its survivor.
+    expect(next.tabs[1]!.content).toBe(good)
+    // A tabs group with no tabs array reverts to an empty pane, like one whose last tab closed.
+    expect(next.tabs[2]!.content.type).toBe(EMPTY_TYPE)
+  })
+
+  it('treats a split with no sizes array as evenly sized', () => {
+    const [a, b] = [createLeaf('welcome'), createLeaf('welcome')]
+    const split = {
+      ...createSplit('horizontal', [a, b]),
+      sizes: undefined
+    } as unknown as SplitContent
+
+    const next = normalize(split) as SplitContent
+
+    expect(next.sizes).toEqual([0.5, 0.5])
   })
 
   it('repairs a stale activeTabId', () => {

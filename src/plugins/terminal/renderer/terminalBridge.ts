@@ -26,6 +26,20 @@ export const terminalBridge = {
   /** Kills the pty for `id` and removes it from the main-process registry. Idempotent. */
   dispose: (id: string): Promise<void> =>
     terminalCtx.get().ipc.invoke(TerminalMethod.dispose, id) as Promise<void>,
+  /**
+   * Asks main to hold `id`'s output instead of sending it here: this pane is
+   * about to leave for another window, and whatever the pty prints before
+   * that window attaches would otherwise reach a renderer that has already
+   * unmounted it. The attach (`create`) replays it; `releaseOutput` sends it
+   * back here instead, for a move that did not happen.
+   */
+  holdOutput: (id: string): void => {
+    terminalCtx.get().ipc.send(TerminalMethod.holdOutput, id)
+  },
+  /** Ends a `holdOutput`, delivering what was held to this window. */
+  releaseOutput: (id: string): void => {
+    terminalCtx.get().ipc.send(TerminalMethod.releaseOutput, id)
+  },
   /** Best-effort live cwd of the shell process backing `id`, looked up via the OS. Undefined if unknown. */
   getCwd: (id: string): Promise<string | undefined> =>
     terminalCtx.get().ipc.invoke(TerminalMethod.getCwd, id) as Promise<string | undefined>,

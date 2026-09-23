@@ -40,8 +40,11 @@ test('a skill running outside Tabs is rejected before it can do anything', async
   expect(response.error).toContain('not running inside a Tabs terminal pane')
 })
 
-test('an agent can create and control a browser pane it owns, but no other', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('an agent can create and control a browser pane it owns, but no other', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   const created = await runTabsCtl(['create-browser-pane', '--url', 'about:blank'], env)
   expect(created.ok).toBe(true)
@@ -85,9 +88,10 @@ test('an agent can create and control a browser pane it owns, but no other', asy
 // terminal as a sibling tab (same shape as the "created by an agent" test
 // above), and that real tab really does carry no control marker.
 test('an agent-owned pane pulses the control indicator, and it never propagates to its tab', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', 'about:blank')
 
   const browserPane = paneById(page, paneId)
@@ -112,7 +116,7 @@ test('list-panes shows only the panes this caller created, and close-pane revoke
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   // A browser pane the *user* opened by hand, which must never show up in an
   // agent's listing however many browser panes are on screen.
@@ -145,8 +149,8 @@ test('list-panes shows only the panes this caller created, and close-pane revoke
   await closeInactiveRootTab(page)
 })
 
-test('close-pane refuses a pane this caller does not own', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('close-pane refuses a pane this caller does not own', async ({ page, electronApp }) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   const response = await runTabsCtl(['close-pane', '--pane', env.TABS_PANE_ID], env)
   expect(response.ok).toBe(false)
@@ -158,9 +162,10 @@ test('close-pane refuses a pane this caller does not own', async ({ page }) => {
 })
 
 test('createBrowserPane grants ownership as soon as the pane exists, not only once its own relay resolves', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   // The fixture delays its response, so create-browser-pane's own relay —
   // which waits for the guest's load to settle — is still pending when
@@ -195,7 +200,7 @@ for (const { placement, direction, shared, apart } of [
     page,
     electronApp
   }) => {
-    const { env } = await openAgentSession(page)
+    const { env } = await openAgentSession(page, electronApp)
     await setControlledPanePlacement(page, electronApp, placement)
 
     const paneId = await createAgentPane(env, '--url', 'about:blank')
@@ -220,7 +225,7 @@ test('create-browser-pane opens its own unpinned window when placement is set to
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   await setControlledPanePlacement(page, electronApp, 'unpinned')
 
   const paneId = await createAgentPane(env, '--url', 'about:blank')
@@ -236,9 +241,10 @@ test('create-browser-pane opens its own unpinned window when placement is set to
 })
 
 test('activate-pane brings a backgrounded pane to the front so it can be captured', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
 
@@ -266,7 +272,7 @@ test('driving a pane never steals keyboard focus from the terminal', async ({
   page,
   electronApp
 }) => {
-  const { term, env } = await openAgentSession(page)
+  const { term, env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect.poll(() => guestText(electronApp, '#status')).toBe('idle')
@@ -332,8 +338,8 @@ test('driving a pane never steals keyboard focus from the terminal', async ({
   await closeAgentSession(page, env, paneId)
 })
 
-test('oversized results are truncated honestly, never silently', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('oversized results are truncated honestly, never silently', async ({ page, electronApp }) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
 
@@ -350,9 +356,10 @@ test('oversized results are truncated honestly, never silently', async ({ page }
 })
 
 test('tabs-ctl drains a response bigger than the pipe buffer instead of truncating it', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url('/bigtext'))
 
@@ -371,14 +378,17 @@ test('tabs-ctl drains a response bigger than the pipe buffer instead of truncati
   await closeAgentSession(page, env, paneId)
 })
 
-test('a raw socket client sending an unknown verb gets a clean refusal', async ({ page }) => {
-  const { env } = await openAgentSession(page)
-
-  // tabs-ctl now validates verbs client-side, so go under it to prove the
-  // server rejects unknown types too instead of answering `undefined`.
-  const raw = await new Promise<string>((resolve, reject) => {
-    const socket = createConnection(env.TABS_CONTROL_SOCKET, () => {
-      socket.write(`${JSON.stringify({ type: 'nope', paneId: env.TABS_PANE_ID })}\n`)
+/**
+ * Sends `parts` to the control socket as separate writes, a beat apart so each
+ * arrives as its own chunk, and resolves with the raw reply.
+ */
+function rawRequest(socketPath: string, parts: Buffer[]): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const socket = createConnection(socketPath, async () => {
+      for (const [index, part] of parts.entries()) {
+        if (index > 0) await new Promise((wait) => setTimeout(wait, 50))
+        socket.write(part)
+      }
     })
     let buffer = ''
     socket.on('data', (chunk) => {
@@ -387,7 +397,40 @@ test('a raw socket client sending an unknown verb gets a clean refusal', async (
     socket.on('end', () => resolve(buffer.trim()))
     socket.on('error', reject)
   })
+}
+
+test('a raw socket client sending an unknown verb gets a clean refusal', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+
+  // tabs-ctl now validates verbs client-side, so go under it to prove the
+  // server rejects unknown types too instead of answering `undefined`.
+  const raw = await rawRequest(env.TABS_CONTROL_SOCKET, [
+    Buffer.from(`${JSON.stringify({ type: 'nope', paneId: env.TABS_PANE_ID })}\n`)
+  ])
   expect(JSON.parse(raw)).toEqual({ ok: false, error: 'unknown request type: nope' })
+
+  await closeAgentSession(page, env)
+})
+
+test('a request split mid-character across socket chunks decodes intact', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+
+  // The refusal echoes the type back, which makes it an echo of the decoded
+  // text. The emoji's four bytes are cut in half across two writes — decoded
+  // chunk by chunk, each half became U+FFFD.
+  const bytes = Buffer.from(`${JSON.stringify({ type: 'nope-🙂', paneId: env.TABS_PANE_ID })}\n`)
+  const cut = bytes.indexOf(Buffer.from('🙂')) + 2
+  const raw = await rawRequest(env.TABS_CONTROL_SOCKET, [
+    bytes.subarray(0, cut),
+    bytes.subarray(cut)
+  ])
+  expect(JSON.parse(raw)).toEqual({ ok: false, error: 'unknown request type: nope-🙂' })
 
   await closeAgentSession(page, env)
 })
@@ -481,8 +524,11 @@ test('two instances sharing a userData dir keep their control surfaces apart', a
   })
 })
 
-test('a disallowed URL scheme is rejected without touching the pane tree', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('a disallowed URL scheme is rejected without touching the pane tree', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   const response = await runTabsCtl(['create-browser-pane', '--url', 'file:///etc/passwd'], env)
   expect(response.ok).toBe(false)
@@ -502,7 +548,7 @@ test('create-browser-pane is refused while the browser content type is turned of
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const settingsPage = await openSettingsWindow(electronApp, page)
   // Stated, not inherited from DEFAULT_SETTINGS.
   await settingsPage.getByTestId('settings-content-type-browser-checkbox').check()
@@ -545,8 +591,11 @@ test('create-browser-pane is refused while the browser content type is turned of
 // itself (see the close-pane assertions above and the two-agent test below);
 // both read PANE_GONE_ERROR, so the two routes cannot drift into two spellings
 // of "it's gone".
-test('a pane the user closed by hand reports that, not "not a browser pane"', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('a pane the user closed by hand reports that, not "not a browser pane"', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', 'about:blank')
 
   // The happy path still works through the same shared check.

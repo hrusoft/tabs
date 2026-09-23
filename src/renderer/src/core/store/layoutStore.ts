@@ -1,12 +1,18 @@
-import { LAYOUT_VERSION } from '@shared/layout'
+import type { LayoutSnapshot } from '@shared/layout'
+import { LAYOUT_VERSION, layoutTrees, mapLayoutLeaves } from '@shared/layout'
+import type { CrossWindowDragContent } from '@shared/layoutCrossWindow'
+import { CROSS_WINDOW_TRANSFER_STATE_KEY, dragContentNode } from '@shared/layoutCrossWindow'
+import type { DragSubject, DropTarget } from '@shared/model/drag'
 import { createLeaf } from '@shared/model/factories'
-import type { FloatingPane, FloatRect } from '@shared/model/floating'
+import type { FloatAnchor, FloatingPane, FloatRect } from '@shared/model/floating'
 import {
+  captureAnchor,
   clampRect,
   detachForFloat,
   floatOwning,
   raiseFloating,
   replaceFloating,
+  restoreAtAnchor,
   restoreFloating,
   sanitizeFloating
 } from '@shared/model/floating'
@@ -16,6 +22,7 @@ import * as tree from '@shared/model/tree'
 import type {
   ContentNode,
   DockZone,
+  LeafContent,
   NodeId,
   SplitDirection,
   TabsContent
@@ -91,6 +98,24 @@ export interface LayoutState {
   reclampFloating: () => void
   /** Brings a floating window to the front of the stack. */
   raiseFloatingWindow: (floatId: NodeId) => void
+
+  // Cross-window pane drag (content/crossWindowDrag.ts). Docked root only on
+  // both sides: a pane in a floating window can't be dragged out, and a drop
+  // never lands in one — an accepted v1 limitation.
+
+  /** Detaches `subject` from the docked root and returns the content plus where it came from (for a rollback), or null if it cannot leave (see `canLeaveWindow`). */
+  extractForCrossWindowMove: (
+    subject: DragSubject
+  ) => { content: CrossWindowDragContent; anchor: FloatAnchor } | null
+  /**
+   * Inserts content from another window's tree at `target`, as
+   * `dockPane`/`dockTab` would; a `tab-bar` target lands at its index.
+   * Returns whether anything changed — an invalid target is a no-op here,
+   * since `canDockPane`/`canDockTab` cannot judge a subject not in `root`.
+   */
+  insertFromCrossWindowMove: (content: CrossWindowDragContent, target: DropTarget) => boolean
+  /** The rollback: puts content back at `anchor` after the destination refused an insert that followed a successful extract. Never fails. */
+  reinsertAtAnchor: (content: CrossWindowDragContent, anchor: FloatAnchor) => void
 }
 
 /** The trees a layout holds — everything the owner/focus helpers need to look at. */
@@ -253,6 +278,33 @@ export function closeTargetNode(trees: LayoutTrees, id: NodeId): ContentNode | n
 }
 
 /**
+ * What dragging `subject` out into another window would carry, or null if it
+ * can't leave — what `extractForCrossWindowMove` detaches, and refuses by.
+ * Docked root only: a pane inside a floating window stays in it (an accepted
+ * v1 limitation), and the docked root itself has no slot to leave behind.
+ */
+function crossWindowContentOf(
+  root: TabsContent,
+  subject: DragSubject
+): CrossWindowDragContent | null {
+  if (subject.kind === 'tab') {
+    const ref = tree.findTab(root, subject.tabId)
+    return ref ? { kind: 'tab', tab: ref.tab } : null
+  }
+  if (subject.paneId === root.id) return null
+  const node = tree.findNode(root, subject.paneId)
+  return node ? { kind: 'pane', node } : null
+}
+
+/**
+ * Whether `subject` can be dragged out into another window — asked before a
+ * drag arms, so no other window previews a drop the detach would then refuse.
+ */
+export function canLeaveWindow(state: Pick<LayoutState, 'root'>, subject: DragSubject): boolean {
+  return crossWindowContentOf(state.root, subject) !== null
+}
+
+/**
  * True when docking `targetId` at `zone` would try to split the docked root
  * out of itself. A nested group can be split out as a sibling — it has a slot
  * in its parent to leave behind — but the docked root has no parent, so
@@ -336,7 +388,7 @@ function withOwner(
  * single-tab group unwrapping to its lone child under a different id.
  *
  * The docked root is also re-wrapped in a tab group if it somehow isn't one
- * — main already does this on load (see `loadLayout`), so in practice this
+ * — main already does this on load (see `loadLayoutFile`), so in practice this
  * is a no-op, but it's the same "repair here rather than trust it" reasoning
  * as `normalize`: this is the one spot every boot path funnels through,
  * including whatever a test harness hands `window.api.layout.getSync()`
@@ -360,6 +412,64 @@ export function viewportSize(): { width: number; height: number } {
 
 function rectsEqual(a: FloatRect, b: FloatRect): boolean {
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
+/**
+ * `set` for the cross-window actions, whose return value main acts on: a
+ * detach it believes refused leaves the content in no window, an insert it
+ * believes refused is rolled back into the source while it also stays here.
+ * Zustand commits the new state and only then notifies subscribers, so one
+ * that throws would unwind the action after the tree already changed; the
+ * throw is logged instead, keeping the action's report of what it did true.
+ */
+function setReportingCommit(
+  set: (updater: (state: LayoutState) => Partial<LayoutState>) => void,
+  updater: (state: LayoutState) => Partial<LayoutState>
+): void {
+  try {
+    set(updater)
+  } catch (error) {
+    console.error('[tabs] a layout update threw during a cross-window move:', error)
+  }
+}
+
+/**
+ * The last cross-window detach that took everything the docked tree held:
+ * the placeholder it left behind, and the tree as it was. A rollback that
+ * finds the window still holding just that placeholder puts the tree back
+ * whole — exactly, where an anchor into a tree the detach dismantled can
+ * only approximate — with the returning content (which carries its
+ * transferred state) in place of the node that left. An empty pane the user
+ * already had is never taken for that placeholder.
+ */
+let wholeWindowDetach: { placeholderId: NodeId; before: TabsContent } | null = null
+
+/**
+ * `anchor`, captured against `before`, pointed at `after` instead when it
+ * names a tab of the docked root group and the detach rebuilt that group. A
+ * root left with one tab collapses and `ensureRootGroup` rewraps it under a
+ * fresh group id and tab id, which an anchor into the old group can never
+ * find — so a rollback fell through to "open it somewhere", appending the
+ * tab at the end under a derived title instead of back in its slot.
+ */
+function rebaseRootAnchor(
+  anchor: FloatAnchor,
+  before: TabsContent,
+  after: TabsContent
+): FloatAnchor {
+  if (anchor.kind !== 'tab' || anchor.groupId !== before.id || after.id === before.id) {
+    return anchor
+  }
+  const tabIdAfter = (tabId: NodeId | undefined): NodeId | undefined => {
+    const old = before.tabs.find((tab) => tab.id === tabId)
+    return old && after.tabs.find((tab) => tab.content.id === old.content.id)?.id
+  }
+  return {
+    ...anchor,
+    groupId: after.id,
+    beforeTabId: tabIdAfter(anchor.beforeTabId),
+    afterTabId: tabIdAfter(anchor.afterTabId)
+  }
 }
 
 // Focus policy: operations that create or relocate content hand focus to the
@@ -606,7 +716,95 @@ export const useLayoutStore = create<LayoutState>()((set) => ({
     set((state) => {
       const floating = raiseFloating(state.floating, floatId)
       return floating === state.floating ? state : { floating }
+    }),
+  extractForCrossWindowMove: (subject) => {
+    let extracted: { content: CrossWindowDragContent; anchor: FloatAnchor } | null = null
+    let whole: { placeholderId: NodeId; before: TabsContent } | null = null
+    setReportingCommit(set, (state) => {
+      const content = crossWindowContentOf(state.root, subject)
+      if (!content) return state
+      const node = dragContentNode(content)
+      // Anchored by the content's id: a Tab's own id isn't a node.
+      const anchor = captureAnchor(state.root, node.id)
+      if (!anchor) return state
+      // Everything the docked tree holds is leaving (its only tab, or content
+      // wrapped in groups with nothing beside it): a fresh placeholder stays,
+      // and the tree as it was is kept for a rollback — see wholeWindowDetach.
+      let rawRoot: ContentNode
+      if (tree.collectLeaves(state.root).every((leaf) => tree.findNode(node, leaf.id))) {
+        const placeholder = createLeaf(EMPTY_TYPE)
+        whole = { placeholderId: placeholder.id, before: state.root }
+        rawRoot = placeholder
+      } else {
+        const detached =
+          subject.kind === 'pane'
+            ? tree.withPaneDetached(state.root, subject.paneId)
+            : tree.withTabDetached(state.root, subject.tabId)
+        if (!detached) return state
+        rawRoot = tree.normalize(detached)
+      }
+      // A root left with one tab collapses; its rebuilt wrapper keeps that
+      // tab's title, as every in-window operation's does (see withOwner).
+      const leaving = subject.kind === 'pane' ? subject.paneId : subject.tabId
+      const root = ensureRootGroup(rawRoot, () => survivorTitle(state.root, rawRoot, leaving))
+      const next = {
+        root,
+        activePaneId: resolveActive({ root, floating: state.floating }, state.activePaneId)
+      }
+      // Last, once nothing left in the updater can throw: this is the
+      // action's own report of what it did (see setReportingCommit).
+      extracted = { content, anchor: rebaseRootAnchor(anchor, state.root, root) }
+      return next
     })
+    // Only this detach's own record counts, and only if it happened.
+    wholeWindowDetach = extracted ? whole : null
+    return extracted
+  },
+  insertFromCrossWindowMove: (content, target) => {
+    let changed = false
+    setReportingCommit(set, (state) => {
+      const { targetId, zone, index }: { targetId: NodeId; zone: DockZone; index?: number } =
+        target.kind === 'tab-bar'
+          ? { targetId: target.groupId, zone: 'center', index: target.index }
+          : target.kind === 'empty-pane'
+            ? { targetId: target.paneId, zone: 'center' }
+            : { targetId: target.targetId, zone: target.zone }
+      // The resolver never offers this, but the store is the authority, as
+      // for dockPane/dockTab: splitting the docked root out of itself would
+      // rewrap the whole window under a stranger tab.
+      if (splitsDockedRootOutOfItself(state.root, targetId, zone)) return state
+      const next =
+        content.kind === 'pane'
+          ? tree.insertPaneAt(state.root, content.node, targetId, zone, tabTitler(state), index)
+          : tree.insertTabAt(state.root, content.tab, targetId, zone, tabTitler(state), index)
+      if (next === state.root) return state
+      const root = ensureRootGroup(next)
+      const desired = dragContentNode(content).id
+      const result = {
+        root,
+        activePaneId: resolveActive({ root, floating: state.floating }, desired)
+      }
+      // Last — see extractForCrossWindowMove.
+      changed = true
+      return result
+    })
+    return changed
+  },
+  reinsertAtAnchor: (content, anchor) => {
+    const whole = wholeWindowDetach
+    wholeWindowDetach = null
+    setReportingCommit(set, (state) => {
+      const node = dragContentNode(content)
+      const leaves = tree.collectLeaves(state.root)
+      const next =
+        whole && leaves.length === 1 && leaves[0]!.id === whole.placeholderId
+          ? (tree.replaceNode(whole.before, node.id, () => node) ?? whole.before)
+          : restoreAtAnchor(state.root, node, anchor, tabTitler(state), state.activePaneId)
+      if (next === state.root) return state
+      const root = ensureRootGroup(next)
+      return { root, activePaneId: resolveActive({ root, floating: state.floating }, node.id) }
+    })
+  }
 }))
 
 // ---------------------------------------------------------------------------
@@ -620,7 +818,7 @@ export const useLayoutStore = create<LayoutState>()((set) => ({
 
 /** Every tree the layout holds: the docked root first, then each floating window's content. */
 export function allRoots(trees: LayoutTrees): ContentNode[] {
-  return [trees.root, ...trees.floating.map((entry) => entry.content)]
+  return layoutTrees(trees)
 }
 
 /** The tree that owns `id`, or the docked root when nothing does. */
@@ -641,13 +839,41 @@ export function findNodeAnywhere(trees: LayoutTrees, id: NodeId): ContentNode | 
 // Persistence
 // ---------------------------------------------------------------------------
 
+/**
+ * `leaf` without its transient transfer state (see
+ * `CROSS_WINDOW_TRANSFER_STATE_KEY`), or `leaf` itself when it carries none —
+ * including once its renderer has consumed it, which clears the key to
+ * `undefined` rather than deleting it.
+ */
+function withoutTransferState(leaf: LeafContent): LeafContent {
+  if (leaf.config[CROSS_WINDOW_TRANSFER_STATE_KEY] === undefined) return leaf
+  const { [CROSS_WINDOW_TRANSFER_STATE_KEY]: _dropped, ...config } = leaf.config
+  return { ...leaf, config }
+}
+
+/**
+ * The state as a persistable `LayoutSnapshot`. Every snapshot that leaves
+ * this renderer goes through here — the ordinary save and the cross-window
+ * replies main persists at once — so this is where the transfer state is
+ * stripped: it lives in the store until the destination's renderer consumes
+ * it, and nothing persisted may carry a terminal's scrollback.
+ */
+export function layoutSnapshotOf(
+  state: Pick<LayoutState, 'root' | 'activePaneId' | 'floating'>
+): LayoutSnapshot {
+  return mapLayoutLeaves(
+    {
+      version: LAYOUT_VERSION,
+      root: state.root,
+      activePaneId: state.activePaneId,
+      floating: state.floating
+    },
+    withoutTransferState
+  )
+}
+
 function persistLayout(state: LayoutState): void {
-  window.api.layout.set({
-    version: LAYOUT_VERSION,
-    root: state.root,
-    activePaneId: state.activePaneId,
-    floating: state.floating
-  })
+  window.api.layout.set(layoutSnapshotOf(state))
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined

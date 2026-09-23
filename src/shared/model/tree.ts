@@ -9,7 +9,7 @@ import type {
   Tab,
   TabsContent
 } from './types'
-import { EMPTY_TYPE, isEmpty, isSplit, isTabs } from './types'
+import { EMPTY_TYPE, isEmpty, isPlausibleNode, isSplit, isTabs } from './types'
 
 /** Panes are never resized below this fraction of their split. */
 export const MIN_PANE_SIZE = 0.05
@@ -56,7 +56,7 @@ export function firstPaneId(root: ContentNode): NodeId {
   return isSplit(root) ? firstPaneId(root.children[0]!) : root.id
 }
 
-export type ParentRef =
+type ParentRef =
   | { kind: 'split'; parent: SplitContent; index: number }
   | { kind: 'tab'; parent: TabsContent; tab: Tab }
 
@@ -79,7 +79,7 @@ export function findParent(root: ContentNode, id: NodeId): ParentRef | null {
   return null
 }
 
-export interface TabRef {
+interface TabRef {
   group: TabsContent
   tab: Tab
   index: number
@@ -151,7 +151,7 @@ export function collectLeaves(node: ContentNode): LeafContent[] {
  * `removeNode` (real pane closes) opts in — `withPaneDetached` deliberately
  * leaves a raw gap for its own callers to fill.
  */
-function replaceNode(
+export function replaceNode(
   root: ContentNode,
   id: NodeId,
   fn: (node: ContentNode) => ContentNode | null,
@@ -253,6 +253,11 @@ function sizesEqual(a: number[], b: number[]): boolean {
  * - a tabs group left with no tabs (its last tab closed) reverts to a plain
  *   empty pane in place — never removing its slot from a split or a tab,
  *   regardless of nesting; only an explicit removeNode() does that
+ * - a structurally hollow node off disk (a tabs group or split whose array is
+ *   missing, a tab that isn't an object, a child without a `type`) is repaired
+ *   away like an empty one — deserialization hands this any plausibly-typed
+ *   root (`isPlausibleNode`), so one malformed subtree must cost that subtree,
+ *   never the whole saved layout
  *
  * Unchanged subtrees keep reference identity.
  */
@@ -267,19 +272,26 @@ function normalizeNode(node: ContentNode): ContentNode | null {
 }
 
 function normalizeTabs(node: TabsContent): ContentNode {
+  // Widened: the types promise an array of tab objects, disk does not.
+  const tabsIn: unknown = node.tabs
+  if (!Array.isArray(tabsIn)) return createLeaf(EMPTY_TYPE)
   let changed = false
   const tabs: Tab[] = []
-  for (const tab of node.tabs) {
-    const content = normalizeNode(tab.content)
+  for (const tab of tabsIn as unknown[]) {
+    if (typeof tab !== 'object' || tab === null || !isPlausibleNode((tab as Tab).content)) {
+      changed = true
+      continue
+    }
+    const content = normalizeNode((tab as Tab).content)
     if (content === null) {
       changed = true
       continue
     }
-    if (content !== tab.content) {
+    if (content !== (tab as Tab).content) {
       changed = true
-      tabs.push({ ...tab, content })
+      tabs.push({ ...(tab as Tab), content })
     } else {
-      tabs.push(tab)
+      tabs.push(tab as Tab)
     }
   }
   if (tabs.length === 0) return createLeaf(EMPTY_TYPE)
@@ -292,15 +304,20 @@ function normalizeTabs(node: TabsContent): ContentNode {
 }
 
 function normalizeSplit(node: SplitContent): ContentNode | null {
-  let changed = false
+  // Widened for the same reason as normalizeTabs'.
+  const childrenIn: unknown = node.children
+  const sizesIn: unknown = node.sizes
+  if (!Array.isArray(childrenIn)) return null
+  let changed = !Array.isArray(sizesIn)
+  const sizesOf: unknown[] = Array.isArray(sizesIn) ? sizesIn : []
   const children: ContentNode[] = []
   const sizes: number[] = []
-  node.children.forEach((child, i) => {
-    const result = normalizeNode(child)
-    const size = node.sizes[i] ?? 0
+  for (const [i, child] of (childrenIn as unknown[]).entries()) {
+    const result = isPlausibleNode(child) ? normalizeNode(child) : null
+    const size = typeof sizesOf[i] === 'number' ? (sizesOf[i] as number) : 0
     if (result === null) {
       changed = true
-      return
+      continue
     }
     if (isSplit(result) && result.direction === node.direction) {
       changed = true
@@ -308,16 +325,16 @@ function normalizeSplit(node: SplitContent): ContentNode | null {
         children.push(grandchild)
         sizes.push(size * (result.sizes[j] ?? 0))
       })
-      return
+      continue
     }
     if (result !== child) changed = true
     children.push(result)
     sizes.push(size)
-  })
+  }
   if (children.length === 0) return null
   if (children.length === 1) return children[0]!
   const repairedSizes = normalizeSizes(sizes)
-  if (!sizesEqual(repairedSizes, node.sizes)) changed = true
+  if (!changed && !sizesEqual(repairedSizes, node.sizes)) changed = true
   return changed ? { ...node, children, sizes: repairedSizes } : node
 }
 
@@ -525,17 +542,8 @@ export function moveTab(
 
   const removed = removeTabFromGroup(root, ref.group.id, tabId) ?? root
   // The target vanished with the removal: it lived inside the moved tab itself.
-  const survivor = findNode(removed, targetGroupId)
-  if (!survivor) return root
-
-  if (isEmpty(survivor)) {
-    const converted = replaceNode(removed, targetGroupId, () =>
-      createTabs([ref.tab], { id: targetGroupId })
-    )
-    return normalize(converted ?? removed)
-  }
-
-  return normalize(addTab(removed, targetGroupId, ref.tab, index))
+  if (!findNode(removed, targetGroupId)) return root
+  return insertTabIntoGroupOrEmpty(removed, ref.tab, targetGroupId, index)
 }
 
 // ---------------------------------------------------------------------------
@@ -661,6 +669,48 @@ function promoteIntoTabs(
 }
 
 /**
+ * A `center` drop of `tab` onto a group (at `index`, else appended) or an
+ * empty leaf (converted to a group under the leaf's own id, so a root's bar
+ * never churns ids). Shared by `moveTab` and `insertTab`.
+ */
+function insertTabIntoGroupOrEmpty(
+  root: ContentNode,
+  tab: Tab,
+  targetId: NodeId,
+  index?: number
+): ContentNode {
+  const target = findNode(root, targetId)
+  if (!target) return root
+  if (isEmpty(target)) {
+    const converted = replaceNode(root, targetId, () => createTabs([tab], { id: targetId }))
+    return normalize(converted ?? root)
+  }
+  return normalize(addTab(root, targetId, tab, index))
+}
+
+/** Places `tab` at `targetId`/`zone`, any same-root removal already done — the tab-side twin of `insertPane`. */
+function insertTab(
+  root: ContentNode,
+  tab: Tab,
+  targetId: NodeId,
+  zone: DockZone,
+  titleOf: TabTitler,
+  targetOwnTabTitle: string | null,
+  index?: number
+): ContentNode {
+  if (zone === 'center') {
+    const target = findNode(root, targetId)
+    if (!target) return root
+    if (isTabs(target) || isEmpty(target)) {
+      return insertTabIntoGroupOrEmpty(root, tab, targetId, index)
+    }
+    return promoteIntoTabs(root, targetId, tab, titleOf, targetOwnTabTitle)
+  }
+  const { direction, position } = edgeZoneToSplit(zone)
+  return splitContent(root, targetId, direction, createTabs([tab]), position)
+}
+
+/**
  * Docks a dragged tab against the pane `targetId`. An edge zone splits the
  * pane, with the tab landing in the new half as a single-tab group (the same
  * shape a drop onto an empty pane produces); `center` merges the tab into the
@@ -688,7 +738,7 @@ export function dockTab(
     const targetOwnTab = wrappingTabIn(root, targetId, ref.group.id)
     const removed = removeTabFromGroup(root, ref.group.id, tabId) ?? root
     if (!findNode(removed, targetId)) return root
-    return promoteIntoTabs(removed, targetId, ref.tab, titleOf, targetOwnTab?.title ?? null)
+    return insertTab(removed, ref.tab, targetId, zone, titleOf, targetOwnTab?.title ?? null)
   }
 
   const removed = removeTabFromGroup(root, ref.group.id, tabId) ?? root
@@ -701,8 +751,26 @@ export function dockTab(
     if (!survivor) return root
     effectiveTargetId = survivor.content.id
   }
-  const { direction, position } = edgeZoneToSplit(zone)
-  return splitContent(removed, effectiveTargetId, direction, createTabs([ref.tab]), position)
+  return insertTab(removed, ref.tab, effectiveTargetId, zone, titleOf, null)
+}
+
+/**
+ * Inserts a `tab` that is not yet anywhere in `root` at `targetId`/`zone` —
+ * the cross-window counterpart to `dockTab`, with no removal and no
+ * collapsing group's title to preserve. `index` places a `center` drop onto
+ * a group; omitted, it appends. An invalid target is a no-op, like every op
+ * here; a preview should check `canDockExternalTarget` first.
+ */
+export function insertTabAt(
+  root: ContentNode,
+  tab: Tab,
+  targetId: NodeId,
+  zone: DockZone,
+  titleOf: TabTitler,
+  index?: number
+): ContentNode {
+  if (!canDockExternalTarget(root, targetId)) return root
+  return insertTab(root, tab, targetId, zone, titleOf, null, index)
 }
 
 export function resizeSplit(root: ContentNode, splitId: NodeId, sizes: number[]): ContentNode {
@@ -763,6 +831,20 @@ export function withPaneDetached(root: ContentNode, paneId: NodeId): ContentNode
     return removeTabFromGroup(root, group.id, ref.tab.id)
   }
   return replaceNode(root, paneId, () => null)
+}
+
+/**
+ * The tab-side twin of `withPaneDetached`: the tree with `tabId` spliced out
+ * of its group (collapsing a group it was the sole tab of), ready for the tab
+ * to be inserted in another window. Null when the tab is missing or the
+ * removal consumed the whole tree. Not normalized, like `withPaneDetached`.
+ */
+export function withTabDetached(root: ContentNode, tabId: NodeId): ContentNode | null {
+  const ref = findTab(root, tabId)
+  if (!ref) return null
+  return ref.group.tabs.length === 1
+    ? replaceNode(root, ref.group.id, () => null)
+    : removeTabFromGroup(root, ref.group.id, tabId)
 }
 
 /**
@@ -836,6 +918,19 @@ export function canDockPane(
 }
 
 /**
+ * Whether `targetId` can receive a pane or tab from *another* window's
+ * tree: it exists and is not a split. One predicate for both kinds, since
+ * everything else `canDockPane`/`canDockTab` check (self-containment, last
+ * tab in its group) needs a subject already in `root`. The docked-root edge
+ * refusal stays the caller's, as for in-window drags — this module has no
+ * notion of the docked root.
+ */
+export function canDockExternalTarget(root: ContentNode, targetId: NodeId): boolean {
+  const target = findNode(root, targetId)
+  return target !== null && !isSplit(target)
+}
+
+/**
  * True when dropping the pane `paneId` onto the tab bar of `targetGroupId`
  * would change the layout: the target is a group outside the pane's own
  * subtree, and one that still exists once the pane has detached — the pane's
@@ -871,6 +966,40 @@ export function canMoveTabToTabs(root: ContentNode, tabId: NodeId, targetGroupId
   const target = findNode(root, targetGroupId)
   if (!target || !isTabs(target)) return false
   return !findNode(ref.tab.content, targetGroupId)
+}
+
+/**
+ * Places `pane` at `targetId`/`zone`, any same-root removal already done.
+ * `targetOwnTabTitle` is `dockPane`'s alone: the wrapping tab's title to keep
+ * if removing the source collapsed the target's group (see `wrappingTabIn`).
+ * `index` places a `center` drop onto a group; omitted, it appends.
+ */
+function insertPane(
+  root: ContentNode,
+  pane: ContentNode,
+  targetId: NodeId,
+  zone: DockZone,
+  titleOf: TabTitler,
+  targetOwnTabTitle: string | null,
+  index?: number
+): ContentNode {
+  if (zone === 'center') {
+    const target = findNode(root, targetId)
+    if (!target) return root
+    if (isTabs(target)) {
+      return normalize(addTab(root, targetId, createTab(titleOf(pane, targetId), pane), index))
+    }
+    if (isEmpty(target)) {
+      // The pane takes over the placeholder's slot under its own id — live
+      // content stays keyed to the node that travelled, not the slot.
+      return normalize(replaceNode(root, targetId, () => pane) ?? root)
+    }
+    const paneTab = createTab(titleOf(pane), pane)
+    return promoteIntoTabs(root, targetId, paneTab, titleOf, targetOwnTabTitle)
+  }
+
+  const { direction, position } = edgeZoneToSplit(zone)
+  return splitContent(root, targetId, direction, pane, position)
 }
 
 /**
@@ -918,31 +1047,26 @@ export function dockPane(
     effectiveTargetId = survivor.content.id
   }
 
-  if (zone === 'center') {
-    const target = findNode(detached, effectiveTargetId)
-    if (!target) return root
-    if (isTabs(target)) {
-      return normalize(
-        addTab(detached, effectiveTargetId, createTab(titleOf(pane, effectiveTargetId), pane))
-      )
-    }
-    if (isEmpty(target)) {
-      // The pane takes over the placeholder's slot under its own id — live
-      // content stays keyed to the node that travelled, not the slot.
-      return normalize(replaceNode(detached, effectiveTargetId, () => pane) ?? detached)
-    }
-    const paneTab = createTab(titleOf(pane), pane)
-    return promoteIntoTabs(
-      detached,
-      effectiveTargetId,
-      paneTab,
-      titleOf,
-      targetOwnTab?.title ?? null
-    )
-  }
+  return insertPane(detached, pane, effectiveTargetId, zone, titleOf, targetOwnTab?.title ?? null)
+}
 
-  const { direction, position } = edgeZoneToSplit(zone)
-  return splitContent(detached, effectiveTargetId, direction, pane, position)
+/**
+ * Inserts a `pane` that is not yet anywhere in `root` at `targetId`/`zone`
+ * — the cross-window counterpart to `dockPane`, with no removal and no
+ * collapsing group's title to preserve. `index` places a `center` drop onto
+ * a group; omitted, it appends. An invalid target is a no-op, like every op
+ * here; a preview should check `canDockExternalTarget` first.
+ */
+export function insertPaneAt(
+  root: ContentNode,
+  pane: ContentNode,
+  targetId: NodeId,
+  zone: DockZone,
+  titleOf: TabTitler,
+  index?: number
+): ContentNode {
+  if (!canDockExternalTarget(root, targetId)) return root
+  return insertPane(root, pane, targetId, zone, titleOf, null, index)
 }
 
 /**

@@ -1,13 +1,22 @@
-import type { BrowserWindow } from 'electron'
+import type { BrowserWindow, Point } from 'electron'
+import type { CaffeinateFlags } from '../shared/api'
+import type { Settings } from '../shared/settings'
+import { startCaffeinate } from './caffeinate'
+import { currentCaffeinatePid, resetCaffeinateForTests } from './caffeinateProcess'
 import { resetContentModulesForTests } from './contentTypes'
 import { unhandledMainControlVerbs } from './controlVerbs'
 import { resetExternalControlForTests } from './externalControl'
 import { resetLayoutForTests, setLayoutResetting } from './layout'
+import {
+  resetCrossWindowDragForTests,
+  setCrossWindowCursorPointForTests
+} from './layoutCrossWindow'
 import { forEachLiveWindow } from './liveWindows'
 import { resetPaneHostsForTests } from './paneHostRegistry'
-import { resetSettingsForTests } from './settings'
+import { mergeSettingsForTests, resetSettingsForTests } from './settings'
 import { resetShortcutsForTests } from './shortcuts'
 import { resetThemeForTests } from './theme'
+import type { WindowId } from './windows'
 
 /**
  * The reset entry point e2e/helpers/launch.ts drives, so one app can be
@@ -26,9 +35,9 @@ interface E2eHooks {
    * Protocol verbs no content module claimed — the runtime half of main's
    * verb-coverage guarantee, which the compiler cannot see. Each type's table
    * is exhaustive over its own union at build time (see controlVerbs.ts), but
-   * a complete table whose registration never runs — a module dropped from
-   * contentTypes.ts, a call moved out of `register()` — builds clean and
-   * breaks only when someone drives that verb over the socket.
+   * a complete table whose registration never runs (see controlVerbs.ts)
+   * builds clean and breaks only when someone drives that verb over the
+   * socket.
    *
    * A query rather than a mutation, unlike `reset` above, but here for the
    * same reason: reaching a main-process global from `electronApp.evaluate()`
@@ -36,6 +45,34 @@ interface E2eHooks {
    * matching preload method existing only for tests.
    */
   unhandledControlVerbs: () => string[]
+  /**
+   * A settings write as though another window made it (see
+   * mergeSettingsForTests) — how a test states the settings its subject
+   * depends on without driving the Settings window, whose UI is not the
+   * subject of most tests that need one.
+   */
+  mergeSettings: (partial: Partial<Settings>) => void
+  /**
+   * The OS pid of the managed caffeinate process, or undefined if none is
+   * running — how "quitting the app stops the process" is proven against
+   * the *specific* process this app spawned rather than by process name
+   * (`pgrep -f caffeinate` is a machine-global check: this Mac can easily
+   * have an unrelated caffeinate already running, and CLAUDE.md's "several
+   * checkouts at once" entry is exactly this class of bug). See
+   * e2e/caffeinate.spec.ts.
+   */
+  caffeinatePid: () => number | undefined
+  /**
+   * Starts the managed caffeinate process directly, bypassing the renderer
+   * and its IPC round trip — the same reasoning `mergeSettings` bypasses the
+   * Settings window: most of e2e/caffeinate.spec.ts's tests are about Decaf,
+   * the cup button, a timer, or quitting, not about re-proving the Start
+   * button's IPC path a second time (its own test covers that once, through
+   * the real dialog).
+   */
+  startCaffeinateForTests: (flags: CaffeinateFlags) => void
+  /** Overrides the cursor point the cross-window drag poll reads (`null` restores the real one) — see layoutCrossWindow.ts. */
+  setCrossWindowCursorPoint: (point: Point | null) => void
 }
 
 declare global {
@@ -47,10 +84,15 @@ declare global {
 
 /**
  * Returns everything to the state a freshly launched app would be in:
- * every pty killed, every window but the main one gone, and layout/settings
- * back to their defaults both in memory and on disk. The renderer is then
- * reloaded so its stores re-read that pristine state through the same
- * synchronous IPC they use at boot (see layoutStore.ts/settingsStore.ts).
+ * every pty killed, every window but the first pane-tree one gone, and
+ * layout/settings back to their defaults both in memory and on disk. The
+ * renderer is then reloaded so its stores re-read that pristine state
+ * through the same synchronous IPC they use at boot (see
+ * layoutStore.ts/settingsStore.ts).
+ *
+ * `keepWindow` is the pane-tree window the fixture launched with; every
+ * other window goes, auxiliary or a second pane-tree window a test opened
+ * and forgot to close.
  *
  * Order matters. `setLayoutResetting` goes first and is only cleared once the
  * reload has finished, because the reload fires the outgoing renderer's
@@ -58,7 +100,7 @@ declare global {
  * The state resets come before the reload rather than after, since the
  * renderer reads its initial layout *during* load, not once it's done.
  */
-async function reset(mainWindow: BrowserWindow | null): Promise<void> {
+async function reset(keepWindow: BrowserWindow | null): Promise<void> {
   setLayoutResetting(true)
   try {
     // Every content type's mutable main-process state, in one call (see
@@ -75,11 +117,16 @@ async function reset(mainWindow: BrowserWindow | null): Promise<void> {
     // renderer reload further down, since the browser's maps are keyed by
     // webContents ids the reload invalidates.
     resetContentModulesForTests()
+    // Same reasoning, same placement: a child process this reset kills fires
+    // its own async exit callback, which must not run against windows already
+    // torn down below (see caffeinateProcess.ts's killCaffeinateSync comment).
+    resetCaffeinateForTests()
     // destroy() rather than close(): it can't be blocked by a beforeunload
-    // handler, and it still fires 'closed' so windows.ts's settingsWindow
-    // singleton drops its reference and will build a fresh one next time.
+    // handler, and it still fires 'closed' so windows.ts's auxiliary-window
+    // singletons (and the pane-tree registry, for any extra window) drop
+    // their reference and will build a fresh one next time.
     forEachLiveWindow((window) => {
-      if (window !== mainWindow) window.destroy()
+      if (window !== keepWindow) window.destroy()
     })
     resetSettingsForTests()
     resetLayoutForTests()
@@ -101,12 +148,14 @@ async function reset(mainWindow: BrowserWindow | null): Promise<void> {
     // construction rather than by this comment.
     resetExternalControlForTests()
     resetPaneHostsForTests()
+    // Before anything acts on a window id the destruction above invalidated.
+    resetCrossWindowDragForTests()
 
-    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (!keepWindow || keepWindow.isDestroyed()) return
     const reloaded = new Promise<void>((resolve) => {
-      mainWindow.webContents.once('did-finish-load', () => resolve())
+      keepWindow.webContents.once('did-finish-load', () => resolve())
     })
-    mainWindow.webContents.reload()
+    keepWindow.webContents.reload()
     await reloaded
   } finally {
     setLayoutResetting(false)
@@ -114,13 +163,19 @@ async function reset(mainWindow: BrowserWindow | null): Promise<void> {
 }
 
 /**
- * Installs the hooks above. `getMainWindow` is a getter rather than a window,
- * since macOS can close every window and build a new one on 'activate' (see
- * index.ts) — the window this resolves to must be whichever one is current.
+ * Installs the hooks above. Takes a getter, not a window: macOS can close
+ * every window and build a new one on 'activate', so the first entry is
+ * resolved at reset time.
  */
-export function registerE2eHooks(getMainWindow: () => BrowserWindow | null): void {
+export function registerE2eHooks(
+  getPaneTreeWindows: () => ReadonlyMap<WindowId, BrowserWindow>
+): void {
   globalThis.__tabsE2e = {
-    reset: () => reset(getMainWindow()),
-    unhandledControlVerbs: () => unhandledMainControlVerbs()
+    reset: () => reset(getPaneTreeWindows().values().next().value ?? null),
+    unhandledControlVerbs: () => unhandledMainControlVerbs(),
+    mergeSettings: (partial) => mergeSettingsForTests(partial),
+    caffeinatePid: () => currentCaffeinatePid(),
+    startCaffeinateForTests: (flags) => startCaffeinate(flags),
+    setCrossWindowCursorPoint: (point) => setCrossWindowCursorPointForTests(point)
   }
 }

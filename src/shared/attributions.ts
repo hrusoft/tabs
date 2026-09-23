@@ -17,7 +17,7 @@
  * `AppWindowApi.getAppInfoSync` in src/shared/api.ts.
  */
 
-export interface Attribution {
+interface Attribution {
   /** The npm package name, exactly as it appears in package.json. */
   name: string
   /** SPDX identifier, read from the package's own `license` field. */
@@ -52,6 +52,11 @@ export const ATTRIBUTIONS: readonly Attribution[] = [
     name: '@xterm/addon-fit',
     license: 'MIT',
     url: 'https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit'
+  },
+  {
+    name: '@xterm/addon-serialize',
+    license: 'MIT',
+    url: 'https://github.com/xtermjs/xterm.js/tree/master/addons/addon-serialize'
   },
   {
     name: '@xterm/addon-web-links',
@@ -89,7 +94,7 @@ export const ATTRIBUTIONS: readonly Attribution[] = [
  * demanding a second, versionless entry in ATTRIBUTIONS. Only Electron is
  * both; Chromium and Node arrive inside it and have no package of their own.
  */
-export interface RuntimeComponent extends Attribution {
+interface RuntimeComponent extends Attribution {
   versionKey: 'electron' | 'chrome' | 'node'
   packageName?: string
 }

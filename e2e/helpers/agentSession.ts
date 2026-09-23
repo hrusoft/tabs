@@ -14,7 +14,7 @@ import type {
 import { PANE_ATTR } from '../../src/shared/paneDomAttrs'
 import { expect } from './launch'
 import { closeInactiveRootTab, closePane, createViaPalette, initialPane, paneById } from './pane'
-import { openSettingsTab } from './settings'
+import { mergeSettings, openSettingsTab } from './settings'
 import { openTerminal, typeAndEnter } from './terminal'
 
 /**
@@ -210,7 +210,18 @@ export async function readPaneEnv(term: Locator): Promise<PaneEnv> {
  * pane (root's own default tab — see `initialPane`), and the control env
  * its pty carries.
  */
-export async function openAgentSession(page: Page): Promise<{ term: Locator; env: PaneEnv }> {
+export async function openAgentSession(
+  page: Page,
+  electronApp: ElectronApplication
+): Promise<{ term: Locator; env: PaneEnv }> {
+  // Every session's teardown (closeAgentSession, closeInactiveRootTab) and
+  // most of its assertions assume the agent's pane opens as a tab beside the
+  // caller — stated here rather than inherited from the shipped default, so
+  // changing that default can't break sixty tests far from the cause. A test
+  // about another placement sets it afterwards (setControlledPanePlacement).
+  await mergeSettings(electronApp, {
+    contentTypes: { browser: { controlledPanePlacement: 'tab' } }
+  })
   const term = await openTerminal(initialPane(page))
   const env = await readPaneEnv(term)
   return { term, env }
@@ -230,7 +241,7 @@ export async function createAgentPane(env: PaneEnv, ...args: string[]): Promise<
 
 /**
  * Switches Settings → Browser → "New pane placement", the setting
- * handleCreateBrowserPane (src/plugins/browser/renderer/browserExternalControl.ts)
+ * handleCreateBrowserPane (src/plugins/browser/renderer/navigationVerbs.ts)
  * reads to decide where create-browser-pane places its new pane. Applies live
  * — no save button, no window close needed — the same as every other
  * settings-window test in this suite.
@@ -279,13 +290,6 @@ export async function openForeignPane(
   return foreign
 }
 
-// Here, "the inactive root tab" always means the terminal's: an agent's own
-// pane (or a hand-opened foreign one) lands as a sibling tab in root's own
-// group and activates, backgrounding the terminal — whose tab was never
-// retitled to "Terminal" in the first place (see closeInactiveRootTab's doc
-// in helpers/pane.ts). Covers the case `closeAgentSession` doesn't: a
-// browser pane still sitting beside the terminal in root's group.
-
 /**
  * The shared scaffold of the per-verb-family ownership tests: a session, a
  * hand-opened foreign pane, and the assertion that every listed command is
@@ -296,7 +300,7 @@ export async function expectRefusedForForeignPane(
   page: Page,
   commands: (foreign: string) => string[][]
 ): Promise<void> {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const foreign = await openForeignPane(electronApp, page, env)
   for (const args of commands(foreign)) {
     const response = await runTabsCtl(args, env)

@@ -8,7 +8,8 @@ import { CONTENT_TYPE_MANIFESTS, type ContentTypeManifest } from './registry'
  * ## What "disabled" means, and what it deliberately does not
  *
  * Disabling a type removes every way to make a *new* instance of it: its
- * pane-header button (see PaneHeaderControls.tsx), the clone every other
+ * creation action (the empty-pane toolbar and the Cmd+P palette, both through
+ * content/creationActions.ts), the clone every other
  * creation path performs (content/contentLike.ts — splitting a terminal opens
  * another terminal, and a surviving pane would otherwise be a factory
  * indefinitely), the external-control verb that creates one, and its page in

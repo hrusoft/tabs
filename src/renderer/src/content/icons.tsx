@@ -230,3 +230,39 @@ export function KeyboardIcon() {
     </svg>
   )
 }
+
+/** The title-bar caffeinate indicator/Decaf button (see TabBar.tsx's CaffeinateButton). */
+export function CoffeeCupIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      {/* A rounded-bottom cup, an open handle loop on the right, and three
+          short S-curves rising off the rim — reads as a steaming cup at
+          16px without a saucer or any interior shading, matching BellIcon's
+          own "just enough shape" economy. */}
+      <path
+        d="M3.5 7H10.5V11.5A2 2 0 0 1 8.5 13.5H5.5A2 2 0 0 1 3.5 11.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.5 8.2C12.1 8.2 13.1 9.1 13.1 10.3S12.1 12.4 10.5 12.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      {[4.5, 7.5, 10.5].map((x) => (
+        <path
+          key={x}
+          d={`M${x} 6c0-1 .9-1 .9-2s-.9-1-.9-2`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeLinecap="round"
+        />
+      ))}
+    </svg>
+  )
+}

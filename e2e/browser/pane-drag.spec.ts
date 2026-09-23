@@ -536,13 +536,14 @@ test('a targetless release flies the pane ghost home and changes nothing', async
     els.map((el) => el.getAttribute('data-dock-id'))
   )
 
-  // Off-screen: no pane covers it, so it's not a registered drop target. The
-  // window's own chrome is gone (root's own tab bar plays the title-bar role
-  // now — see App.tsx), so the whole viewport is pane content.
-  const viewport = page.viewportSize()
-  if (!viewport) throw new Error('no viewport size')
-
-  await grabAndHover(headerOf(panes.nth(1)), viewport.width + 200, viewport.height / 2)
+  // The dragged pane's own body is never a target — the drop would nest the
+  // pane into itself — so hovering there previews nothing.
+  const ownBody = await requireBox(panes.nth(1))
+  await grabAndHover(
+    headerOf(panes.nth(1)),
+    ownBody.x + ownBody.width / 2,
+    ownBody.y + ownBody.height / 2
+  )
 
   await expect(page.getByTestId('dock-preview')).toHaveCount(0)
   // The ghost is labeled like the header it was grabbed by.

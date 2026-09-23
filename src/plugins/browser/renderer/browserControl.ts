@@ -5,7 +5,7 @@ import { browserCtx } from './pluginContext'
 /**
  * The browser-shaped view of a pane's core handle (see
  * core/registry/paneHandles.ts): what the external-control listener (see
- * ../externalControl.ts) can ask of a mounted `BrowserRenderer`. Its members
+ * browserExternalControl.ts and its verb modules) can ask of a mounted `BrowserRenderer`. Its members
  * are getters rather than values because what they resolve to (the live
  * `<webview>` element, the current page's console buffer) is replaced
  * underneath the registered handle as the pane reattaches and renavigates.

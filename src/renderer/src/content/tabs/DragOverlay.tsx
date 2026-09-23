@@ -1,5 +1,16 @@
+import type { DragInfo } from '../../core/store/dragStore'
 import { useDragStore } from '../../core/store/dragStore'
 import { FLY_BACK_MS } from '../dragController'
+
+/**
+ * An active drag whose pointer has left this window: OS mouse capture keeps
+ * delivering its moves here, and a ghost drawn just past the left or top
+ * edge would peek back in. The window the cursor is over draws it now.
+ */
+function pointerOutsideWindow(drag: DragInfo): boolean {
+  if (drag.phase !== 'active') return false
+  return drag.x < 0 || drag.y < 0 || drag.x >= window.innerWidth || drag.y >= window.innerHeight
+}
 
 /**
  * The floating ghost that follows the pointer during a tab drag. After a
@@ -8,7 +19,7 @@ import { FLY_BACK_MS } from '../dragController'
  */
 export function DragOverlay() {
   const drag = useDragStore((state) => state.drag)
-  if (!drag) return null
+  if (!drag || pointerOutsideWindow(drag)) return null
 
   const returning = drag.phase === 'returning' && drag.returnTo !== null
   const x = returning && drag.returnTo ? drag.returnTo.x : drag.x + 12

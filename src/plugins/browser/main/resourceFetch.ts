@@ -1,6 +1,6 @@
 import { net, type WebContents } from 'electron'
 import { MAX_RESOURCE_BYTES } from '../shared/externalControl'
-import { refResolverExpression } from '../shared/pageRefs'
+import { refResolverExpression, staleRefError } from '../shared/pageRefs'
 import { acquireGuestDebugger } from './guestDebugger'
 import { isAllowedResourceUrl } from './urlPolicy'
 
@@ -53,10 +53,14 @@ export async function resolveElementSrc(
     target.ref !== undefined
       ? refResolverExpression(target.ref)
       : `document.querySelector(${JSON.stringify(target.selector)})`
+  const notFound =
+    target.ref !== undefined
+      ? staleRefError(target.ref)
+      : `no element matches selector ${JSON.stringify(target.selector)}`
   const script = `(() => {
     let el
     try { el = ${finder} } catch (e) { return { error: 'invalid selector: ' + (e && e.message) } }
-    if (!el) return { error: 'no element found for the given ${target.ref !== undefined ? 'ref' : 'selector'}' }
+    if (!el) return { error: ${JSON.stringify(notFound)} }
     const url = el.currentSrc || el.src || el.href || el.data ||
       el.getAttribute?.('src') || el.getAttribute?.('href') || ''
     if (!url) return { error: 'the element has no src/href to save' }
@@ -256,16 +260,37 @@ async function blobViaGuestFetch(
 }
 
 /**
+ * How long an http(s) fetch may run before it is aborted — inside
+ * saveResource's verb budget, so this, the more specific answer, is the one
+ * the caller gets, and the request is actually released rather than left
+ * streaming after core has given up on it.
+ */
+const RESOURCE_FETCH_TIMEOUT_MS = 25_000
+
+/**
  * An `http`/`https` resource via main's `net.request` on the guest's session.
  * Streams with a running byte cap so a runaway body is aborted mid-flight
- * rather than buffered whole and rejected after.
+ * rather than buffered whole and rejected after, and aborts a server that
+ * stalls (see RESOURCE_FETCH_TIMEOUT_MS).
  */
 function fetchHttpResource(guest: WebContents, url: string): Promise<FetchOutcome> {
-  return new Promise((resolve) => {
+  return new Promise<FetchOutcome>((settle) => {
     const request = net.request({ url, session: guest.session, useSessionCookies: true })
     const chunks: Buffer[] = []
     let total = 0
     let aborted = false
+    const timer = setTimeout(() => {
+      if (aborted) return
+      aborted = true
+      request.abort()
+      resolve({
+        error: `the resource did not finish downloading within ${RESOURCE_FETCH_TIMEOUT_MS / 1000}s`
+      })
+    }, RESOURCE_FETCH_TIMEOUT_MS)
+    const resolve = (outcome: FetchOutcome): void => {
+      clearTimeout(timer)
+      settle(outcome)
+    }
     request.on('response', (response) => {
       const status = response.statusCode
       if (status >= 400) {

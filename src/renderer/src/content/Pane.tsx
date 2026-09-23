@@ -80,8 +80,9 @@ export function Pane({
   cornerRight?: boolean | undefined
 }) {
   const nodeId = node.id
-  // Non-reactive, like paneTitleForContent below — the registry is
-  // populated once at boot, before the first render.
+  // Non-reactive, like paneTitleForContent below — in the app the registry is
+  // populated once at boot, before the first render. (ContentView subscribes,
+  // so a type registered later, as tests do, re-renders this pane anyway.)
   const HeaderTitle = contentRegistry.get(node.type)?.HeaderTitle
   const isActive = useLayoutStore((state) => state.activePaneId === nodeId)
   const setActivePane = useLayoutStore((state) => state.setActivePane)
@@ -142,8 +143,8 @@ export function Pane({
     '--depth': depth,
     ...(isDimmed && Number.isFinite(dimIntensity) ? { '--dim-intensity': dimIntensity } : {}),
     // Explicit on every pane, unconditionally — never left to inherit or
-    // fall back to a CSS default. That's the whole fix: an inherited or
-    // selector-matched value has no way to be reset for a subtree with no
+    // fall back to a CSS default: an inherited or selector-matched value has
+    // no way to be reset for a subtree with no
     // `.pane` of its own to reset it at (a split's own node, in particular),
     // so a value could ride an arbitrary depth of nesting onto the wrong
     // pane. See ContentRendererProps.cornerLeft/cornerRight and

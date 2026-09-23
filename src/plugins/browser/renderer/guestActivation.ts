@@ -24,7 +24,7 @@ import { BrowserGuestEvent } from '../shared/ipc'
  * id-sorted order with an explicit `z-index`, so the raise moves no element and
  * cannot reload the guest page (see CLAUDE.md).
  *
- * Kept free of any import from browserExternalControl.ts on purpose — the
+ * Kept free of any import from the verb modules on purpose — the
  * suppression flag below lives here rather than there so the jsdom/Chromium
  * tiers can install this forwarder (registerTestContent.ts) without dragging
  * the verb module's graph in behind it, the same property that lets them
@@ -52,7 +52,7 @@ let injecting = 0
  * `globalX`/`globalY` of 0) is undocumented and would mis-fire for a real
  * click at the top-left screen pixel — deliberately not built on.
  *
- * The caller is `withHostFocusRestored` in browserExternalControl.ts, which
+ * The caller is `withHostFocusRestored` in inputVerbs.ts, which
  * wraps exactly the verbs that inject a press.
  */
 export function suppressGuestActivation(): () => void {
@@ -88,9 +88,8 @@ export function installGuestActivation(
     // during the ~50ms an input verb holds this is swallowed — see the note on
     // withHostFocusRestored.
     if (injecting > 0) return
-    // No wasRecentlyDragged/isSplitResizing guard, unlike Pane's onClick: a
-    // pane drag or split resize captures the pointer on the host, so the guest
-    // never sees a press from one.
+    // No drag/resize guard needed: a pane drag or split resize captures the
+    // pointer on the host, so the guest never sees a press from one.
     activatePane(paneId as string)
   })
 }

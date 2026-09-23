@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { ContextMenu } from './ContextMenu'
 import { CommandPalette } from './content/CommandPalette'
 import { ContentView } from './content/ContentView'
+import { installCrossWindowDrag } from './content/crossWindowDrag'
 import { installExternalControl } from './content/externalControl'
 import { FloatingLayer } from './content/floating/FloatingLayer'
 import { NavFlashOverlay } from './content/NavFlashOverlay'
@@ -10,6 +11,7 @@ import { installSpatialNav } from './content/spatialNav'
 import { DragOverlay } from './content/tabs/DragOverlay'
 import { PaneFocusFollower } from './core/registry/paneHandles'
 import { useLayoutStore } from './core/store/layoutStore'
+import { ModalHost } from './Modal'
 import { useIsFullScreen } from './useIsFullScreen'
 
 /**
@@ -31,6 +33,10 @@ export default function App() {
   useEffect(() => installSpatialNav(), [])
   useEffect(() => installPaneShortcuts(), [])
   useEffect(() => installExternalControl(), [])
+  useEffect(() => installCrossWindowDrag(), [])
+  // installCaffeinate is deliberately NOT called from an effect here — see
+  // main.tsx's module comment for why it has to be installed before this
+  // component ever mounts.
   return (
     <div className="app-shell" data-fullscreen={isFullScreen || undefined}>
       <div className="app-content">
@@ -47,6 +53,7 @@ export default function App() {
       <NavFlashOverlay />
       <ContextMenu />
       <CommandPalette />
+      <ModalHost />
       {/* Renders nothing; last so its layout effect — which hands the
           keyboard to whichever pane just became active — runs after every
           other effect in the commit. */}

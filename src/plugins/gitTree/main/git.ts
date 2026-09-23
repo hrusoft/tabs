@@ -3,10 +3,14 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import type { CheckoutTarget } from '../shared/checkoutTargets'
+import { splitRemoteRef } from '../shared/checkoutTargets'
 import type {
   ChangedFile,
   Commit,
+  GitBranchesAtCommitResult,
   GitBranchScope,
+  GitCheckoutResult,
   GitCommitResult,
   GitFailure,
   GitHead,
@@ -71,7 +75,7 @@ interface GitOutput {
   stdout: string
 }
 
-type GitInvocation = GitOutput | { ok: false; reason: GitFailure }
+type GitInvocation = GitOutput | { ok: false; reason: GitFailure; stderr: string }
 
 /**
  * One `git` invocation in `cwd`, with every failure mapped to a `GitFailure`.
@@ -82,6 +86,13 @@ type GitInvocation = GitOutput | { ok: false; reason: GitFailure }
  * that git has emitted for well over a decade; anything unrecognized becomes
  * `failed` with the real stderr attached, so an unclassified error still
  * reaches the user as words rather than as silence.
+ *
+ * The raw `stderr` rides alongside `reason` on every failure, not only
+ * `classify`'s one-line summary — every caller but `checkout` ignores it
+ * (TypeScript allows returning a value with an extra property against a
+ * narrower declared shape, so this costs nothing at every other call site),
+ * and `checkout` is the one place a git refusal's full multi-line text is
+ * worth keeping (see `GitCheckoutResult`'s comment in shared/types.ts).
  */
 async function git(cwd: string, args: string[]): Promise<GitInvocation> {
   try {
@@ -97,7 +108,9 @@ async function git(cwd: string, args: string[]): Promise<GitInvocation> {
     })
     return { ok: true, stdout }
   } catch (error) {
-    return { ok: false, reason: classify(error, cwd) }
+    const record = error as { stderr?: unknown }
+    const stderr = typeof record.stderr === 'string' ? record.stderr.trim() : ''
+    return { ok: false, reason: classify(error, cwd), stderr }
   }
 }
 
@@ -292,16 +305,20 @@ export async function readLog(
 }
 
 /**
- * `--numstat` lines into changed files.
+ * `--numstat` records into changed files — newline-separated, or NUL-separated
+ * for a `-z` invocation.
  *
  * Binary files are reported as `-\t-\t<path>`, which is why the counts are
  * `number | null` rather than defaulting to 0 — "binary" and "changed nothing"
  * are different facts and the panel says which.
  */
-function parseNumstat(stdout: string): { files: ChangedFile[]; truncated: boolean } {
+function parseNumstat(
+  stdout: string,
+  separator: '\n' | '\0' = '\n'
+): { files: ChangedFile[]; truncated: boolean } {
   const files: ChangedFile[] = []
   let truncated = false
-  for (const line of stdout.split('\n')) {
+  for (const line of stdout.split(separator)) {
     if (line.trim().length === 0) continue
     const fields = line.split('\t')
     if (fields.length < 3) continue
@@ -376,20 +393,23 @@ export async function readCommit(dir: string, hash: string): Promise<GitCommitRe
 }
 
 /**
- * Paths out of `git status --porcelain`.
+ * Paths out of `git status --porcelain -z`.
  *
- * Each line is two status letters, a separating space, then the path (`XY
- * <path>`, or `XY <old> -> <new>` for a rename) — `line.slice(3)` skips
- * straight past the fixed-width prefix, and only the arrow's right side
- * matters for a rename, since that is the path as it exists on disk now.
+ * Each record is two status letters, a separating space, then the path
+ * (`XY <path>`) — `slice(3)` skips straight past the fixed-width prefix. A
+ * rename or copy is followed by one extra record holding its *original* path,
+ * which is skipped: only the path as it exists on disk now matters. `-z` is
+ * what keeps paths verbatim — without it porcelain wraps any path with a space
+ * in quotes, even with `core.quotePath=false`.
  */
 function parseStatusPaths(stdout: string): string[] {
   const paths: string[] = []
-  for (const line of stdout.split('\n')) {
-    if (line.length <= 3) continue
-    const rest = line.slice(3)
-    const arrow = rest.indexOf(' -> ')
-    paths.push(arrow === -1 ? rest : rest.slice(arrow + 4))
+  const records = stdout.split('\0')
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]!
+    if (record.length <= 3) continue
+    paths.push(record.slice(3))
+    if (record[0] === 'R' || record[0] === 'C') i++
   }
   return paths
 }
@@ -453,13 +473,18 @@ export async function readWorkingTreeChanges(dir: string): Promise<GitCommitResu
   const [root, head, status, numstat] = await Promise.all([
     repoRoot(dir),
     git(dir, ['rev-parse', 'HEAD']),
-    git(dir, ['status', '--porcelain', '--ignore-submodules']),
-    git(dir, ['diff', '--numstat', 'HEAD'])
+    // `-uall` lists an untracked directory's files rather than the directory
+    // itself, which the disk read below could only report as unreadable.
+    git(dir, ['status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules']),
+    // `--no-renames` names a staged rename by the path status also uses,
+    // rather than `old => new`, which would miss the match below and list
+    // the file twice.
+    git(dir, ['diff', '--numstat', '-z', '--no-renames', 'HEAD'])
   ])
   if (!root.ok) return { ok: false, reason: root.reason }
 
   const hasHead = head.ok
-  const tracked = numstat.ok ? parseNumstat(numstat.stdout) : { files: [], truncated: false }
+  const tracked = numstat.ok ? parseNumstat(numstat.stdout, '\0') : { files: [], truncated: false }
   const trackedPaths = new Set(tracked.files.map((file) => file.path))
 
   const statusPaths = status.ok ? parseStatusPaths(status.stdout) : []
@@ -488,4 +513,139 @@ export async function readWorkingTreeChanges(dir: string): Promise<GitCommitResu
 /** Whether `dir` is inside a work tree — used only to pick a sensible starting directory. */
 export async function isRepo(dir: string): Promise<boolean> {
   return (await repoRoot(dir)).ok
+}
+
+// Unlike `--pretty=format:` (LOG_FORMAT above), `for-each-ref --format` does
+// NOT interpret `%x1f` as an escape — measured: it printed the four literal
+// characters `%x1f` verbatim, which silently glued every field into one
+// unsplittable line. The literal separator byte, embedded directly in the
+// JS string, is what for-each-ref actually needs.
+const FOR_EACH_REF_FORMAT = `%(objectname)${SEP}%(refname)`
+
+/**
+ * The raw refs behind the checkout decision (see `../shared/checkoutTargets.ts`
+ * for the policy over this data): which local branches and remote-tracking
+ * branches point at `hash`, plus every local branch name in the repository
+ * regardless of where it points.
+ *
+ * A single `for-each-ref` walking both namespaces at once, rather than the
+ * log's own `%D` decorations (parsed by `parseRefs` above): those interleave
+ * local, remote-tracking, HEAD and tag names into one flat string with no way
+ * to tell them apart (measured — `git log --format=%D` prints `HEAD -> main,
+ * origin/main, origin/HEAD, stable` for one commit with two local branches and
+ * one remote-tracking one), where `for-each-ref`'s full `refs/heads/`/
+ * `refs/remotes/` namespaces are exact. `origin/HEAD` — the remote's own
+ * symbolic default-branch pointer — is filtered out for the same reason: it
+ * points at whatever `origin/main` does and would otherwise double-list as a
+ * second, fake branch alongside it (also measured).
+ *
+ * `git remote` runs alongside it so `splitRemoteRef` can match a
+ * `refs/remotes/*` entry against the repository's real configured remote
+ * names rather than guessing from the first path segment; a failure there
+ * degrades to the guess (`splitRemoteRef`'s own fallback) rather than failing
+ * the whole read; the ref read failing is the only real failure here.
+ */
+export async function branchesAtCommit(
+  dir: string,
+  hash: string
+): Promise<GitBranchesAtCommitResult> {
+  const [refs, remoteNames] = await Promise.all([
+    git(dir, [
+      'for-each-ref',
+      `--format=${FOR_EACH_REF_FORMAT}`,
+      '--sort=refname',
+      'refs/heads',
+      'refs/remotes'
+    ]),
+    git(dir, ['remote'])
+  ])
+  if (!refs.ok) return refs
+
+  const local: string[] = []
+  const remoteRefs: string[] = []
+  const allLocalBranches: string[] = []
+  for (const line of refs.stdout.split('\n')) {
+    if (line.trim().length === 0) continue
+    const [objectName = '', refname = ''] = line.split(SEP)
+    if (refname.startsWith('refs/heads/')) {
+      const name = refname.slice('refs/heads/'.length)
+      allLocalBranches.push(name)
+      if (objectName === hash) local.push(name)
+    } else if (refname.startsWith('refs/remotes/')) {
+      const rest = refname.slice('refs/remotes/'.length)
+      if (rest.endsWith('/HEAD')) continue
+      if (objectName === hash) remoteRefs.push(rest)
+    }
+  }
+  const names = remoteNames.ok
+    ? remoteNames.stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+    : []
+  const remotes = remoteRefs.map((ref) => splitRemoteRef(ref, names))
+
+  return { ok: true, local, remotes, allLocalBranches }
+}
+
+/** How many lines of a checkout refusal to keep — generous for the file lists git's own dirty-tree message lists, bounded against a pathological one. */
+const CHECKOUT_ERROR_MAX_LINES = 20
+
+/** `text`, unchanged if it's within `maxLines`; otherwise the first `maxLines` lines plus a count of what was cut. */
+function capLines(text: string, maxLines: number): string {
+  const lines = text.split('\n')
+  if (lines.length <= maxLines) return text
+  const hidden = lines.length - maxLines
+  return `${lines.slice(0, maxLines).join('\n')}\n… (${hidden} more line${hidden === 1 ? '' : 's'})`
+}
+
+/** The `git switch` invocation for one target — see `CheckoutTarget`'s own comment for what each shape means. */
+function checkoutArgs(target: CheckoutTarget): string[] {
+  switch (target.kind) {
+    case 'branch':
+      return ['switch', target.name]
+    case 'remote-branch':
+      // `-c`'s argument is the new local branch's name; `--track` is spelled
+      // out explicitly rather than relied on via `branch.autoSetupMerge`
+      // (git's own default, but a user's own config to have changed) so this
+      // does not depend on a setting this app never asked about.
+      return ['switch', '-c', target.name, '--track', target.ref]
+    case 'commit':
+      return ['switch', '--detach', target.hash]
+  }
+}
+
+/**
+ * Checks out `target` — a local branch, a remote-tracking branch (creating a
+ * local branch that tracks it), or a bare commit (leaving HEAD detached).
+ *
+ * `git switch` throughout, not `git checkout`: every target here is already
+ * resolved to an exact ref by `branchesAtCommit`/`decideCheckout` rather than
+ * left for git to guess at, so `switch`'s narrower, branch-and-commit-only
+ * surface loses nothing and reads unambiguously (`switch <name>` can never be
+ * mistaken for a path the way `checkout <name>` can). Needs git 2.23+
+ * (August 2019); an older git fails this call with "'switch' is not a git
+ * command", which reaches the user through the ordinary `failed` path below
+ * rather than a special one, the same as any other unrecognized failure this
+ * file doesn't classify by name.
+ *
+ * Never a rejection, like every other export here — a refusal (uncommitted
+ * changes in the way, a branch name that already exists, a detached HEAD
+ * already there) is exactly as ordinary an outcome as any other `GitFailure`.
+ * `detail` carries git's full stderr, capped at `CHECKOUT_ERROR_MAX_LINES`
+ * lines, alongside the one-line `reason` (see `GitCheckoutResult`'s comment)
+ * — this is the one git.ts export where that matters, since a checkout
+ * refusal is usually the most actionable text git prints anywhere in this
+ * pane.
+ */
+export async function checkout(dir: string, target: CheckoutTarget): Promise<GitCheckoutResult> {
+  const result = await git(dir, checkoutArgs(target))
+  if (result.ok) return { ok: true }
+  return {
+    ok: false,
+    reason: result.reason,
+    ...(result.stderr.length > 0
+      ? { detail: capLines(result.stderr, CHECKOUT_ERROR_MAX_LINES) }
+      : {})
+  }
 }

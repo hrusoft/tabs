@@ -13,8 +13,9 @@ import { browserCtx } from './pluginContext'
  *
  * More than a renderer: a content type can also claim external-control verbs
  * and feed core's spatial navigation. Keeping that behind one entry point is
- * what lets core list types rather than list their capabilities, and gives a
- * future "is this type enabled?" decision exactly one call to skip.
+ * what lets core list types rather than list their capabilities. (Disabling
+ * the type deliberately does *not* skip it — see shared/content/enablement.ts:
+ * "off" gates creation, it never unregisters.)
  *
  * Both guest subscriptions are made with no matching teardown here, and that
  * is deliberate: activation happens once per window at module scope

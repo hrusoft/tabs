@@ -38,11 +38,10 @@ export interface ContentRendererProps<N extends ContentNode = ContentNode> {
    * derives each child's flags from its own (per axis: the side(s) that
    * child's edge doesn't actually touch flip to `false`, since that's now a
    * real seam against a sibling). Getting this wrong either direction is
-   * visible: never deriving it (the bug this fixed — a lone pane's content
-   * shifted a pixel the moment it was split, because the surviving pane
-   * suddenly drew a border on sides that used to be flush with its tabs-
-   * group's own) or deriving it unconditionally (double-suppressing a real
-   * seam between two split siblings, collapsing their divider to 0px).
+   * visible: never deriving it shifts a lone pane's content a pixel the moment
+   * it is split (the surviving pane draws a border on sides flush with its
+   * tabs-group's own), and deriving it unconditionally double-suppresses a
+   * real seam between two split siblings, collapsing their divider to 0px.
    */
   suppressBorderLeft?: boolean | undefined
   suppressBorderRight?: boolean | undefined
@@ -227,9 +226,10 @@ export class ContentRegistry {
   }
 
   /**
-   * Every def in registration order. Order is a contract: pane-header
-   * creation buttons render in this order, so registerBuiltins' sequence is
-   * the button order. (Unregister + re-register moves a def to the end.)
+   * Every def in registration order. Order is a contract: the empty-pane
+   * toolbar and the Cmd+P palette list creation actions in this order, so
+   * registerBuiltins' sequence is that order. (Unregister + re-register moves
+   * a def to the end.)
    */
   list(): ContentRendererDef[] {
     return this.store.values()
@@ -252,9 +252,8 @@ export const contentRegistry = new ContentRegistry()
  *
  * Module scope, not inline at the call site: an inline arrow is a fresh
  * identity on every render, which React answers by tearing the subscription
- * down and re-establishing it each time — for every mounted pane
- * (PaneHeaderControls.tsx) and every node in the layout tree
- * (ContentView.tsx). They live here rather than in either consumer because
+ * down and re-establishing it each time — for every mounted empty pane
+ * (creationActions.ts) and every node in the layout tree (ContentView.tsx). They live here rather than in either consumer because
  * both need them and a second hand-written copy would only be a second thing
  * to keep stable. The arrow wrappers are what bind `this`, which is why a bare
  * method reference can't be passed instead — the settings-side sibling

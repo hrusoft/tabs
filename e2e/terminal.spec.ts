@@ -16,18 +16,8 @@ import {
   openNewTab,
   splitHorizontal
 } from './helpers/pane'
-import { openSettingsTab } from './helpers/settings'
-import { alive, openTerminal, terminalWithPid, typeAndEnter } from './helpers/terminal'
-
-/** Polls `process.kill(pid, 0)` from this (test-runner) process directly. */
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
+import { mergeSettings, openSettingsTab } from './helpers/settings'
+import { alive, isAlive, openTerminal, terminalWithPid, typeAndEnter } from './helpers/terminal'
 
 test('opening a terminal drops into a real, interactive login shell', async ({ page }) => {
   const term = await openTerminal(initialPane(page))
@@ -478,9 +468,11 @@ test('switching away from a terminal tab and back keeps the same live session, n
   await expect(original).toContainText('output-while-away')
 })
 
-test("splitting a terminal starts the new terminal in the origin's live cwd (inheritance on by default)", async ({
-  page
+test("splitting a terminal starts the new terminal in the origin's live cwd, with inheritance on", async ({
+  page,
+  electronApp
 }) => {
+  await mergeSettings(electronApp, { contentTypes: { terminal: { inheritCwdOnNewPane: true } } })
   const term = await openTerminal(initialPane(page))
   const dir = mkdtempSync(path.join(tmpdir(), 'tabs-e2e-cwd-'))
 
@@ -496,8 +488,10 @@ test("splitting a terminal starts the new terminal in the origin's live cwd (inh
 })
 
 test("opening a new tab from a terminal starts the new terminal in the origin's live cwd", async ({
-  page
+  page,
+  electronApp
 }) => {
+  await mergeSettings(electronApp, { contentTypes: { terminal: { inheritCwdOnNewPane: true } } })
   const term = await openTerminal(initialPane(page))
   const dir = mkdtempSync(path.join(tmpdir(), 'tabs-e2e-cwd-'))
 

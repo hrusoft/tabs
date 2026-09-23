@@ -26,7 +26,7 @@ type ControlVerb = ControlRequest['type']
  * (installExternalControl below), which is also what lets a handler throw
  * freely: the throw becomes the error response.
  */
-type ControlVerbHandler<V extends ControlVerb = ControlVerb> = (
+export type ControlVerbHandler<V extends ControlVerb = ControlVerb> = (
   request: Extract<ControlRequest, { type: V }>
 ) => ControlResponse | Promise<ControlResponse>
 

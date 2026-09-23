@@ -7,9 +7,9 @@
  * The split is by *type shape*, not by which module registers the handler.
  * `activatePane`, `closePane`, `listOwnedPanes` and `getPaneInfo` are all
  * registered by this content type today (see
- * src/plugins/browser/renderer/browserExternalControl.ts), but their request types
+ * src/plugins/browser/renderer/paneVerbs.ts), but their request types
  * name nothing about a page — they take a pane id and act on the layout — so
- * they stay in core's ../../externalControl.ts. If those verbs ever gain a
+ * they stay in core's src/shared/externalControl.ts. If those verbs ever gain a
  * second implementor, core's protocol will already be the right shape for it.
  * Moving a handler to make the type line come out neater would be the tail
  * wagging the dog.
@@ -446,7 +446,7 @@ export type BrowserControlRequest =
  *
  * Core folds this into the protocol-wide marker rather than re-listing every
  * name, so the exhaustiveness survives the split intact — see
- * CONTROL_REQUEST_TYPE_MARKER in ../../externalControl.ts.
+ * CONTROL_REQUEST_TYPE_MARKER in src/shared/externalControl.ts.
  */
 export const BROWSER_CONTROL_REQUEST_MARKER: Record<BrowserControlRequest['type'], true> = {
   createBrowserPane: true,
@@ -472,6 +472,12 @@ export const BROWSER_CONTROL_REQUEST_MARKER: Record<BrowserControlRequest['type'
   assert: true,
   saveResource: true
 }
+
+/**
+ * A browser pane that exists but has no live guest right now — not mounted,
+ * or mid-attach. One sentence for the verbs answered in either process.
+ */
+export const PANE_NOT_MOUNTED_ERROR = 'browser pane is not currently mounted'
 
 /**
  * Cap on the bytes a single `save-resource` will write, checked before the

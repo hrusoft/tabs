@@ -1,10 +1,11 @@
 import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, test } from 'vitest'
+import { expect, test } from 'vitest'
 import { dockedPanes, initialPane, panes } from '../testing/domQueries'
 import { fillEmptyPane } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
-import { registerSecondStubType, STUB_TYPE, unregisterSecondStubType } from '../testing/stubContent'
+import { STUB_TYPE } from '../testing/stubContent'
+import { registerSecondStubType } from '../testing/temporaryStubTypes'
 
 /**
  * Cmd/Ctrl+P's command palette: a two-step overlay (content type, then
@@ -20,8 +21,6 @@ import { registerSecondStubType, STUB_TYPE, unregisterSecondStubType } from '../
  * in a browser pane's `<webview>` (that scenario itself needs a real guest
  * and stays in e2e/commandPalette.spec.ts).
  */
-
-afterEach(unregisterSecondStubType)
 
 test('Cmd/Ctrl+P opens the palette listing every enabled content type', async () => {
   renderApp()

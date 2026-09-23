@@ -1,16 +1,12 @@
 import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, test } from 'vitest'
+import { expect, test } from 'vitest'
 import { contentRegistry } from '../core/registry/registry'
 import { initialPane, panes } from '../testing/domQueries'
 import { fillEmptyPane } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
-import {
-  registerSecondStubType,
-  SECOND_STUB_TYPE,
-  STUB_TYPE,
-  unregisterSecondStubType
-} from '../testing/stubContent'
+import { SECOND_STUB_TYPE, STUB_TYPE } from '../testing/stubContent'
+import { registerSecondStubType } from '../testing/temporaryStubTypes'
 
 /**
  * The toolbar an empty pane shows in place of a placeholder — what it offers
@@ -40,8 +36,6 @@ function toolbarButtonTestIds(): string[] {
     .getAllByRole('button')
     .map((button) => button.dataset.testid ?? '')
 }
-
-afterEach(unregisterSecondStubType)
 
 test('an empty pane offers exactly the creation actions the registry carries', () => {
   renderApp({ settings: { disabledContentTypes: [] } })

@@ -71,7 +71,7 @@ interface AnchorRow {
   description: string
 }
 
-export type SettingRow = CheckboxRow | SelectRow | RangeRow | AnchorRow
+type SettingRow = CheckboxRow | SelectRow | RangeRow | AnchorRow
 
 export interface SettingsRowSection {
   /** Omit when the page's own `<h1>` already names this section — see PanesSettings.tsx. */

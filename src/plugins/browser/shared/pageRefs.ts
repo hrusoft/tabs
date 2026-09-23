@@ -12,9 +12,6 @@
  * hazard the renderer's own scripts already share these constants to avoid.
  * The plugin-boundary ledger keeps a package's `shared/` importable from both
  * its `renderer/` and its `main/`, which is why this is the right home.
- *
- * `pageScripts.ts` re-exports all three, and `refResolverExpression` with them,
- * so the renderer keeps importing them from where it always has.
  */
 export const REF_REGISTRY = '__tabsPageRefs'
 export const REF_COUNTER = '__tabsPageRefSeq'
@@ -33,12 +30,22 @@ export const REF_CAPACITY = 1000
  * holds — with main's the copy nothing else exercises.
  *
  * This is the ref-shaped instance of `hitTestPointScript`'s resolver contract:
- * an expression evaluating to `Element | null | { error: string }`. A future
- * target shape (matching by role/name/selector) plugs in as its own resolver
- * expression and reuses the hit-test script unchanged; `{ error }` is how a
- * resolver reports a failure richer than "nothing matched" (say, an ambiguous
- * match) without the script knowing what kind of targeting produced it.
+ * an expression evaluating to `Element | null | { error: string }`. The
+ * semantic shape (role/name/selector, `semanticResolverExpression`) is the
+ * other instance and reuses the hit-test script unchanged; `{ error }` is how
+ * a resolver reports a failure richer than "nothing matched" (say, an
+ * ambiguous match) without the script knowing what kind of targeting
+ * produced it.
  */
 export function refResolverExpression(ref: string): string {
   return `((window.${REF_REGISTRY} instanceof Map ? window.${REF_REGISTRY}.get(${JSON.stringify(ref)}) : null) ?? null)`
+}
+
+/**
+ * The answer for a ref the current page doesn't hold — one wording for both
+ * processes, because its remedy is an instruction an agent acts on, and two
+ * phrasings would teach two recoveries for one state.
+ */
+export function staleRefError(ref: string): string {
+  return `no element for ref ${ref} — refs are only valid until the page navigates, so call readPage again`
 }

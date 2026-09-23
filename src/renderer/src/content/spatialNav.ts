@@ -13,6 +13,7 @@ import { navDirectionForChord } from '@shared/shortcuts'
 import { platform } from '../core/platform'
 import { useDragStore } from '../core/store/dragStore'
 import { ownerRootOf, useLayoutStore } from '../core/store/layoutStore'
+import { useModalStore } from '../core/store/modalStore'
 import { useNavFlashStore } from '../core/store/navFlashStore'
 import { useSettingsStore } from '../core/store/settingsStore'
 import { paneDomRect } from './paneDom'
@@ -74,6 +75,12 @@ function onKeyDown(event: KeyboardEvent): void {
   const direction = navDirectionFor(event)
   if (!direction) return
   if (useDragStore.getState().drag !== null) return
+  // This listener runs in the capture phase on `window` — before Modal.tsx's
+  // own onKeyDown ever sees the event, regardless of what has DOM focus
+  // inside it (a bare `tabIndex={-1}` container, not an <input>, would
+  // otherwise sail past isTextEditingTarget below and navigate the pane
+  // tree out from under an open dialog). See Modal.tsx's module comment.
+  if (useModalStore.getState().modal !== null) return
   if (isTextEditingTarget(event.target)) return
   event.preventDefault()
   event.stopPropagation()

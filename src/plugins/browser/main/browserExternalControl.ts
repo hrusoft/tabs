@@ -15,17 +15,20 @@ import {
   MOUNT_WAIT_MS,
   NETWORK_BODY_HARD_MAX,
   NETWORK_BODY_MAX,
+  PANE_NOT_MOUNTED_ERROR,
   SCREENSHOT_BYTES_KEY
 } from '../shared/externalControl'
 import { BrowserMethod } from '../shared/ipc'
 import { agentFileDir, sweepStaleAgentFiles, writeAgentOutput } from './agentFiles'
-import {
-  getGuestWebContents,
-  getGuestWebContentsId,
-  listRequestsForPane
-} from './browserGuestRegistry'
+import { getGuestWebContents, getGuestWebContentsId } from './browserGuestRegistry'
 import { disableBodyCapture, enableBodyCapture, isBodyCaptureLive } from './networkBodyCapture'
-import { findCapturedBody, type NetworkEntry, networkFilterError, setBodyLimit } from './networkLog'
+import {
+  findCapturedBody,
+  listRequests,
+  type NetworkEntry,
+  networkFilterError,
+  setBodyLimit
+} from './networkLog'
 import { extensionFor, fetchResource, resolveElementSrc } from './resourceFetch'
 import { isAllowedUrl } from './urlPolicy'
 
@@ -83,8 +86,9 @@ function toBriefEntry(entry: NetworkEntry): Partial<NetworkEntry> {
 
 /**
  * The browser type's main-process external-control surface: what each of its
- * verbs costs in relay budget, and the four that need main to do something
- * beyond passing the request through to the renderer.
+ * verbs costs in relay budget, and the ones that need main to do something
+ * beyond passing the request through to the renderer (a URL check, a file
+ * sink, or answering entirely here).
  *
  * This is the main-side twin of the renderer's
  * `src/plugins/browser/renderer/browserExternalControl.ts`, and it exists for
@@ -119,8 +123,8 @@ function respondWithFile(
  * socket caller actually gets. The bytes are dropped from the result here:
  * `tabs-ctl`'s stdout becomes the calling agent's context verbatim, so an
  * inline image would be both enormous and unreadable. The directory choice,
- * the TTL sweep and the vanished-userData guard now live in agentFiles.ts,
- * shared with save-resource.
+ * the TTL sweep and the vanished-userData guard live in agentFiles.ts,
+ * shared with every verb that writes a file.
  */
 function writeScreenshot(response: ControlResponse): ControlResponse {
   if (!response.ok) return response
@@ -183,7 +187,7 @@ async function handleSaveResource(
   request: Extract<BrowserControlRequest, { type: 'saveResource' }>
 ): Promise<ControlResponse> {
   const guest = getGuestWebContents(request.targetPaneId)
-  if (!guest) return { ok: false, error: 'browser pane is not currently mounted' }
+  if (!guest) return { ok: false, error: PANE_NOT_MOUNTED_ERROR }
 
   // The wire doc promises exactly one of url/ref/selector, "enforced where
   // the request is handled" — a preference chain here would silently ignore
@@ -244,16 +248,14 @@ async function handleSaveResource(
 function handleReadNetworkRequests(
   request: Extract<BrowserControlRequest, { type: 'readNetworkRequests' }>
 ): ControlResponse {
-  // Same answer the renderer-side verbs give for a pane with no live
-  // guest — an empty list would read as "no traffic", which is a
-  // different claim entirely.
+  // The renderer-side verbs' answer for a pane with no live guest — an
+  // empty list would read as "no traffic", a different claim entirely.
   const guestId = getGuestWebContentsId(request.targetPaneId)
   if (guestId === undefined) {
-    return { ok: false, error: 'browser pane is not currently mounted' }
+    return { ok: false, error: PANE_NOT_MOUNTED_ERROR }
   }
-  // Refused rather than silently matching nothing or (pattern) silently
-  // falling back to a substring search: an empty list for a bad filter
-  // would read as "no requests matched", a different claim entirely.
+  // Refused rather than silently matching nothing: an empty list for a bad
+  // filter would read as "no requests matched", a different claim entirely.
   const filterError = networkFilterError({
     method: request.method,
     status: request.status,
@@ -265,8 +267,8 @@ function handleReadNetworkRequests(
   }
   // --body-out is a different question from "list the traffic", so it
   // answers with the file rather than folding a path into a request list
-  // the caller did not ask for. Checked before the filters because it
-  // names one entry by seq and the filters are irrelevant to it.
+  // the caller did not ask for. The filters don't apply to it — it names one
+  // entry by seq.
   if (request.bodyOutPath !== undefined || request.bodySeq !== undefined) {
     if (request.bodyOutPath === undefined || typeof request.bodySeq !== 'number') {
       return {
@@ -287,7 +289,7 @@ function handleReadNetworkRequests(
 
   const withBodies = request.withBodies === true
   const brief = request.brief === true
-  const requests = listRequestsForPane(request.targetPaneId, {
+  const requests = listRequests(guestId, {
     pattern: request.pattern,
     sinceSeq: request.sinceSeq,
     // Under --brief the read is asked not to *produce* what toBriefEntry
@@ -443,8 +445,9 @@ const BROWSER_CONTROL_VERBS: MainControlVerbTable<BrowserControlRequest> = {
   assert: relayed(ASSERT_CHECK_BUDGET_MS + RELAY_HEADROOM_MS),
   saveResource: {
     // Answered in main (like readNetworkRequests), never relayed — a fetch of
-    // arbitrary size with no renderer-side wait to outlive, so it gets the
-    // longest fixed budget of any verb, matching executeJavaScript's tier.
+    // arbitrary size, so it gets the longest fixed budget of any verb,
+    // matching executeJavaScript's tier. The fetch aborts itself inside it
+    // (RESOURCE_FETCH_TIMEOUT_MS); core's deadline bounds the rest.
     timeoutMs: UNBOUNDED_VERB_BUDGET_MS,
     handle: (request) => handleSaveResource(request)
   },
@@ -476,7 +479,7 @@ const BROWSER_CONTROL_VERBS: MainControlVerbTable<BrowserControlRequest> = {
         return { ok: true, result: { enabled: false } }
       }
       const guest = getGuestWebContents(request.targetPaneId)
-      if (!guest) return { ok: false, error: 'browser pane is not currently mounted' }
+      if (!guest) return { ok: false, error: PANE_NOT_MOUNTED_ERROR }
       let limit: number | undefined
       if (request.maxBodyChars !== undefined) {
         if (
@@ -524,7 +527,7 @@ export function registerBrowserControlVerbs(ctx: MainPluginContext): void {
   })
   // Deferred off the registration sequence, and guarded inside it. This runs
   // from whenReady, *before* createWindow — and it is a readdir plus a stat per
-  // file across three directories, which an agent that screenshotted on a timer
+  // file across every agent-file directory, which an agent that screenshotted on a timer
   // can leave holding hundreds of entries. None of it needs to happen before
   // the first window exists, so it waits a tick rather than standing in front
   // of one. The guard is separate: a throw here (agentFileDir's own mkdir on an

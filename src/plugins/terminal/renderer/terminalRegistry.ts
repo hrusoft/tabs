@@ -1,4 +1,5 @@
 import type { FitAddon } from '@xterm/addon-fit'
+import type { SerializeAddon } from '@xterm/addon-serialize'
 import type { Terminal } from '@xterm/xterm'
 import { createReattachRegistry, REATTACH_GRACE_MS } from '../../../renderer/src/plugin/api'
 
@@ -10,9 +11,11 @@ import { createReattachRegistry, REATTACH_GRACE_MS } from '../../../renderer/src
  * building a fresh, blank one — the mirror of how `src/plugins/terminal/main/terminal.ts` keeps
  * the underlying pty alive across the same remounts.
  */
-interface TerminalInstance {
+export interface TerminalInstance {
   term: Terminal
   fitAddon: FitAddon
+  /** Loaded with the instance, not lazily before a move: the addon must have seen the buffer render to serialize it. */
+  serializeAddon: SerializeAddon
   /** The element `term.open()` was called on — detached, not destroyed, across a remount. */
   container: HTMLDivElement
   /** Electron IPC listeners wired once at creation; torn down only on real disposal. */
@@ -24,3 +27,4 @@ const registry = createReattachRegistry<TerminalInstance>(REATTACH_GRACE_MS)
 
 export const acquireTerminal = registry.acquire
 export const releaseTerminal = registry.release
+export const abandonTerminal = registry.abandon

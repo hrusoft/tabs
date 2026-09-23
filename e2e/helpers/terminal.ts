@@ -58,6 +58,16 @@ export async function typeAndEnter(term: Locator, text: string): Promise<void> {
   await page.keyboard.press('Enter')
 }
 
+/** Polls `process.kill(pid, 0)` from this (test-runner) process directly — no app needed, unlike `alive`. */
+export function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Polls `process.kill(pid, 0)` inside the app's main process. */
 export function alive(electronApp: ElectronApplication, pid: number): Promise<boolean> {
   return electronApp.evaluate((_electron, p) => {

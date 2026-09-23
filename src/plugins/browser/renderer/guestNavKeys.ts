@@ -8,8 +8,8 @@ import { BrowserGuestEvent } from '../shared/ipc'
  * A focused `<webview>` guest swallows every keydown before the host window
  * sees it, so without this, navigation could move focus *into* a browser pane
  * but never back out. Main watches the guest instead (`before-input-event`,
- * see src/plugins/browser/main/guestNavKeys.ts) and sends the matched direction over the
- * `browserGuest` bridge channel.
+ * see src/plugins/browser/main/guestNavKeys.ts) and emits the matched direction
+ * as this package's nav-key event over the content bridge.
  *
  * The subscription lives here rather than in spatialNav.ts because that
  * channel is the browser's: core depending on a bridge namespace named after

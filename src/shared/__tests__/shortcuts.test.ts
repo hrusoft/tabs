@@ -17,6 +17,7 @@ import {
   resolveBinding,
   SHORTCUT_ACTIONS,
   sanitizeShortcutOverrides,
+  shortcutAction,
   toAccelerator
 } from '../shortcuts'
 
@@ -46,6 +47,14 @@ describe('resolveBinding', () => {
     expect(isOverridden(withShortcuts({ 'new-tab': null }), 'new-tab')).toBe(true)
     expect(isOverridden(withShortcuts({}), 'new-tab')).toBe(false)
   })
+
+  // caffeinate ships with defaultBinding: null (see shortcuts.ts) — an
+  // absent override must resolve to null exactly the way a present-but-null
+  // one does, and must not itself count as an override.
+  it('resolves an action whose default is itself null to null, and does not count that as overridden', () => {
+    expect(resolveBinding(withShortcuts({}), 'caffeinate')).toBeNull()
+    expect(isOverridden(withShortcuts({}), 'caffeinate')).toBe(false)
+  })
 })
 
 describe('toAccelerator', () => {
@@ -60,6 +69,7 @@ describe('toAccelerator', () => {
     )
     expect(accelerators).toEqual({
       'open-settings': 'CommandOrControl+,',
+      'new-window': 'CommandOrControl+N',
       'command-palette': 'CommandOrControl+P',
       'new-tab': 'CommandOrControl+T',
       'split-horizontal': 'CommandOrControl+Shift+T',
@@ -71,8 +81,15 @@ describe('toAccelerator', () => {
       'nav-left': 'CommandOrControl+Left',
       'nav-right': 'CommandOrControl+Right',
       'nav-up': 'CommandOrControl+Up',
-      'nav-down': 'CommandOrControl+Down'
+      'nav-down': 'CommandOrControl+Down',
+      // No shipped default at all — see the next test.
+      caffeinate: null
     })
+  })
+
+  it('answers null for an action whose default is itself null, not just for an unspellable key', () => {
+    expect(toAccelerator(null, 'darwin')).toBeNull()
+    expect(shortcutAction('caffeinate').defaultBinding).toBeNull()
   })
 
   it('names the remaining modifiers and translates codes to accelerator tokens', () => {
@@ -363,11 +380,25 @@ describe('formatChordAsQuery', () => {
 
   // What a search box does with a pressed chord: convert it to text, then
   // parse that text back — the whole point is that both ends agree.
-  it('round-trips through parseSearchChord for every shipped default', () => {
+  it('round-trips through parseSearchChord for every shipped default that has one', () => {
+    // `formatChordAsQuery` takes a `KeyBinding`, never a nullable one — no
+    // real caller ever holds a chord that might be absent, only this test
+    // walks the registry that way. `caffeinate`'s null default (see
+    // shortcuts.ts) has nothing to format, which the next test covers
+    // instead of forcing a null-safe signature onto a function that would
+    // never receive one outside a loop like this.
     for (const action of SHORTCUT_ACTIONS) {
+      if (action.defaultBinding === null) continue
       const text = formatChordAsQuery(action.defaultBinding, 'darwin')
       expect(text).not.toBeNull()
       expect(parseSearchChord(text!, 'darwin')).toEqual(action.defaultBinding)
     }
+  })
+
+  it('has exactly one action with no default binding to round-trip: caffeinate', () => {
+    const withoutDefault = SHORTCUT_ACTIONS.filter((action) => action.defaultBinding === null).map(
+      (action) => action.id
+    )
+    expect(withoutDefault).toEqual(['caffeinate'])
   })
 })

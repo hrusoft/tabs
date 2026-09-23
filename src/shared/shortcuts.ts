@@ -61,23 +61,8 @@ export interface KeyChord {
   shift: boolean
 }
 
-export type ShortcutActionId =
-  | 'open-settings'
-  | 'command-palette'
-  | 'new-tab'
-  | 'split-horizontal'
-  | 'split-vertical'
-  | 'new-unpinned-pane'
-  | 'close-pane'
-  | 'clear-buffer'
-  | 'refresh-pane'
-  | 'nav-left'
-  | 'nav-right'
-  | 'nav-up'
-  | 'nav-down'
-
-export interface ShortcutActionDef {
-  id: ShortcutActionId
+interface ShortcutActionSpec {
+  id: string
   label: string
   description: string
   group: 'Application' | 'Panes & Tabs' | 'Navigation'
@@ -96,7 +81,15 @@ export interface ShortcutActionDef {
    * keypress", which matters when one of them looks broken.
    */
   layer: 'main' | 'menu' | 'renderer'
-  defaultBinding: KeyBinding
+  /**
+   * `null` means the action ships with no key equivalent at all — a
+   * deliberate choice for an action whose whole point is that it must be
+   * opted into, not a placeholder waiting for one. `resolveBinding` already
+   * returns `KeyBinding | null`, so a null default costs nothing there;
+   * `toAccelerator` is the one place that had to learn to answer null itself
+   * (see its own comment).
+   */
+  defaultBinding: KeyBinding | null
 }
 
 /**
@@ -106,7 +99,7 @@ export interface ShortcutActionDef {
  * and contextual keys scoped to one widget (Escape cancelling a drag, Enter in
  * the address bar) are not shortcuts in this sense at all.
  */
-export const SHORTCUT_ACTIONS: readonly ShortcutActionDef[] = [
+const ACTION_SPECS = [
   {
     id: 'open-settings',
     label: 'Open Settings',
@@ -114,6 +107,14 @@ export const SHORTCUT_ACTIONS: readonly ShortcutActionDef[] = [
     group: 'Application',
     layer: 'main',
     defaultBinding: { mod: true, code: 'Comma' }
+  },
+  {
+    id: 'new-window',
+    label: 'New Window',
+    description: 'Open another pane-tree window, with its own independent layout.',
+    group: 'Application',
+    layer: 'main',
+    defaultBinding: { mod: true, code: 'KeyN' }
   },
   {
     id: 'command-palette',
@@ -214,8 +215,33 @@ export const SHORTCUT_ACTIONS: readonly ShortcutActionDef[] = [
     group: 'Navigation',
     layer: 'renderer',
     defaultBinding: { mod: true, code: 'ArrowDown' }
+  },
+  {
+    id: 'caffeinate',
+    label: 'Caffeinate…',
+    description:
+      'Open the Caffeinate dialog to keep the Mac awake, or turn it off if already running.',
+    group: 'Application',
+    // Answered entirely in main's own click handler: it either stops the
+    // running process directly, or forwards a dedicated event asking the
+    // pane-tree renderer to open the dialog — never a paneShortcuts.ts
+    // HANDLERS entry, since this isn't a per-pane layoutStore action (see
+    // main/menu.ts and main/caffeinate.ts).
+    layer: 'main',
+    // No key equivalent by default — this is opt-in, not a shortcut waiting
+    // to be assigned one. Rebindable in Settings like any other action.
+    defaultBinding: null
   }
-]
+] as const satisfies readonly ShortcutActionSpec[]
+
+/** Every rebindable action's id — derived from the list, so an id cannot exist without its definition. */
+export type ShortcutActionId = (typeof ACTION_SPECS)[number]['id']
+
+export interface ShortcutActionDef extends ShortcutActionSpec {
+  id: ShortcutActionId
+}
+
+export const SHORTCUT_ACTIONS: readonly ShortcutActionDef[] = ACTION_SPECS
 
 const ACTION_BY_ID = new Map<string, ShortcutActionDef>(
   SHORTCUT_ACTIONS.map((action) => [action.id, action])
@@ -367,10 +393,15 @@ const DISPLAY_KEY: Record<string, string> = {
 
 /**
  * The Electron accelerator string for `binding`, or null when the key has no
- * accelerator spelling. `mod` becomes CommandOrControl so a single stored
- * binding keeps working on both platforms.
+ * accelerator spelling — or when `binding` itself is null, an action's own
+ * spelling of "no key equivalent at all" (see `ShortcutActionSpec.
+ * defaultBinding`), which reads identically to a key with no spelling: no
+ * `accelerator` prop on the menu item either way. `mod` becomes
+ * CommandOrControl so a single stored binding keeps working on both
+ * platforms.
  */
-export function toAccelerator(binding: KeyBinding, platform: Platform): string | null {
+export function toAccelerator(binding: KeyBinding | null, platform: Platform): string | null {
+  if (binding === null) return null
   const key = keyToken(binding.code)
   if (key === null) return null
   return chordParts(
@@ -437,7 +468,7 @@ export function matchesBinding(
  * renderer's window keydown handler (content/spatialNav.ts) and main's
  * `before-input-event` on `<webview>` guests (src/plugins/browser/main/guestNavKeys.ts), which
  * exists because a focused guest swallows every keydown. A fifth direction, or
- * a renamed action id, is now one edit rather than two that must agree.
+ * a renamed action id, is one edit here rather than two that must agree.
  */
 const NAV_ACTIONS: ReadonlyArray<readonly [ShortcutActionId, NavDirection]> = [
   ['nav-left', 'left'],

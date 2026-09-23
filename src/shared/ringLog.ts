@@ -71,35 +71,21 @@ export function createRingLog<T extends Sequenced>(capacity: number): RingLog<T>
 }
 
 /**
- * Compiles a caller-supplied filter into a text predicate, so filtering a
- * whole log compiles the pattern once rather than per entry. Tried as a
- * regular expression first, falling back to a plain substring test when it
- * doesn't compile — a caller filtering for `console.log(` shouldn't have to
- * know it wrote an unbalanced group, and an error there would be far less
- * useful than the obvious interpretation.
+ * Compiles a caller-supplied `--pattern` into a text predicate, so filtering a
+ * whole log compiles it once rather than per entry. Callers refuse an
+ * unparseable pattern first (`patternFilterError`), so this never sees one.
  */
 export function compilePattern(pattern?: string): (text: string) => boolean {
   if (!pattern) return () => true
-  try {
-    const regex = new RegExp(pattern)
-    return (text) => regex.test(text)
-  } catch {
-    return (text) => text.includes(pattern)
-  }
+  const regex = new RegExp(pattern)
+  return (text) => regex.test(text)
 }
 
 /**
  * Refusal message for a `--pattern` value that doesn't parse as a regular
- * expression, or `undefined` when it does (or is absent). Deliberately kept
- * separate from `compilePattern` rather than folded into it: that function's
- * silent substring fallback is a considered design (see its own comment) for
- * callers that want the "obvious interpretation" of a pattern that merely
- * contains stray regex punctuation. This is for the opposite case — a caller
- * whose flag should refuse an unparseable pattern outright rather than
- * silently searching for it as literal text (an unterminated `[` is a typo
- * far more often than it's an intentional literal). Both verbs that accept
- * `--pattern` (read-console, read-network) call this before ever reaching
- * `compilePattern`, so its fallback branch never fires for either.
+ * expression, or `undefined` when it does (or is absent). An unparseable
+ * pattern is refused rather than searched for as literal text: an
+ * unterminated `[` is a typo far more often than an intentional literal.
  */
 export function patternFilterError(pattern?: string): string | undefined {
   if (!pattern) return undefined

@@ -56,9 +56,9 @@ import { appConfig } from '../../app.config'
  * knowing trade for pricing in the currency most donors think in, not an
  * oversight: pricing in the payout currency is what avoids the fee.
  */
-export const DONATION_CURRENCY = 'USD'
+const DONATION_CURRENCY = 'USD'
 
-export interface DonationTier {
+interface DonationTier {
   /** Stable id — the test id suffix, and the React key. */
   id: string
   /** The tier's name, as shown on its button. */
@@ -101,7 +101,7 @@ export const DONATION_TIERS: readonly DonationTier[] = [
   }
 ] as const
 
-export interface CryptoAddress {
+interface CryptoAddress {
   /** Stable id — the test id suffix, and the React key. */
   id: string
   /** Ticker, as shown in the UI. */

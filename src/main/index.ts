@@ -4,22 +4,39 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow, clipboard, ipcMain } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import { registerBellIpc } from './bell'
+import { registerCaffeinateIpc } from './caffeinate'
+import { killCaffeinateSync } from './caffeinateProcess'
 import { confirmClosingPanes, confirmQuitSync } from './closeDialogs'
-import { registerContentModules, runContentModuleQuitHooks } from './contentTypes'
+import {
+  registerContentModules,
+  runContentModuleQuitHooks,
+  runContentModuleWindowDiscardHooks
+} from './contentTypes'
 import { registerE2eHooks } from './e2e'
 import { e2eHidden } from './e2eHidden'
 import { registerExternalControlServer } from './externalControl'
 import { registerFontsIpc } from './fonts'
 import { onRendererMessage, registerSyncGetter } from './ipcListeners'
-import { registerLayoutIpc } from './layout'
+import { paneIdsOfWindow, registerLayoutIpc, windowHoldingPane } from './layout'
+import { registerLayoutCrossWindowIpc } from './layoutCrossWindow'
 import { applyMenu } from './menu'
 import { openExternalUrl } from './openExternal'
+import { openPaneTreeWindows } from './restoreWindows'
 import { flushSettingsWrite, registerSettingsIpc, subscribeSettings } from './settings'
 import { registerShortcutsIpc } from './shortcuts'
 import { registerSkillsIpc } from './skills'
 import { installNativeTheme } from './theme'
 import { currentWindowCornerRadius } from './windowChrome'
-import { createWindow, getMainWindow, openSettingsWindow } from './windows'
+import {
+  getPaneTreeWindows,
+  guardPaneTreeWindowClose,
+  livePaneTreeWindow,
+  livePaneTreeWindows,
+  markQuitting,
+  onPaneTreeWindowClosed,
+  openSettingsWindow,
+  windowIdForWebContents
+} from './windows'
 
 /**
  * App lifecycle: what gets registered, in what order, and what happens on the
@@ -78,16 +95,34 @@ app
       if (partial.shortcuts) applyMenu()
     })
     applyMenu()
-    registerLayoutIpc()
+    registerLayoutIpc({
+      resolveWindowId: windowIdForWebContents,
+      onWindowClosed: onPaneTreeWindowClosed,
+      liveWindowIds: () => getPaneTreeWindows().keys(),
+      onWindowsDiscarded: runContentModuleWindowDiscardHooks
+    })
+    // A window closing while another stays open ends every pane it holds, so
+    // it asks first the way closing one pane does.
+    guardPaneTreeWindowClose((windowId, win) =>
+      confirmClosingPanes(paneIdsOfWindow(windowId), win.webContents)
+    )
+    registerLayoutCrossWindowIpc()
     registerBellIpc()
     registerFontsIpc()
     registerSkillsIpc()
+    registerCaffeinateIpc()
     // Every content type's IPC and core-registry entries, in one call (see
     // contentTypes.ts). After registerSettingsIpc above, so a module may read
     // the loaded settings — the terminal's registration used to sit *before* it
     // and simply never needed them.
     registerContentModules()
-    registerExternalControlServer()
+    registerExternalControlServer({
+      rendererHolding: (paneId) => {
+        const windowId = windowHoldingPane(paneId)
+        return windowId === undefined ? undefined : livePaneTreeWindow(windowId)?.webContents
+      },
+      allRenderers: () => livePaneTreeWindows().map((win) => win.webContents)
+    })
     // Resolved per-caller rather than closed over a single mainWindow, since
     // createWindow() (and so this handler's window) can run again after
     // every window closes on macOS (see the 'activate' handler below).
@@ -110,11 +145,12 @@ app
       chrome: process.versions.chrome,
       node: process.versions.node
     }))
-    // Feeds --pane-corner-radius (global.css) before the first frame, so the
+    // Feeds --os-corner-radius (global.css) before the first frame, so the
     // active-pane outline never paints a sharp corner against the window's
     // OS-rounded one. See windowChrome.ts for why this is a table, not a query.
     registerSyncGetter(IpcChannel.windowGetCornerRadiusSync, () => currentWindowCornerRadius())
-    // The About window's copy-address buttons. Main-side because
+    // The app's own copy actions (the About window's copy-address buttons,
+    // plugins' `copyText` — the git tree's Copy SHA-1). Main-side because
     // navigator.clipboard requires a focused document and no e2e window ever
     // genuinely is — see AppWindowApi.copyText in src/shared/api.ts.
     onRendererMessage(IpcChannel.windowCopyText, (_event, text: string) => {
@@ -128,14 +164,16 @@ app
     ipcMain.handle(IpcChannel.paneConfirmClose, (event, ids: string[]) =>
       confirmClosingPanes(ids, event.sender)
     )
-    createWindow()
+    openPaneTreeWindows()
 
     // e2e only: lets a spec file reuse one app across its tests instead of
     // relaunching for every one. Never installed in a normal run.
-    if (e2eHidden) registerE2eHooks(getMainWindow)
+    if (e2eHidden) registerE2eHooks(getPaneTreeWindows)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      // Pane-tree windows only: an open Settings/About window must not keep
+      // the main window from reopening.
+      if (getPaneTreeWindows().size === 0) openPaneTreeWindows()
     })
     // A throw anywhere in the registration sequence above would otherwise be an
     // unhandled rejection — no window, no error, nothing to click. Logging is
@@ -168,6 +206,9 @@ app.on('before-quit', (event) => {
     event.preventDefault()
     return
   }
+  // From here every window close is shutdown, not the user closing a window
+  // — see markQuitting.
+  markQuitting()
   flushSettingsWrite()
   // Then each content type's own quit work, in list order — the terminal's
   // refreshes every live pty's cwd into the layout and kills them all. Still
@@ -175,4 +216,8 @@ app.on('before-quit', (event) => {
   // must not be able to be skipped by a module, and runContentModuleQuitHooks
   // catches per module so one type's failure cannot skip another's teardown.
   runContentModuleQuitHooks()
+  // A plain signal send on an already-spawned handle, not a fork — carries
+  // none of the shutdown hazard above, which is specifically about forking
+  // *new* processes from this handler. See caffeinateProcess.ts's own comment.
+  killCaffeinateSync()
 })

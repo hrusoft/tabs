@@ -4,7 +4,7 @@ import type { Commit } from './types'
  * Lane assignment: turning a flat list of commits into the columns and lines
  * that make it read as a DAG rather than as a chronological list.
  *
- * Pure, and in src/shared for that reason — no DOM, no React, no Electron, so
+ * Pure, and in the package's shared/ for that reason — no DOM, no React, no Electron, so
  * the whole of the interesting logic in this content type is unit-testable
  * against hand-written graphs (see __tests__/graph.test.ts) rather than only
  * through a rendered pane.

@@ -4,7 +4,8 @@ import type {
   AppInfo,
   AppWindowApi,
   BellApi,
-  CoreApi,
+  CaffeinateApi,
+  CaffeinateFlags,
   ExternalControlApi,
   FontsApi,
   LayoutApi,
@@ -18,16 +19,30 @@ import type {
 import type {
   ControlRequest,
   ControlResponse,
+  OwnershipChange,
   RelayedControlRequest,
   RelayedControlResponse
 } from '../shared/externalControl'
 import { IpcChannel } from '../shared/ipc'
 import type { LayoutSnapshot } from '../shared/layout'
+import type {
+  CrossWindowMessageFromMain,
+  CrossWindowMessageFromRenderer
+} from '../shared/layoutCrossWindow'
 import type { ContentBridgeApi } from '../shared/plugin/bridge'
 import { pluginEventChannel, pluginMethodChannel } from '../shared/plugin/bridge'
 import type { Settings } from '../shared/settings'
 import type { ShortcutActionId } from '../shared/shortcuts'
-import { on } from './ipcOn'
+
+/** Subscribes `listener` to an IPC channel, dropping the event arg; returns the unsubscriber. */
+function on<Args extends unknown[]>(
+  channel: string,
+  listener: (...args: Args) => void
+): () => void {
+  const wrapped = (_event: Electron.IpcRendererEvent, ...args: Args): void => listener(...args)
+  ipcRenderer.on(channel, wrapped)
+  return () => ipcRenderer.removeListener(channel, wrapped)
+}
 
 /**
  * The whole `window.api` bridge — core namespaces plus the generic content
@@ -55,9 +70,10 @@ const pane: PaneApi = {
  * URL to the OS. `openExternal` is fire-and-forget; main validates the
  * protocol before it reaches the shell (see openExternalUrl in main/openExternal.ts).
  *
- * `getAppInfoSync` and `copyText` serve the About window: the first is a
- * synchronous read for the same reason layout/settings are (it feeds the
- * first painted frame), the second reaches the clipboard through main rather
+ * `getAppInfoSync` serves the About window: a synchronous read for the same
+ * reason layout/settings are (it feeds the first painted frame). `copyText`
+ * serves the app's own copy actions (the About window's, and plugins' through
+ * their context's `copyText`), reaching the clipboard through main rather
  * than `navigator.clipboard`, which needs a focused document — see the note
  * on AppWindowApi.copyText in src/shared/api.ts.
  */
@@ -127,7 +143,12 @@ const layout: LayoutApi = {
   getSync: (): LayoutSnapshot => ipcRenderer.sendSync(IpcChannel.layoutGetSync),
   set: (snapshot: LayoutSnapshot): void => {
     ipcRenderer.send(IpcChannel.layoutSet, snapshot)
-  }
+  },
+  sendCrossWindow: (message: CrossWindowMessageFromRenderer): void => {
+    ipcRenderer.send(IpcChannel.layoutCrossWindowFromRenderer, message)
+  },
+  onCrossWindow: (listener: (message: CrossWindowMessageFromMain) => void): (() => void) =>
+    on(IpcChannel.layoutCrossWindowFromMain, listener)
 }
 
 /**
@@ -152,6 +173,24 @@ const fonts: FontsApi = {
 }
 
 /**
+ * The app's one managed `caffeinate` process (see src/main/caffeinate.ts) —
+ * core, not a content type, since it isn't scoped to any pane.
+ */
+const caffeinate: CaffeinateApi = {
+  isRunningSync: (): boolean => ipcRenderer.sendSync(IpcChannel.caffeinateIsRunningSync),
+  start: (flags: CaffeinateFlags): void => {
+    ipcRenderer.send(IpcChannel.caffeinateStart, flags)
+  },
+  stop: (): void => {
+    ipcRenderer.send(IpcChannel.caffeinateStop)
+  },
+  onRunningChanged: (callback: (running: boolean) => void): (() => void) =>
+    on<[boolean]>(IpcChannel.caffeinateRunningChanged, callback),
+  onOpenDialog: (callback: () => void): (() => void) =>
+    on<[]>(IpcChannel.caffeinateOpenDialog, callback)
+}
+
+/**
  * Renderer side of the external control socket (see
  * src/main/externalControl.ts): main relays a pane-tree request here since it
  * has no live tree of its own, tagged with a requestId `respond` must echo
@@ -169,9 +208,8 @@ const externalControl: ExternalControlApi = {
   getOwnedPanesSync: (): string[] =>
     ipcRenderer.sendSync(IpcChannel.externalControlOwnershipGetSync),
   onOwnershipChanged: (callback: (paneId: string, owned: boolean) => void): (() => void) =>
-    on<[{ paneId: string; owned: boolean }]>(
-      IpcChannel.externalControlOwnershipChanged,
-      (payload) => callback(payload.paneId, payload.owned)
+    on<[OwnershipChange]>(IpcChannel.externalControlOwnershipChanged, (payload) =>
+      callback(payload.paneId, payload.owned)
     )
 }
 
@@ -205,7 +243,13 @@ const content: ContentBridgeApi = {
     on(pluginEventChannel(type, event), listener)
 }
 
-const core: CoreApi = {
+// The app's whole main-world surface. Context isolation is always on (the
+// BrowserWindow never disables it), so this is unconditional — and
+// exposeInMainWorld throwing on a misconfigured window is the right failure.
+//
+// The `Api` annotation is what keeps this complete: a missing namespace is a
+// compile error here, not an `undefined` the renderer trips over at runtime.
+const api: Api = {
   pane,
   appWindow,
   settings,
@@ -213,17 +257,10 @@ const core: CoreApi = {
   shortcuts,
   bell,
   fonts,
+  caffeinate,
   externalControl,
   skills,
   content
 }
-
-// The app's whole main-world surface. Context isolation is always on (the
-// BrowserWindow never disables it), so this is unconditional — and
-// exposeInMainWorld throwing on a misconfigured window is the right failure.
-//
-// The `Api` annotation is what keeps this complete: a missing namespace is a
-// compile error here, not an `undefined` the renderer trips over at runtime.
-const api: Api = core
 
 contextBridge.exposeInMainWorld('api', api)

@@ -40,7 +40,8 @@ export const IpcChannel = {
    * renderer. `navigator.clipboard` needs a focused document, which the
    * e2e window never genuinely is (see e2eHidden.ts), and Electron's own
    * clipboard module has no such requirement — so the About window's
-   * copy-address buttons work identically in both.
+   * copy-address buttons and the git tree's Copy SHA-1 work identically in
+   * both.
    */
   windowCopyText: 'window:copy-text',
   settingsChanged: 'settings:changed',
@@ -57,7 +58,19 @@ export const IpcChannel = {
   externalControlResponse: 'external-control:response',
   externalControlOwnershipGetSync: 'external-control:ownership-get-sync',
   externalControlOwnershipChanged: 'external-control:ownership-changed',
+  /**
+   * The cross-window pane-drag protocol: one channel per direction, each
+   * carrying the discriminated union shared/layoutCrossWindow.ts defines for
+   * it. Design and rationale live in main/layoutCrossWindow.ts.
+   */
+  layoutCrossWindowFromRenderer: 'layout:cross-window:from-renderer',
+  layoutCrossWindowFromMain: 'layout:cross-window:from-main',
   skillsStatus: 'skills:status',
   skillsInstall: 'skills:install',
-  skillsUninstall: 'skills:uninstall'
+  skillsUninstall: 'skills:uninstall',
+  caffeinateStart: 'caffeinate:start',
+  caffeinateStop: 'caffeinate:stop',
+  caffeinateIsRunningSync: 'caffeinate:is-running-sync',
+  caffeinateRunningChanged: 'caffeinate:running-changed',
+  caffeinateOpenDialog: 'caffeinate:open-dialog'
 } as const

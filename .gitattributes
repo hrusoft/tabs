@@ -18,5 +18,7 @@ CLAUDE.md                       export-ignore
 # file cannot be added to the mirror directly — a snapshot replaces its whole
 # tree — so anything that must exist there has to be published from here.
 
-# The mirror machinery itself.
+# The mirror machinery itself — release.sh drives sync-public.sh, so neither
+# can run anywhere but here.
 scripts/sync-public.sh          export-ignore
+scripts/release.sh              export-ignore

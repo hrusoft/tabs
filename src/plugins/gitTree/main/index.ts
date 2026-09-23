@@ -1,11 +1,25 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import { e2eHidden, type MainPluginContext, type MainPluginModule } from '../../../main/plugin/api'
+import type { CheckoutTarget } from '../shared/checkoutTargets'
 import { GitTreeMethod } from '../shared/ipc'
-import type { GitBranchScope, GitCommitResult, GitLogResult } from '../shared/types'
-import { isRepo, readCommit, readLog, readWorkingTreeChanges } from './git'
+import type {
+  GitBranchesAtCommitResult,
+  GitBranchScope,
+  GitCheckoutResult,
+  GitCommitResult,
+  GitLogResult
+} from '../shared/types'
+import {
+  branchesAtCommit,
+  checkout,
+  isRepo,
+  readCommit,
+  readLog,
+  readWorkingTreeChanges
+} from './git'
 
 /**
- * The git tree content type's main-process contributions: five IPC handlers
+ * The git tree content type's main-process contributions: seven IPC handlers
  * and nothing else.
  *
  * Notably absent, and each absence is a decision rather than an omission:
@@ -65,6 +79,20 @@ function registerGitTreeIpc(ipc: MainPluginContext['ipc']): void {
   )
 
   ipc.handle(GitTreeMethod.defaultDirectory, (): Promise<string> => defaultDirectory())
+
+  /** The fresh, unambiguous read behind the checkout decision — see git.ts's own comment for why this is not the log's `%D` decorations. */
+  ipc.handle(
+    GitTreeMethod.branchesAtCommit,
+    (_event, dir, hash): Promise<GitBranchesAtCommitResult> =>
+      branchesAtCommit(dir as string, hash as string)
+  )
+
+  /** The checkout itself — see git.ts's `checkout` for the three target shapes and why `git switch`. */
+  ipc.handle(
+    GitTreeMethod.checkout,
+    (_event, dir, target): Promise<GitCheckoutResult> =>
+      checkout(dir as string, target as CheckoutTarget)
+  )
 
   /**
    * The directory picker behind the pane's browse button.

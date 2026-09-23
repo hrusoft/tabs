@@ -27,17 +27,14 @@ export const NO_CONTENT_TYPES_MESSAGE =
  * here rather than beside a third `isContentTypeEnabled` call.
  *
  * Subscribed to the one settings key rather than to the store as a whole: this
- * hook runs once per mounted pane, and a whole-store subscription would
- * re-render every header on every tick of a settings *drag* (the dimming
+ * hook runs once per mounted empty pane, and a whole-store subscription would
+ * re-render every one of them on every tick of a settings *drag* (the dimming
  * intensity slider fires per input event).
  *
  * Filtering here rather than skipping the type's registration is the point of
  * the feature — a disabled type's existing panes keep their renderer, and
  * unregistering would drop a live pane's rendering the next time the layout
- * normalized. Note the list feeds a `[root, ...rest]` destructure in the pane
- * header, so disabling the first type promotes the next enabled one to the
- * always-visible root button; the visible icon changing is expected. An empty
- * pane's toolbar has no such hierarchy — it shows the whole list at once.
+ * normalized.
  *
  * Each action also carries its type's plain `displayName` ('Terminal', not
  * the button's imperative `label` — 'New terminal'): the command palette

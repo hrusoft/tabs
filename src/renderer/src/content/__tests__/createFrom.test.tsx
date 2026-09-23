@@ -2,8 +2,8 @@ import type { ContentNode } from '@shared/model/types'
 import { describe, expect, it, vi } from 'vitest'
 import type { ContentRendererDef, PaneCreationAction } from '../../core/registry/registry'
 import {
-  installTemporaryContentTypes,
-  testLeaf as leaf
+  testLeaf as leaf,
+  registerTestContentType as registerContentType
 } from '../../testing/contentRegistryFixture'
 import { createContentFor } from '../createFrom'
 import { exposedCwdOf } from '../exposedCwd'
@@ -11,8 +11,6 @@ import { exposedCwdOf } from '../exposedCwd'
 // `.tsx` despite holding no JSX, for the same reason contentLike.test.tsx is:
 // the vitest project is selected by extension, and this file's imports reach
 // the content registry, whose neighbours read window.api at module-eval time.
-
-const registerContentType = installTemporaryContentTypes()
 
 /** A creation action that always makes a leaf of `type`, with `config` as its seed. */
 function action(type: string, config: Record<string, unknown> = {}): PaneCreationAction {

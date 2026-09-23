@@ -24,8 +24,8 @@ import { CONTROL_REQUEST_TYPES } from '../shared/externalControl'
  *
  * `unhandledMainControlVerbs` still exists because the compiler cannot see the
  * other half: a table that is complete but whose `registerMainControlVerbs`
- * call never runs (a content module dropped from contentTypes.ts, a
- * registration moved out of `register()`) is a build-clean, runtime-broken app.
+ * call never runs (a package's main `activate` that never calls
+ * `ctx.registerControlVerbs`) is a build-clean, runtime-broken app.
  * That is what the e2e gate asserts against.
  */
 
@@ -69,10 +69,13 @@ type MainControlVerbHandler<V extends ControlVerb> = (
 
 export interface MainControlVerb<V extends ControlVerb> {
   /**
-   * How long the renderer may take before the socket caller is told it timed
-   * out. Only consulted for verbs that actually relay; one answered entirely
-   * in main still declares it, so the table stays a complete description of
-   * the verb rather than two lists to keep aligned.
+   * How long the verb may take before the socket caller is told it timed out.
+   * A relayed verb's relay times out at exactly this; core also cuts off any
+   * handler still running `RELAY_HEADROOM_MS` past it (see handleRequest),
+   * which is what bounds a verb answered entirely in main — a stalled fetch,
+   * a guest script that never settles — and lets a relay's own, more
+   * specific answer win whenever there is one. `Infinity` opts out, for a
+   * verb whose sub-steps carry their own budgets (`batch`).
    *
    * A budget must outlive any renderer-side wait it covers — the renderer's
    * own timeout answer is far more useful than a bare relay timeout, so the
@@ -181,16 +184,41 @@ export function mainControlVerb(verb: ControlVerb): StoredVerb | undefined {
 }
 
 /**
- * The relay budget for `request`, with the function form evaluated against the
+ * The budget for `request`, with the function form evaluated against the
  * request itself. The one place a per-request budget is turned into a number
- * (relayToRenderer calls this), kept beside the registry so the evaluation
- * cannot fork from the type that allows it. Undefined for an unclaimed verb —
- * the relay owns its own fallback.
+ * (relayToRenderer and handleRequest's deadline both call this), kept beside
+ * the registry so the evaluation cannot fork from the type that allows it.
+ * Undefined for an unclaimed verb — each caller owns its own fallback.
  */
-export function relayBudgetFor(request: ControlRequest): number | undefined {
+export function verbBudgetFor(request: ControlRequest): number | undefined {
   const stored = verbs.get(request.type)
   if (!stored) return undefined
   return typeof stored.timeoutMs === 'function' ? stored.timeoutMs(request) : stored.timeoutMs
+}
+
+/**
+ * Answers for a handler that outlives its verb's budget, so the socket caller
+ * is never left waiting on one that never settles — the relay has its own
+ * timer, but a verb answered in main (a fetch, a guest script that navigated
+ * away mid-evaluation) had nothing. Fires `graceMs` after the budget, so a
+ * relay's own timeout answer lands first. A non-finite budget opts out. The
+ * handler itself cannot be cancelled; its late answer is simply dropped.
+ */
+export function withVerbDeadline(
+  work: Promise<ControlResponse>,
+  verb: ControlVerb,
+  budgetMs: number,
+  graceMs: number
+): Promise<ControlResponse> {
+  if (!Number.isFinite(budgetMs)) return work
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<ControlResponse>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ ok: false, error: `${verb} timed out after ${budgetMs}ms` }),
+      budgetMs + graceMs
+    )
+  })
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
 }
 
 /**

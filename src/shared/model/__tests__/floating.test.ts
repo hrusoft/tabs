@@ -56,7 +56,26 @@ describe('captureAnchor', () => {
       index: 1,
       title: 'Two',
       beforeTabId: first.id,
-      afterTabId: undefined
+      afterTabId: undefined,
+      siblings: [{ id: first.id, title: 'One', contentId: a.id }],
+      wasActive: false,
+      groupWasRoot: true
+    })
+  })
+
+  it('records where a group sat when the anchored tab is its only one, since that group leaves with it', () => {
+    const [left, x] = [createLeaf('terminal'), createLeaf('browser')]
+    const group = createTabs([createTab('Only', x)])
+    const root = createSplit('horizontal', [left, group])
+
+    const anchor = captureAnchor(root, x.id)
+
+    expect(anchor).toMatchObject({ kind: 'tab', groupId: group.id, siblings: [], wasActive: true })
+    expect(anchor?.kind === 'tab' && anchor.groupAnchor).toMatchObject({
+      kind: 'split',
+      splitId: root.id,
+      index: 1,
+      beforeId: left.id
     })
   })
 
@@ -182,6 +201,109 @@ describe('restoreFloating', () => {
 
     expect(next.tabs.map((tab) => tab.title)).toEqual(['One', 'Two', 'Three'])
     expect(next.tabs.map((tab) => tab.content.id)).toEqual([a.id, b.id, c.id])
+  })
+
+  it('rebuilds a two-tab group its departure collapsed, both tabs back in order under their titles', () => {
+    // Removing one of two tabs collapses the group into the other's bare
+    // content, so neither the group nor its tab ids survive to be found.
+    const [left, x, y] = [createLeaf('terminal'), createLeaf('browser'), createLeaf('terminal')]
+    const kept = createTab('Kept', y)
+    const group = createTabs([createTab('Renamed X', x), kept])
+    const root = createSplit('horizontal', [left, group])
+    const detached = detachForFloat(root, x.id, RECT)
+    if (!detached) throw new Error('expected a detach')
+    expect(findNode(detached.root, group.id)).toBeNull()
+
+    const next = restoreFloating(detached.root, detached.floating, titleOf, left.id) as SplitContent
+
+    const rebuilt = next.children[1] as TabsContent
+    expect(rebuilt.id).toBe(group.id)
+    expect(rebuilt.tabs.map((tab) => tab.title)).toEqual(['Renamed X', 'Kept'])
+    expect(rebuilt.tabs.map((tab) => tab.content.id)).toEqual([x.id, y.id])
+    expect(rebuilt.tabs[1]!.id).toBe(kept.id)
+  })
+
+  it('puts back a group its only tab took with it, at the place the group sat', () => {
+    const [left, x] = [createLeaf('terminal'), createLeaf('browser')]
+    const group = createTabs([createTab('Only', x)])
+    const root = createSplit('horizontal', [left, group], { sizes: [0.7, 0.3] })
+    const detached = detachForFloat(root, x.id, RECT)
+    if (!detached) throw new Error('expected a detach')
+    // The group went, and the split with it.
+    expect(detached.root.id).toBe(left.id)
+
+    const next = restoreFloating(detached.root, detached.floating, titleOf, left.id) as SplitContent
+
+    expect(next.children.map((child) => child.id)).toEqual([left.id, group.id])
+    expect((next.children[1] as TabsContent).tabs.map((tab) => tab.title)).toEqual(['Only'])
+    expect(next.sizes[1]).toBeCloseTo(0.3)
+  })
+
+  it('rebuilds into the single-tab group a collapsed group was rewrapped in, not a nested one', () => {
+    // The docked root rewraps what its collapse leaves (ensureTabsRoot): the
+    // survivor sits alone in a fresh group, which is the one to rebuild into.
+    const [x, y] = [createLeaf('browser'), createLeaf('terminal')]
+    const root = createTabs([createTab('Moved', x), createTab('Other', y)])
+    const detached = detachForFloat(root, x.id, RECT)
+    if (!detached) throw new Error('expected a detach')
+    const rewrapped = createTabs([createTab('Other', detached.root)])
+
+    const next = restoreFloating(rewrapped, detached.floating, titleOf, y.id) as TabsContent
+
+    expect(next.id).toBe(rewrapped.id)
+    expect(next.tabs.map((tab) => tab.title)).toEqual(['Moved', 'Other'])
+    expect(next.tabs.map((tab) => tab.content.id)).toEqual([x.id, y.id])
+  })
+
+  it("re-pins the docked root's lone content without nesting it in a group of its own", () => {
+    // The root group is rewrapped rather than rebuilt: rebuilding it under
+    // its old id put a spurious nested tab strip inside the new root.
+    const x = createLeaf('browser')
+    const root = createTabs([createTab('Only', x)])
+    const detached = detachForFloat(root, x.id, RECT)
+    if (!detached) throw new Error('expected a detach')
+    const placeholder = detached.root
+    const rewrapped = createTabs([createTab('Tabs', placeholder)])
+
+    const next = restoreFloating(
+      rewrapped,
+      detached.floating,
+      titleOf,
+      placeholder.id
+    ) as TabsContent
+
+    expect(next.tabs.map((tab) => tab.content.id)).toEqual([x.id])
+  })
+
+  it('re-pins a root tab beside the tab it left, without demoting that tab into a nested group', () => {
+    const [x, y, z] = [createLeaf('browser'), createLeaf('terminal'), createLeaf('terminal')]
+    const root = createTabs([createTab('X', x), createTab('Y', y)])
+    const detached = detachForFloat(root, x.id, RECT)
+    if (!detached) throw new Error('expected a detach')
+    // The collapsed root, rewrapped, and then a third tab added beside it.
+    const now = createTabs([createTab('Y', detached.root), createTab('Z', z)])
+
+    const next = restoreFloating(now, detached.floating, titleOf, y.id) as TabsContent
+
+    expect(next.id).toBe(now.id)
+    expect(next.tabs.map((tab) => tab.content.id)).toEqual([x.id, y.id, z.id])
+  })
+
+  it('rebuilds a collapsed group nested in a single-tab group exactly, not flattened into it', () => {
+    const [x, y] = [createLeaf('browser'), createLeaf('terminal')]
+    const inner = createTabs([createTab('X', x), createTab('Y', y)])
+    const outer = createTabs([createTab('Outer', inner)])
+    const root = createSplit('horizontal', [createLeaf('terminal'), outer])
+    const detached = detachForFloat(root, x.id, RECT)
+    if (!detached) throw new Error('expected a detach')
+
+    const next = restoreFloating(detached.root, detached.floating, titleOf, y.id) as SplitContent
+
+    const restoredOuter = next.children[1] as TabsContent
+    expect(restoredOuter.tabs).toHaveLength(1)
+    const restoredInner = restoredOuter.tabs[0]!.content as TabsContent
+    expect(restoredInner.id).toBe(inner.id)
+    expect(restoredInner.tabs.map((tab) => tab.title)).toEqual(['X', 'Y'])
   })
 
   it('lands beside the surviving neighbour tab when the group is gone', () => {

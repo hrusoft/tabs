@@ -1,3 +1,5 @@
+import type { RemoteRefInfo } from './checkoutTargets'
+
 /**
  * The git tree content type's wire shapes — what main reads out of `git` and
  * hands the renderer.
@@ -131,3 +133,34 @@ export type GitLogResult =
 export type GitHead = { kind: 'branch'; name: string } | { kind: 'detached'; hash: string }
 
 export type GitCommitResult = { ok: true; detail: CommitDetail } | { ok: false; reason: GitFailure }
+
+/**
+ * The raw refs behind the checkout decision, for one commit — local branch
+ * names, remote-tracking refs (already split into `RemoteRefInfo` main-side,
+ * where the repository's real configured remote names are available to
+ * match against — see git.ts's `branchesAtCommit`), and every local branch
+ * name in the repository regardless of where it points (used to drop a
+ * remote candidate that would collide with one — see `decideCheckout`'s
+ * comment).
+ *
+ * A fresh read on every trigger, never the log's own `%D` decorations: those
+ * mix local, remote-tracking, HEAD and tags into one flat, ambiguous string
+ * list (see git.ts's `branchesAtCommit`), and may in any case be older than
+ * the click that asked.
+ */
+export type GitBranchesAtCommitResult =
+  | { ok: true; local: string[]; remotes: RemoteRefInfo[]; allLocalBranches: string[] }
+  | { ok: false; reason: GitFailure }
+
+/**
+ * The result of an actual checkout.
+ *
+ * `detail`, present only alongside a `'failed'` reason, is git's own
+ * complete stderr (trimmed, capped — see git.ts) rather than the single
+ * line `GitFailure`'s `message` carries: a checkout refusal is usually the
+ * most actionable message git prints anywhere in this pane (which files
+ * would be overwritten, and what to do about it), and truncating it to one
+ * line for consistency with every other failure in this file would throw
+ * that away. Every other caller of `classify()` keeps the one-line form.
+ */
+export type GitCheckoutResult = { ok: true } | { ok: false; reason: GitFailure; detail?: string }

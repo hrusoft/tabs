@@ -10,6 +10,14 @@ export interface ReattachRegistry<T> {
   acquire(id: string, create: () => T): T
   /** Schedules `id`'s instance for real disposal after the grace period, unless re-acquired first. */
   release(id: string, dispose: (instance: T) => void): void
+  /**
+   * Forgets `id`'s instance at once, no grace period, and runs `cleanup` on
+   * it — for a resource moving to another window rather than ending.
+   * `cleanup` tears down local state only (the xterm object, its DOM, its
+   * listeners); unlike `release`'s `dispose` it must not reach the remote
+   * resource, which now belongs to whoever reattaches it.
+   */
+  abandon(id: string, cleanup: (instance: T) => void): void
 }
 
 // The grace period both registries pass in — see @shared/reattach for the
@@ -50,6 +58,14 @@ export function createReattachRegistry<T>(graceMs: number): ReattachRegistry<T> 
         instances.delete(id)
         dispose(entry.instance)
       }, graceMs)
+    },
+
+    abandon(id, cleanup) {
+      const entry = instances.get(id)
+      if (!entry) return
+      if (entry.disposeTimer !== null) clearTimeout(entry.disposeTimer)
+      instances.delete(id)
+      cleanup(entry.instance)
     }
   }
 }

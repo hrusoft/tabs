@@ -31,8 +31,7 @@ function FloatingWindowImpl({ entry, depth }: { entry: FloatingPane; depth: numb
           capture phase — which wins over the `stopPropagation` in Pane's own
           click handling.
 
-          It does NOT catch a press landing on a `<webview>`, despite what this
-          comment used to claim. A guest emits no host DOM event at all —
+          It does NOT catch a press landing on a `<webview>`. A guest emits no host DOM event at all —
           measured with capture-phase window listeners for pointerdown/mousedown/
           click/focus/focusin plus direct listeners on the element, all silent
           for a real click inside a guest while a click on the pane's own

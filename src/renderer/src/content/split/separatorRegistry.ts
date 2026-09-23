@@ -65,7 +65,7 @@ export function withMirrorApply<T>(fn: () => T): T {
 // Whether the drag reaching a split's onLayoutChange this tick is one leg of
 // a genuine multi-group native intersection (react-resizable-panels froze
 // several groups' separators into the same pointer gesture because they
-// geometrically meet at one point — see the module doc in SplitRenderer.tsx)
+// geometrically meet at one point)
 // or an ordinary single-group drag that merely happens, by coincidence, to
 // currently sit at the same pixel as some unrelated separator elsewhere
 // (e.g. two freshly-created, independently-adjustable splits that both

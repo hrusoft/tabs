@@ -1,5 +1,5 @@
 import type { LeafContent } from '@shared/model/types'
-import { HeaderButton, type PaneCapabilities } from '../../../renderer/src/plugin/api'
+import { HeaderButton } from '../../../renderer/src/plugin/api'
 import { terminalCtx } from './pluginContext'
 
 function ClearScrollbackIcon() {
@@ -22,8 +22,8 @@ function ClearScrollbackIcon() {
 /**
  * The terminal's own ContentRendererDef.HeaderControl. Calls the exact same
  * `clear` Cmd/Ctrl+K invokes — the one TerminalRenderer registers on this
- * pane's core handle (`extension: { clear }`), read back through this
- * package's own context the way browserControl.ts reads the browser's — so
+ * pane's core handle (`extension: { clear }`), looked up through the same
+ * core capability dispatch the shortcut uses — so
  * it shares that shortcut's alt-buffer safety for free rather than
  * reimplementing it.
  *
@@ -34,10 +34,7 @@ function ClearScrollbackIcon() {
  */
 export function ClearScrollbackControl({ leaf }: { leaf: LeafContent }) {
   const clearScrollback = (): void => {
-    const extension = terminalCtx.get().panes.getHandle(leaf.id)?.extension as
-      | Partial<PaneCapabilities>
-      | undefined
-    extension?.clear?.()
+    terminalCtx.get().panes.getCapability(leaf.id, 'clear')?.()
   }
   return (
     <HeaderButton

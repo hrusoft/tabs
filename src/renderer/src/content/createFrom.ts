@@ -15,8 +15,8 @@ import { contentRegistry } from '../core/registry/registry'
  *
  * - `createContentLike` (../contentLike.ts) — New Tab, both splits, New
  *   Unpinned Pane. Clones the origin's own type and config.
- * - `createContentFor` (below) — a content type's creation button, in the pane
- *   header and in an empty pane's toolbar. Builds whatever type the button
+ * - `createContentFor` (below) — a content type's creation action, from an
+ *   empty pane's toolbar or the Cmd+P palette. Builds whatever type the action
  *   makes, from an origin that can be any type at all.
  *
  * Both then run the same tail, `applyDerivedConfig`, which resolves

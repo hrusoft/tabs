@@ -274,7 +274,7 @@ export function BrowserRenderer({ node }: ContentRendererProps<LeafContent>) {
 
   // This pane's core handle (see core/registry/paneHandles.ts): how core's
   // focus-follows-active reaches the guest, and how external-control
-  // requests (see ../externalControl.ts) reach this pane's live webview.
+  // requests (see browserExternalControl.ts) reach this pane's live webview.
   // BrowserHeaderTitle reaches the same webview a different way — through
   // useBrowserInstance (browserRegistry.ts), not this handle — since it
   // already knows this pane is a browser and has no need for core's

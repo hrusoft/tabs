@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { app } from 'electron'
 
 /**
- * The default writer behind `saveLayout` and `saveSettings`: creates the
+ * The default writer behind `saveLayoutFile` and `saveSettings`: creates the
  * parent directory if it's missing, then writes.
  *
  * The mkdir is not paranoia. The userData directory can genuinely be gone
@@ -22,7 +22,7 @@ function writeJsonFile(path: string, data: string): void {
  * in-memory state is still correct and the next write may well succeed.
  *
  * Where these writes run is what makes an escaping throw so expensive.
- * `saveLayout` is called from inside a synchronous `ipcMain.on` listener, so
+ * `saveLayoutFile` is called from inside a synchronous `ipcMain.on` listener, so
  * a throw propagates through `IpcMainImpl.emit` into Electron's own C++
  * dispatch rather than to any JS caller that could catch it — an uncaught
  * main-process exception, which Electron answers with a native "A JavaScript

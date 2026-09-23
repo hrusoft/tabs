@@ -98,10 +98,10 @@ export function isEmpty(node: ContentNode): node is LeafContent {
 }
 
 /**
- * True when `value` is plausibly a ContentNode: enough to hand to `normalize`
- * without it throwing on a `null`/non-object/missing-`type` shape. Anything
- * more specific is `normalize`'s job to repair. The one shape check the
- * deserialization paths share — main's `loadLayout` on the docked root, and
+ * True when `value` is plausibly a ContentNode: an object with a string
+ * `type`, which is all `normalize` needs — it repairs anything deeper
+ * (including hollow tabs/split nodes) itself. The one shape check the
+ * deserialization paths share — main's `loadLayoutFile` on the docked root, and
  * `sanitizeFloating` on each floating window's content.
  */
 export function isPlausibleNode(value: unknown): value is ContentNode {

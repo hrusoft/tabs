@@ -2,7 +2,7 @@
  * macOS rounds a standard titled window's corners in the WindowServer
  * compositor, outside the app's own layer tree — there is no public AppKit or
  * Core Graphics call that hands the radius back. The active-pane outline
- * (`--pane-corner-radius` in global.css) needs a number anyway, so this is a
+ * (`--os-corner-radius` in global.css) needs a number anyway, so this is a
  * hand-measured table keyed by macOS major version — the same approach
  * window-border tools like FelixKratz's JankyBorders use for the identical
  * problem of drawing an accent outline that has to sweep into a corner it

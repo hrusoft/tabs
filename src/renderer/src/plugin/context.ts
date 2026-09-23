@@ -3,9 +3,11 @@ import { exposedCwdOf } from '../content/exposedCwd'
 import { registerControlVerb } from '../content/externalControl'
 import { placeNewPane, placeNewUnpinnedPane, revealPane } from '../content/placement'
 import { dispatchNavChord } from '../content/spatialNav'
-import { getPaneHandle, registerPaneHandle } from '../core/registry/paneHandles'
+import { alertDialog, chooseDialog, confirmDialog } from '../core/dialogs'
+import { getPaneCapability, getPaneHandle, registerPaneHandle } from '../core/registry/paneHandles'
 import { contentRegistry } from '../core/registry/registry'
 import { useBellStore } from '../core/store/bellStore'
+import { useContextMenuStore } from '../core/store/contextMenuStore'
 import { allRoots, findNodeAnywhere, useLayoutStore } from '../core/store/layoutStore'
 import { useSettingsStore } from '../core/store/settingsStore'
 import type { RendererPluginContext } from './api'
@@ -43,10 +45,12 @@ export function createRendererPluginContext(type: string): RendererPluginContext
     exposedCwdOf,
     dispatchNavChord,
     openExternal: (url) => window.api.appWindow.openExternal(url),
+    copyText: (text) => window.api.appWindow.copyText(text),
     isEnabled: () => isContentTypeEnabled(useSettingsStore.getState().disabledContentTypes, type),
     panes: {
       registerHandle: registerPaneHandle,
-      getHandle: getPaneHandle
+      getHandle: getPaneHandle,
+      getCapability: getPaneCapability
     },
     layout: {
       setLeafConfig: (nodeId, config) => useLayoutStore.getState().setLeafConfig(nodeId, config),
@@ -77,6 +81,14 @@ export function createRendererPluginContext(type: string): RendererPluginContext
         window.api.bell.ring()
       },
       clear: (id) => useBellStore.getState().clear(id)
+    },
+    contextMenu: {
+      open: (x, y, items) => useContextMenuStore.getState().open(x, y, items)
+    },
+    dialogs: {
+      confirm: confirmDialog,
+      alert: alertDialog,
+      choose: chooseDialog
     },
     settings: createPluginSettingsAccess(type)
   }

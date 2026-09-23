@@ -8,9 +8,9 @@ import { useBrowserInstance } from './browserRegistry'
 
 /**
  * The browser's `ContentRendererDef.HeaderTitle` — back/forward/refresh + an
- * address bar, replacing the pane header's whole title slot. Used to be the
- * pane body's own separate `.browser-toolbar`; now the header *is* the nav
- * chrome, and `BrowserRenderer`'s body holds nothing but the `<webview>`.
+ * address bar, replacing the pane header's whole title slot — the header *is*
+ * the nav chrome, and `BrowserRenderer`'s body holds nothing but the
+ * `<webview>`.
  *
  * Reads the pane's live `BrowserInstance` reactively via `useBrowserInstance`
  * (a subscription, because `Pane` mounts this component before the body that

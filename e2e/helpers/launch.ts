@@ -78,11 +78,11 @@ async function closeApp(app: ElectronApplication): Promise<void> {
 /**
  * Closes every app still running against `dir`, then deletes it.
  *
- * The order is the whole point. A test that launches its own app closes it as
- * its last statement, so any assertion failure or timeout before that skips
- * the close entirely — and Playwright does not clean up an Electron app
- * launched by hand the way it would a fixture. Deleting the directory first
- * left a live orphan whose renderer kept flushing its debounced `layout:set`
+ * The order is the whole point, and this is the backstop behind `withApp`'s
+ * own `finally`: Playwright does not clean up an Electron app launched by
+ * hand the way it would a fixture, so anything that still escaped a close
+ * would outlive its directory. Deleting the directory first left a live
+ * orphan whose renderer kept flushing its debounced `layout:set`
  * into a path that no longer existed, and (before the writers were guarded)
  * that surfaced as a native error dialog naming a temp directory belonging to
  * no test at all, held open for the rest of the run.
@@ -220,8 +220,8 @@ export const test = base.extend<
     },
     { scope: 'worker' }
   ],
-  // A fresh, unused dir for the quit-and-relaunch tests that call launchApp
-  // themselves. Kept separate from the shared app's own dir on purpose: those
+  // A fresh, unused dir for the quit-and-relaunch tests that launch their own
+  // app through withApp. Kept separate from the shared app's own dir on purpose: those
   // tests need a directory no other running app is writing to. Teardown closes
   // any app still running against it before deleting it — see
   // releaseUserDataDir for why that order matters.

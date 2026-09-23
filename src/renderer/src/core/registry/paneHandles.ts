@@ -125,10 +125,23 @@ export function getPaneHandle(id: NodeId): PaneHandle | undefined {
  * - `refresh` — re-reads whatever this pane is showing, in place, with no
  *   loading flash for content that's already on screen. What Refresh
  *   (Cmd/Ctrl+R) acts on.
+ * - `captureTransferState` — a serialized snapshot of this pane's visual
+ *   state, for the same content type to restore into a fresh instance in
+ *   another window (content/crossWindowDrag.ts reads it before a move's
+ *   detach). A plain string on the moved leaf's `config`: core relays it,
+ *   never inspects it. Undefined when the type has nothing to preserve (a
+ *   browser pane's URL already lives in its config).
+ * - `prepareCrossWindowDetach` — the pane is about to unmount because it is
+ *   moving to another window, not closing. For a type whose reattach cache
+ *   would otherwise treat that unmount as "gone, dispose the remote
+ *   resource" (the terminal's pty). Returns an undo, run if the detach then
+ *   fails, so a primed pane cannot leak its resource on a later real close.
  */
 export interface PaneCapabilities {
   clear: () => void
   refresh: () => void
+  captureTransferState: () => string | undefined
+  prepareCrossWindowDetach: () => (() => void) | undefined
 }
 
 /**
@@ -137,8 +150,8 @@ export interface PaneCapabilities {
  * Duck-typed on the extension rather than checked against the pane's content
  * type on purpose: these are core capabilities any content type may claim by
  * exposing the method, which is why the narrowing lives here rather than in
- * the implementing module — today's only implementer shouldn't be what a
- * second one has to import through. One lookup for every capability rather
+ * the implementing module — no implementer should be what another has to
+ * import through. Packages reach it as `ctx.panes.getCapability`. One lookup for every capability rather
  * than a getter per name, so the next one core dispatches (stop, print) is a
  * key on `PaneCapabilities` and a shortcut binding, not another copy of this
  * function. On a pane that offers none (a browser asked to clear, an empty
@@ -150,7 +163,9 @@ export function getPaneCapability<K extends keyof PaneCapabilities>(
 ): PaneCapabilities[K] | undefined {
   const extension = getPaneHandle(id)?.extension as Partial<PaneCapabilities> | undefined
   const method = extension?.[capability]
-  return typeof method === 'function' ? method.bind(extension) : undefined
+  // Load-bearing: with capabilities of different signatures, TS cannot relate
+  // a generic K's bound method to PaneCapabilities[K] by inference.
+  return typeof method === 'function' ? (method.bind(extension) as PaneCapabilities[K]) : undefined
 }
 
 /**

@@ -82,9 +82,10 @@ function spawnRect(originId: NodeId, position: NewPaneSpawnPosition): FloatRect 
 /**
  * Opens `content` directly as a floating, unpinned window — never docked — in
  * whichever section of `originId`'s own rect the `newUnpinnedPanePosition`
- * setting names. Shared by the New Unpinned Pane keyboard shortcut
- * (paneShortcuts.ts) and the pane header's split-group dropdown item, both of
- * which already have the origin pane's id in scope.
+ * setting names. Shared by every way to open one — the New Unpinned Pane
+ * shortcut (paneShortcuts.ts), the pane header's split-group dropdown item,
+ * the Cmd+P palette, and the browser's create-browser-pane verb (through the
+ * plugin API) — each of which already has the origin pane's id in scope.
  *
  * The setting is read at call time rather than subscribed to: this only ever
  * runs from an event handler, so `getState()` already sees the newest value —
@@ -110,7 +111,7 @@ export function placeNewUnpinnedPane(originId: NodeId, content: ContentNode): vo
  * that reason — it is the same tab-walking mechanic `placeNewPane` relies on,
  * expressed for a pane that already exists. Its only caller today is the
  * external-control `activatePane` verb, which applies its own ownership rules
- * before calling (see src/plugins/browser/renderer/browserExternalControl.ts); the split
+ * before calling (see src/plugins/browser/renderer/paneVerbs.ts); the split
  * keeps the layout mechanics reusable and the ownership policy with the
  * content type that defines it.
  */

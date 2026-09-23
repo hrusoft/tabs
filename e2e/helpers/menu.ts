@@ -74,3 +74,26 @@ export function acceleratorOf(app: ElectronApplication, label: string): Promise<
     return item.accelerator ?? null
   }, label)
 }
+
+/**
+ * Whether an application-menu item labelled `label` currently exists — how a
+ * test proves a state-dependent label swap actually reached the native menu
+ * (Caffeinate…/Decaf — see main/menu.ts's caffeinateMenuItem), without
+ * needing to click it just to prove it's there. Unlike `acceleratorOf`,
+ * "not found" is an expected answer here, not a thrown error.
+ */
+export function hasMenuItem(app: ElectronApplication, label: string): Promise<boolean> {
+  return app.evaluate(({ Menu }, targetLabel) => {
+    function find(items: Electron.MenuItem[]): Electron.MenuItem | undefined {
+      for (const item of items) {
+        if (item.label === targetLabel) return item
+        if (item.submenu) {
+          const found = find(item.submenu.items)
+          if (found) return found
+        }
+      }
+      return undefined
+    }
+    return find(Menu.getApplicationMenu()?.items ?? []) !== undefined
+  }, label)
+}

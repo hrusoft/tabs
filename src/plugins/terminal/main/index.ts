@@ -2,10 +2,12 @@ import type { MainPluginContext, MainPluginModule } from '../../../main/plugin/a
 import { terminalMainCtx } from './pluginContext'
 import {
   disposeAllTerminals,
+  disposeOrphanedTerminals,
   getTerminalCwdSync,
   listTerminalIds,
   registerTerminalCloseBlockers,
-  registerTerminalIpc
+  registerTerminalIpc,
+  resetTerminalsForTests
 } from './terminal'
 
 /** The terminal package's main-process entry. */
@@ -42,6 +44,7 @@ export function activate(ctx: MainPluginContext): MainPluginModule {
       })
       disposeAllTerminals()
     },
-    resetForTests: disposeAllTerminals
+    onWindowDiscarded: disposeOrphanedTerminals,
+    resetForTests: resetTerminalsForTests
   }
 }

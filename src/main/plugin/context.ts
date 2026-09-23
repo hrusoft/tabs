@@ -9,7 +9,7 @@ import { refreshLeafConfigs } from '../layout'
 import { openExternalUrl } from '../openExternal'
 import { registerPaneHost } from '../paneHostRegistry'
 import { userDataPath } from '../persist'
-import { getSettings, subscribeSettings } from '../settings'
+import { getSettings } from '../settings'
 import type { MainPluginContext } from './api'
 
 /**
@@ -43,8 +43,7 @@ export function createMainPluginContext(type: string): MainPluginContext {
     controlSocketPath,
     userDataPath,
     settings: {
-      get: getSettings,
-      subscribe: subscribeSettings
+      get: getSettings
     }
   }
 }

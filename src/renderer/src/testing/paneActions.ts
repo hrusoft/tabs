@@ -13,8 +13,8 @@ import { headerOf } from './domQueries'
  * out ~65 times across eight files with the ids hand-spelled every time.
  */
 
-/** Clicks any button in `pane`'s own header by test id (a type's creation button, or one of PANE_BUTTON). */
-export function clickPaneButton(user: UserEvent, pane: HTMLElement, testId: string): Promise<void> {
+/** Clicks one of `pane`'s own header buttons (PANE_BUTTON) by test id. */
+function clickPaneButton(user: UserEvent, pane: HTMLElement, testId: string): Promise<void> {
   return user.click(within(headerOf(pane)).getByTestId(testId))
 }
 

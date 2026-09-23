@@ -14,11 +14,9 @@
    publishes them onto the container the way it publishes --git-row-height —
    one owner for the swatches and the cycle length alike. */
 
-/* No toolbar row to share the column with any more — the path bar, browse
-   button, HEAD label and branch-scope select all moved into .pane-header via
-   GitTreeHeaderTitle. Still a flex column, though: unlike the browser's
-   equivalent (which collapsed to a single child), this still wraps three
-   mutually-exclusive states (loading/body/empty notice). */
+/* A flex column wrapping three mutually-exclusive states (loading, the
+   list-and-detail body, the empty notice); the toolbar lives in the pane
+   header (GitTreeHeaderTitle). */
 .git-tree-container {
   display: flex;
   flex-direction: column;
@@ -76,7 +74,12 @@
 
 /* List above, detail below. A column rather than two side-by-side panes
    because a pane can be narrow — this is a recursive tab manager, panes get
-   split — and a commit subject needs the width far more than the detail does. */
+   split — and a commit subject needs the width far more than the detail does.
+
+   The detail panel takes a fixed share of the body (--git-detail-basis,
+   published by GitTreeRenderer from the pane's saved split, 40% until the
+   divider is first dragged) and the list takes whatever is left — which for
+   an untouched pane is exactly the 60/40 this pane always had. */
 .git-tree-body {
   flex: 1;
   min-height: 0;
@@ -85,7 +88,7 @@
 }
 
 .git-tree-list {
-  flex: 1 1 60%;
+  flex: 1 1 0;
   min-height: 0;
   overflow: auto;
   outline: none;
@@ -138,7 +141,7 @@
 .git-tree-hash {
   flex: none;
   color: var(--text-dim);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
@@ -186,8 +189,60 @@
   text-overflow: ellipsis;
 }
 
+/* The divider between list and detail (DetailDivider.tsx). Zero-height while
+   the details are open, so it takes no room from either: the line you see is
+   still the detail panel's own border-top, and this only lays a hit strip
+   across it. The strip is positioned, which is what puts it above the
+   (unpositioned) list and detail for painting and hit-testing alike — no
+   z-index, so it can't climb over a pane header's dropdown the way the
+   tab-bar stacking trap in CLAUDE.md describes. */
+.git-tree-divider {
+  flex: none;
+  position: relative;
+  height: 0;
+}
+
+.git-tree-divider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 7px;
+  cursor: row-resize;
+}
+
+/* Collapsed, the divider is all that is left of the details, and dragging it
+   back up is the only way to reopen them — so it has to read as a handle
+   rather than as one more border. Tall enough that its upper part clears the
+   band a core split separator claims along a pane's bottom edge (the lower
+   part yields to that split; see DetailDivider). */
+.git-tree-divider-collapsed {
+  height: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.git-tree-divider-collapsed::before {
+  top: -4px;
+  bottom: 0;
+  height: auto;
+}
+
+.git-tree-divider-collapsed::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 2px;
+  margin: -1px 0 0 -12px;
+  border-radius: 1px;
+  background: var(--text-dim);
+  opacity: 0.6;
+}
+
 .git-tree-detail {
-  flex: 1 1 40%;
+  flex: 0 0 var(--git-detail-basis);
   min-height: 0;
   overflow: auto;
   padding: 8px 10px;
@@ -217,7 +272,7 @@
 .git-tree-fields dd {
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .git-tree-files {
@@ -239,7 +294,7 @@
   gap: 5px;
   justify-content: flex-end;
   width: 84px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 /* Their own colors, not borrowed lane vars: green-for-added and
@@ -262,7 +317,7 @@
 
 .git-tree-file-path {
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .git-tree-load-more {

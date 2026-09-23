@@ -6,10 +6,17 @@ import {
   shortcutAction,
   toAccelerator
 } from '../shared/shortcuts'
+import { isCaffeinateRunning, stopCaffeinate } from './caffeinateProcess'
 import { platform } from './platform'
+import { openNewWindow, openPaneTreeWindows } from './restoreWindows'
 import { getSettings } from './settings'
 import { isShortcutCaptureActive } from './shortcutCapture'
-import { isAuxiliaryWindow, openAboutWindow, openSettingsWindow } from './windows'
+import {
+  isAuxiliaryWindow,
+  livePaneTreeWindows,
+  openAboutWindow,
+  openSettingsWindow
+} from './windows'
 
 /**
  * The native application menu: its template, and the accelerators it reads out
@@ -64,6 +71,61 @@ function paneShortcutItem(id: ShortcutActionId): MenuItemConstructorOptions {
 }
 
 /**
+ * File → Caffeinate…/Decaf — macOS only (see buildMenu's File submenu; the
+ * binary this answers doesn't exist elsewhere). The label is computed live
+ * from `isCaffeinateRunning()` on every rebuild, which `applyMenu` runs
+ * whenever the process starts, stops, or exits on its own (see
+ * broadcastRunning in caffeinate.ts) — the same "rebuilt wholesale, no
+ * in-place update" mechanism a rebind already relies on.
+ *
+ * The click handler answers itself rather than going through
+ * `paneShortcutItem`, exactly like Close Pane above: running, it stops the
+ * process directly in main (no renderer involved at all); not running, it
+ * forwards `caffeinate:open-dialog` to a pane-tree window so the renderer
+ * can open the dialog that collects the flags to start one.
+ *
+ * Which pane-tree window: the one the menu was used from (`window`), when it
+ * is one. Otherwise — Settings or About focused, whose renderers mount no
+ * `<App/>` and so have nothing to hear it, or nothing focused — the most
+ * recently opened one. With none open at all (macOS keeps the app running
+ * with no windows), it reopens what a reactivate would (see
+ * restoreWindows.ts) — the last window closed, with its layout.
+ *
+ * If a fresh window had to be created, forwarding after `did-finish-load`
+ * really is deterministic, not just "usually works": `installCaffeinate`'s
+ * subscription is installed at module scope in main.tsx, before `<App/>`
+ * ever renders (see its own comment for why that's the guarantee and a
+ * `useEffect` inside `<App/>` wasn't — this menu's own commit history has a
+ * real instance of that race, in e2e/caffeinate.spec.ts's first test). A
+ * module's top-level code runs as part of the page's script execution, which
+ * `did-finish-load` (Electron's `load` event) waits on; nothing here has to
+ * hope React's effects won a scheduling race.
+ */
+function caffeinateMenuItem(): MenuItemConstructorOptions {
+  return {
+    label: isCaffeinateRunning() ? 'Decaf' : shortcutAction('caffeinate').label,
+    ...acceleratorEntry('caffeinate'),
+    click: (_item, window) => {
+      if (isCaffeinateRunning()) {
+        stopCaffeinate()
+        return
+      }
+      const open = livePaneTreeWindows()
+      const existing = open.find((win) => win === window) ?? open.at(-1)
+      if (existing) {
+        existing.webContents.send(IpcChannel.caffeinateOpenDialog)
+        return
+      }
+      const created = openPaneTreeWindows().at(-1)
+      if (!created) return
+      created.webContents.once('did-finish-load', () => {
+        created.webContents.send(IpcChannel.caffeinateOpenDialog)
+      })
+    }
+  }
+}
+
+/**
  * Electron's auto-generated default menu binds Cmd/Ctrl+W to `role: 'close'`
  * (closes the whole window) and has no Cmd/Ctrl+T at all — both need a real
  * menu item to override, since a renderer-side `keydown` listener never sees
@@ -93,7 +155,7 @@ function paneShortcutItem(id: ShortcutActionId): MenuItemConstructorOptions {
  * pattern: `role: 'appMenu'` generates an About item wired to Electron's
  * native about panel, which can show a name, a version and an icon and
  * nothing else — no links, no donation buttons, no copyable addresses (see
- * createAboutWindow in windows.ts). Only that one item changes; Services,
+ * `aboutWindow` in windows.ts). Only that one item changes; Services,
  * Hide, Hide Others, Show All and Quit stay stock roles, so this gives up
  * nothing the way the View menu did. Other platforms have no application
  * menu to put it in, so they get a Help menu holding the same item — that is
@@ -158,6 +220,13 @@ function buildMenu(): Menu {
       label: 'File',
       submenu: [
         {
+          // A window-level action with no renderer to forward to, like
+          // Settings… below. See openNewWindow for what it opens.
+          label: shortcutAction('new-window').label,
+          ...acceleratorEntry('new-window'),
+          click: () => openNewWindow()
+        },
+        {
           label: 'Settings…',
           ...acceleratorEntry('open-settings'),
           click: () => openSettingsWindow()
@@ -184,7 +253,10 @@ function buildMenu(): Menu {
             }
             window.webContents.send(IpcChannel.shortcutAction, 'close-pane')
           }
-        }
+        },
+        ...(process.platform === 'darwin'
+          ? ([{ type: 'separator' }, caffeinateMenuItem()] satisfies MenuItemConstructorOptions[])
+          : [])
       ]
     },
     {
@@ -229,7 +301,34 @@ function buildMenu(): Menu {
           { role: 'help', submenu: [{ label: 'About Tabs', click: () => openAboutWindow() }] }
         ] satisfies MenuItemConstructorOptions[]))
   ]
-  return Menu.buildFromTemplate(template)
+  return Menu.buildFromTemplate(withGuardedClicks(template))
+}
+
+/**
+ * `items` with every custom `click` guarded, submenus included. Electron
+ * dispatches a click synchronously with nothing to catch what escapes it — a
+ * throw from building a window is the native error modal persist.ts
+ * documents — so every click is wrapped here, once, the way
+ * onRendererMessage wraps every `ipcMain.on` listener, rather than each
+ * thing a click opens remembering to guard itself.
+ */
+function withGuardedClicks(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
+  return items.map((item) => {
+    const { click, submenu } = item
+    return {
+      ...item,
+      ...(click && {
+        click: (...args: Parameters<typeof click>) => {
+          try {
+            click(...args)
+          } catch (error) {
+            console.error(`[tabs] menu item "${item.label ?? item.role}" threw:`, error)
+          }
+        }
+      }),
+      ...(Array.isArray(submenu) && { submenu: withGuardedClicks(submenu) })
+    }
+  })
 }
 
 /**

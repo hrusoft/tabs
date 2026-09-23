@@ -57,8 +57,8 @@ export interface TerminalSettings {
  * NSKeyedUnarchiver) rather than an arbitrary palette, so first run already
  * looks like a plausible terminal theme instead of a placeholder. A shared
  * singleton like DEFAULT_SETTINGS — no generated ids involved, so a plain
- * literal is fine to reuse across calls (contrast with DEFAULT_LAYOUT in
- * main/layout.ts, which must be computed once because it mints a uuid).
+ * literal is fine to reuse across calls (contrast with a default layout,
+ * which mints uuids and so is minted per window — see main/layout.ts).
  */
 export const DEFAULT_TERMINAL_APPEARANCE: TerminalAppearance = {
   fontFamily: 'JetBrains Mono NL',
