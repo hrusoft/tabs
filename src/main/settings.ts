@@ -42,7 +42,7 @@ export function loadSettings({
 }
 
 /**
- * Persists the settings, best-effort — same contract as `saveLayout`: nothing
+ * Persists the settings, best-effort — same contract as `saveLayoutFile`: nothing
  * throws out of here whatever writer is in play, and the default writer
  * recreates a missing userData directory. This one runs from the debounce
  * timer below, where an uncaught throw is just as fatal as one out of an
@@ -131,43 +131,70 @@ export function registerSettingsIpc(): void {
   current = e2eSettingsBaseline(loadSettings())
   registerSyncGetter(IpcChannel.settingsGetSync, () => current)
   onRendererMessage(IpcChannel.settingsSet, (event, partial: Partial<Settings>) => {
-    // contentTypes merges one level deep — a write carrying one type's blob
-    // must not clobber sibling types'. Exactly one level: the write contract
-    // (see shared/settings.ts) is that a per-type blob is always sent WHOLE,
-    // so each named type's blob is replaced wholesale. Always build fresh
-    // objects here — after resetSettingsForTests, `current` aliases the
-    // shared DEFAULT_SETTINGS singleton, so in-place mutation would corrupt
-    // the defaults for the rest of the process.
-    const { contentTypes, ...flat } = partial
-    current = {
-      ...current,
-      ...flat,
-      contentTypes: contentTypes
-        ? { ...current.contentTypes, ...contentTypes }
-        : current.contentTypes
-    }
-    scheduleSave()
-    // Mirrors the change into every other open window (e.g. the Settings
-    // window editing a color while the main window is open) so an
-    // already-mounted settingsStore doesn't need a reload to see it. The
-    // sender is excluded since it already applied the change optimistically
-    // (see settingsStore.ts's setSetting).
-    forEachLiveWindow((win) => {
-      if (win.webContents.id !== event.sender.id) {
-        win.webContents.send(IpcChannel.settingsChanged, partial)
-      }
-    })
-    // Guarded per listener, on top of onRendererMessage's own guard, so one
-    // module's failing listener (a full menu rebuild, a native theme push)
-    // doesn't starve the others of the change.
-    for (const listener of changeListeners) {
-      try {
-        listener(partial)
-      } catch (error) {
-        console.error('[tabs] settings change listener failed:', error)
-      }
+    applySettingsChange(partial, event.sender.id)
+  })
+}
+
+/**
+ * Applies a settings write and tells everyone who needs to know: every open
+ * window except `senderId` (which applied it optimistically), then the
+ * in-process change listeners.
+ */
+function applySettingsChange(partial: Partial<Settings>, senderId?: number): void {
+  // contentTypes merges one level deep — a write carrying one type's blob
+  // must not clobber sibling types'. Exactly one level: the write contract
+  // (see shared/settings.ts) is that a per-type blob is always sent WHOLE,
+  // so each named type's blob is replaced wholesale. Always build fresh
+  // objects here — after resetSettingsForTests, `current` aliases the
+  // shared DEFAULT_SETTINGS singleton, so in-place mutation would corrupt
+  // the defaults for the rest of the process.
+  const { contentTypes, ...flat } = partial
+  current = {
+    ...current,
+    ...flat,
+    contentTypes: contentTypes ? { ...current.contentTypes, ...contentTypes } : current.contentTypes
+  }
+  scheduleSave()
+  // Mirrors the change into every other open window (e.g. the Settings
+  // window editing a color while the main window is open) so an
+  // already-mounted settingsStore doesn't need a reload to see it. The
+  // sender is excluded since it already applied the change optimistically
+  // (see settingsStore.ts's setSetting).
+  forEachLiveWindow((win) => {
+    if (win.webContents.id !== senderId) {
+      win.webContents.send(IpcChannel.settingsChanged, partial)
     }
   })
+  // Guarded per listener, on top of onRendererMessage's own guard, so one
+  // module's failing listener (a full menu rebuild, a native theme push)
+  // doesn't starve the others of the change.
+  for (const listener of changeListeners) {
+    try {
+      listener(partial)
+    } catch (error) {
+      console.error('[tabs] settings change listener failed:', error)
+    }
+  }
+}
+
+/**
+ * e2e only: a settings write as though some other window made it — applied
+ * here and mirrored into every window, the test's own included — so a test
+ * can state its premise without driving the Settings window's UI. A content
+ * type's blob is merged key by key onto its current value rather than
+ * replaced, so the caller names only the key it cares about.
+ */
+export function mergeSettingsForTests(partial: Partial<Settings>): void {
+  const { contentTypes, ...flat } = partial
+  const mergedTypes = contentTypes
+    ? Object.fromEntries(
+        Object.entries(contentTypes).map(([type, blob]) => [
+          type,
+          { ...(current.contentTypes[type] as Record<string, unknown>), ...(blob as object) }
+        ])
+      )
+    : undefined
+  applySettingsChange(mergedTypes ? { ...flat, contentTypes: mergedTypes } : flat)
 }
 
 /**

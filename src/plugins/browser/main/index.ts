@@ -3,6 +3,7 @@ import type { MainPluginContext, MainPluginModule } from '../../../main/plugin/a
 import { resetAgentFileSweepForTests } from './agentFiles'
 import { registerBrowserControlVerbs } from './browserExternalControl'
 import {
+  forgetGuestsOfClosedWindows,
   getPaneIdForGuest,
   registerBrowserGuestIpc,
   resetBrowserGuestsForTests
@@ -81,8 +82,8 @@ function wireGuest(guest: WebContents): void {
   })
   // For agent-owned panes, re-apply the verb-level scheme allowlist to
   // navigations the *page* starts (location.href from execute-js, a link
-  // click) — without this, the file:// front-door check in
-  // externalControl.ts has an open back door. User panes are left alone;
+  // click) — without this, the verbs' own front-door check (withAllowedUrl in
+  // browserExternalControl.ts) has an open back door. User panes are left alone;
   // this constrains only what an agent's own pane can be steered to.
   guest.on('will-navigate', (event, url) => {
     const paneId = getPaneIdForGuest(guest.id)
@@ -127,6 +128,7 @@ export function activate(ctx: MainPluginContext): MainPluginModule {
     /** Without this the pane-tree window ignores `<webview>` elements entirely. */
     windowPreferences: { webviewTag: true },
     wireWindow: wireBrowserGuests,
+    onWindowDiscarded: forgetGuestsOfClosedWindows,
     /**
      * Every map here is keyed by a guest's webContents id, and every one of
      * those is invalid the moment the renderer reloads — which is exactly what

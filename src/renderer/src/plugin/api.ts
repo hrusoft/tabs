@@ -1,8 +1,11 @@
-import type { ControlRequest, ControlResponse } from '@shared/externalControl'
+import type { ControlRequest } from '@shared/externalControl'
 import type { NavDirection } from '@shared/model/navigation'
 import type { ContentNode, LeafContent, NodeId, SplitDirection } from '@shared/model/types'
-import type { PaneHandle } from '../core/registry/paneHandles'
+import type { ControlVerbHandler } from '../content/externalControl'
+import type { AlertDialogOptions, ChooseDialogOptions, ConfirmDialogOptions } from '../core/dialogs'
+import type { PaneCapabilities, PaneHandle } from '../core/registry/paneHandles'
 import type { ContentRendererDef } from '../core/registry/registry'
+import type { ContextMenuItem } from '../core/store/contextMenuStore'
 
 /**
  * The renderer-process plugin API — the one core module a content-type package
@@ -16,8 +19,9 @@ import type { ContentRendererDef } from '../core/registry/registry'
  * The types are re-exports where core already had the right shape — the
  * contract is the surface, not a parallel copy of it.
  *
- * Values arrive on the context; this module exports only types plus one pure
- * helper. That split is what keeps the boundary auditable: a plugin file's
+ * Values arrive on the context; this module exports only types and stateless
+ * helpers (pure components and factories whose state is the package's own).
+ * That split is what keeps the boundary auditable: a plugin file's
  * imports from core are type-only or stateless, and everything stateful is
  * handed over at activation, in one place, by core.
  *
@@ -26,8 +30,16 @@ import type { ContentRendererDef } from '../core/registry/registry'
  * ceremony with no consumer.
  */
 
+/**
+ * A verb handler as a package registers it: receives its own narrowed
+ * request, returns the answer, never touches the transport (a throw becomes
+ * the error response — content/externalControl.ts owns dispatch).
+ */
+export type PluginControlVerbHandler<V extends ControlRequest['type']> = ControlVerbHandler<V>
+// The config key a `captureTransferState` snapshot rides under across windows.
+export { CROSS_WINDOW_TRANSFER_STATE_KEY } from '@shared/layoutCrossWindow'
 // The pane-header button primitive (see PaneHeaderMenuGroup.tsx) — pure and
-// core-stateless like IconButton above, and the required building block for
+// core-stateless, and the required building block for
 // a ContentRendererDef.HeaderControl/HeaderTitle: it already carries the
 // stopPropagation contract those need to avoid arming a pane drag.
 export { HeaderButton } from '../content/PaneHeaderMenuGroup'
@@ -53,30 +65,19 @@ export {
   REATTACH_GRACE_MS,
   type ReattachRegistry
 } from '../content/reattachRegistry'
+/** The three dialog shapes behind `RendererPluginContext.dialogs` — see core/dialogs.tsx for what each renders and resolves. */
+export type { AlertDialogOptions, ChooseDialogOptions, ConfirmDialogOptions } from '../core/dialogs'
 export type { PaneCapabilities, PaneHandle } from '../core/registry/paneHandles'
 export type {
   ContentRendererDef,
   ContentRendererProps,
   PaneCreationAction
 } from '../core/registry/registry'
-// The labeled icon-only button (see IconButton.tsx) — pure and core-stateless
-// like the exports above, so it rides the same rule: a package's icon-only
-// buttons are IconButtons exactly as core's are, rather than a second
-// implementation or a bare `title` (see Tooltip.tsx for why that alone is
-// not enough on this app's pinned Electron version).
-export { IconButton } from '../IconButton'
+/** One right-click menu item (see `RendererPluginContext.contextMenu`) — the same shape core's own `Pane.tsx`/`TabBar.tsx` already build. */
+export type { ContextMenuItem } from '../core/store/contextMenuStore'
 // A package's typed view of its own settings blob. A stateless factory, like
 // createReattachRegistry above — the state it makes is the package's own.
 export { createTypedSettingsAccess, type TypedSettingsAccess } from './typedSettings'
-
-/**
- * A verb handler as a package registers it: receives its own narrowed
- * request, returns the answer, never touches the transport (a throw becomes
- * the error response — content/externalControl.ts owns dispatch).
- */
-export type PluginControlVerbHandler<V extends ControlRequest['type']> = (
-  request: Extract<ControlRequest, { type: V }>
-) => ControlResponse | Promise<ControlResponse>
 
 /**
  * The layout operations a package may perform, phrased as actions on the
@@ -189,6 +190,12 @@ export interface RendererPluginContext {
    * http(s)/mailto, so a package cannot launch arbitrary schemes.
    */
   openExternal(url: string): void
+  /**
+   * Puts `text` on the user's system clipboard, for the package's own UI
+   * acting on the user's own click (the git tree's Copy SHA-1). Goes through
+   * main, not `navigator.clipboard` — see AppWindowApi.copyText for why.
+   */
+  copyText(text: string): void
   /** Whether this package's content type is currently enabled (Settings → General → Content types). */
   isEnabled(): boolean
   /** Mounted-instance handles: focus/blur plumbing and per-type extensions. */
@@ -197,6 +204,14 @@ export interface RendererPluginContext {
     registerHandle(id: NodeId, handle: PaneHandle): () => void
     /** The mounted handle, or undefined if no renderer currently holds that pane. */
     getHandle(id: NodeId): PaneHandle | undefined
+    /**
+     * A core capability the mounted pane offers (`clear`, `refresh`), or
+     * undefined — the same lookup core's own shortcuts dispatch through.
+     */
+    getCapability<K extends keyof PaneCapabilities>(
+      id: NodeId,
+      capability: K
+    ): PaneCapabilities[K] | undefined
   }
   layout: PluginLayoutAccess
   /**
@@ -208,6 +223,30 @@ export interface RendererPluginContext {
   bell: {
     ring(id: NodeId): void
     clear(id: NodeId): void
+  }
+  /**
+   * The app's single right-click context menu (see `ContextMenu.tsx`),
+   * usable by any package's own right-click affordance (the git tree's
+   * per-commit menu is one example). Opens at `(x, y)`; a second call
+   * replaces whatever menu is already open (the same "single ephemeral
+   * overlay" contract `dialogs` and the command palette share).
+   */
+  contextMenu: {
+    open(x: number, y: number, items: ContextMenuItem[]): void
+  }
+  /**
+   * Three dialog shapes built on the app's one reusable modal shell (see
+   * core/dialogs.tsx for what each renders and how it resolves): a plain
+   * confirm, a one-button alert (for a failure that must reach the user,
+   * never fail silently), and a single-select choose. Like `openModal`
+   * itself, only one of any dialog — this package's or another's — may be
+   * open at a time; opening a second while one is already up is refused and
+   * resolves immediately with that dialog's own "backed out" value.
+   */
+  dialogs: {
+    confirm(options: ConfirmDialogOptions): Promise<boolean>
+    alert(options: AlertDialogOptions): Promise<void>
+    choose(options: ChooseDialogOptions): Promise<string | null>
   }
   ipc: PluginIpc
   settings: PluginSettingsAccess

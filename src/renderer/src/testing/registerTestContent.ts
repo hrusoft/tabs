@@ -17,8 +17,8 @@ import { stubContentDef } from './stubContent'
  *
  * The stub stands in for both of the browser's guest forwarders too. That is
  * real coverage, not bookkeeping: since core stopped subscribing to the guest
- * channels itself, `window.api.browserGuest.onNavKey` and `.onPointerDown` are
- * reached only through a content type's registration, and this is the cheapest
+ * events itself, the browser's nav-key and guest-pointer-down events (over the
+ * content bridge) are reached only through a content type's registration, and this is the cheapest
  * tier that can exercise those paths (drive them with `__fakeApi.emitNavKey` /
  * `emitGuestPointerDown`). Importing them here is safe where importing the
  * browser's renderer would not be — each is a few lines over the bridge and

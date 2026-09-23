@@ -1,13 +1,13 @@
 /* The terminal's Settings-window appearance editor, side-effect imported by
    TerminalSettingsPage.tsx.
 
-   Deliberately a separate file from terminal.css even though both sit in this
-   folder: the folder is not the boundary, the module is. TerminalSettingsPage
-   is reached from settings/registerBuiltinPages.ts (settings-main.tsx) and
-   imports no xterm, which is exactly why the page def lives apart from the
-   renderer; hanging these rules off terminal.css instead would drag the pane
-   renderer — and xterm with it — into the Settings window's bundle, the same
-   hazard registerBuiltinPages.ts exists to avoid, arriving through CSS.
+   Deliberately a separate file from ../renderer/terminal.css: the entry is
+   the boundary. TerminalSettingsPage is reached from
+   settings/registerBuiltinPages.ts (settings-main.tsx) and imports no xterm,
+   which is exactly why the page def lives apart from the renderer; hanging
+   these rules off terminal.css instead would drag the pane renderer — and
+   xterm with it — into the Settings window's bundle, the same hazard
+   registerBuiltinPages.ts exists to avoid, arriving through CSS.
 
    Tokens come from installTheme, not from here (see CLAUDE.md). */
 

@@ -19,15 +19,10 @@
 
 import { WAIT_IDLE_QUIET_MS } from '../shared/externalControl'
 
-/**
- * The ref registry's guest-global names live in ../shared/pageRefs.ts so main
- * can read the same registry (save-resource resolves a `--ref` to its
- * element's src there). `refResolverExpression` is re-exported for
- * browserExternalControl.ts, which resolves refs from the verb side.
- */
-import { REF_CAPACITY, REF_COUNTER, REF_REGISTRY, refResolverExpression } from '../shared/pageRefs'
-
-export { refResolverExpression }
+// The ref registry's guest-global names live in ../shared/pageRefs.ts so main
+// can read the same registry (save-resource resolves a `--ref` to its
+// element's src there).
+import { REF_CAPACITY, REF_COUNTER, REF_REGISTRY } from '../shared/pageRefs'
 
 /**
  * Where the persistent DOM-activity tracker lives: a pair of timestamps —
@@ -702,8 +697,7 @@ const UNFILLABLE_INPUT_TYPES = ['checkbox', 'radio', 'button', 'submit', 'reset'
  * Fills the focused element with `value` entirely in-script, and reports what
  * the element actually holds afterwards.
  *
- * No path here types characters. The char-event pipeline this replaced
- * silently drops `\n` (and every other key-less character) on the floor —
+ * No path here types characters. The char-event pipeline silently drops `\n` (and every other key-less character) on the floor —
  * a 42-newline value arrived with all 42 missing while the verb reported
  * success — so values are written whole instead, per element kind:
  *
@@ -813,27 +807,19 @@ export function editingCommandScript(command: string): string {
  * Scrolls the document and reports where it actually ended up. Nested scroll
  * containers are out of scope — see SKILL.md.
  *
- * **`behavior: 'instant'` is the whole fix, and it is not a change of
- * mechanism.** The two-argument `window.scrollBy(x, y)` this replaced resolves
- * to `behavior: 'auto'`, which defers to the page's own computed
- * `scroll-behavior` — so on a page declaring `scroll-behavior: smooth` the
- * scroll animated and the `scrollX/scrollY` read on the next line reported
- * where the page *had been*. Measured in plain Chromium: an immediate
- * `{x: 0, y: 0}` for a scroll that settled at `{x: 0, y: 800}`.
+ * **`behavior: 'instant'`, explicitly.** A two-argument `window.scrollBy(x, y)`
+ * resolves to `behavior: 'auto'`, which defers to the page's own
+ * `scroll-behavior` — so on a `scroll-behavior: smooth` page the scroll
+ * animates and the `scrollX/scrollY` read on the next line reports where the
+ * page *had been* (measured in plain Chromium: `{x: 0, y: 0}` for a scroll
+ * that settled at `{x: 0, y: 800}`). No wheel semantics are at stake: a
+ * programmatic `scrollBy` fires no `wheel` listeners either way (measured:
+ * zero).
  *
- * Nothing about wheel semantics changes, because there were never any wheel
- * events: this verb has always scrolled programmatically, and a programmatic
- * `scrollBy` fires no `wheel` listeners either way (measured: zero). The only
- * observable difference is that the page arrives instantly instead of over
- * ~300ms, and the position returned is now true.
- *
- * **The step is computed here rather than from the host's element rect**, and
- * that is a second bug fixed in the same line: a backgrounded tab's
- * `<webview>` sits in a `display: none` subtree, so `getBoundingClientRect()`
- * reports 0×0 and the default step came out as zero — `scroll` on a pane the
- * user had tabbed away from silently scrolled nothing and reported success.
- * The guest's own `innerHeight`/`innerWidth` are correct whether or not the
- * host has laid the element out.
+ * **The step is computed from the guest's own `innerHeight`/`innerWidth`**,
+ * not the host's element rect: a backgrounded tab's `<webview>` sits in a
+ * `display: none` subtree, so its `getBoundingClientRect()` is 0×0 and a
+ * step derived from it would scroll nothing while reporting success.
  */
 export function scrollScript(direction: 'up' | 'down' | 'left' | 'right', amount?: number): string {
   const vertical = direction === 'up' || direction === 'down'

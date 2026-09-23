@@ -9,7 +9,8 @@
  * The list survives discovery because it carries three things a glob cannot:
  *
  * - **Order.** Glob order is path-alphabetical; this order is a UI contract —
- *   activation order is the pane-header button order, and the census, the
+ *   activation order is the creation-action order (the empty-pane toolbar,
+ *   the Cmd+P palette), and the census, the
  *   behaviour registrations and the settings sidebar all follow it.
  * - **The literal type union.** `ContentTypeId` derives from this tuple, so
  *   it stays `'terminal' | 'browser' | 'gitTree'` instead of collapsing to

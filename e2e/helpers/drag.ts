@@ -37,13 +37,21 @@ export async function grabAndHover(source: Locator, x: number, y: number): Promi
  * — for a header control (a button, an input, a select) whose press must
  * stay its own rather than grabbing the drag handle beneath it. Releases
  * before returning so the next gesture starts clean.
+ *
+ * The drag runs *along* the header row, never down out of it. Below a browser
+ * pane's header is its `<webview>` guest, and a button-held move carried onto
+ * a live guest — with no pane drag running to neutralize it, which is exactly
+ * the state this asserts — hangs `Input.dispatchMouseEvent` in the never-shown
+ * e2e window until the test times out (measured: 7 of 8 hung moving straight
+ * down, 0 of 16 moving across; see CLAUDE.md). 60px is still twelve times
+ * the engage threshold either way.
  */
 export async function expectNoDragFrom(control: Locator): Promise<void> {
   const page = control.page()
   const from = centerOf(await requireBox(control))
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
-  await page.mouse.move(from.x + 60, from.y + 60, { steps: 8 })
+  await page.mouse.move(from.x + 60, from.y, { steps: 8 })
   await expect(page.locator('.drag-ghost')).toHaveCount(0)
   await page.mouse.up()
 }

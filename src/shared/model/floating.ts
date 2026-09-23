@@ -1,4 +1,4 @@
-import { createLeaf, createTab } from './factories'
+import { createLeaf, createTab, createTabs } from './factories'
 import { createId } from './ids'
 import type { TabTitler } from './tree'
 import {
@@ -9,6 +9,7 @@ import {
   MIN_PANE_SIZE,
   normalize,
   openContent,
+  replaceNode,
   resizeSplit,
   splitContent,
   withPaneDetached
@@ -68,9 +69,37 @@ export type FloatAnchor =
       title: string
       beforeTabId?: NodeId | undefined
       afterTabId?: NodeId | undefined
+      /**
+       * The group's other tabs, in order. What rebuilds the group when this
+       * departure collapsed it: a group left with one tab becomes that tab's
+       * bare content, so neither the group nor its tab ids survive — only
+       * the content does. Absent from anchors saved before it existed.
+       */
+      siblings?: AnchorSibling[] | undefined
+      /** Whether this was the group's active tab. */
+      wasActive?: boolean | undefined
+      /**
+       * Where the group itself sat — only when this was its only tab, whose
+       * departure then removes the group entirely.
+       */
+      groupAnchor?: FloatAnchor | undefined
+      /**
+       * Whether the group was the root of the tree anchored in — the docked
+       * root, for every caller. That group is never rebuilt: a collapse of it
+       * is rewrapped under a fresh id (ensureTabsRoot), which already holds
+       * the tabs it kept, so a returning tab rejoins those instead.
+       */
+      groupWasRoot?: boolean | undefined
     }
   /** It was the whole docked layout; the root is a placeholder waiting for it back. */
   | { kind: 'root' }
+
+/** One of a tab anchor's sibling tabs: its own id and title, and its content's id. */
+interface AnchorSibling {
+  id: NodeId
+  title: string
+  contentId: NodeId
+}
 
 /** One floating window: a subtree, where it sits on screen, and where it came from. */
 export interface FloatingPane {
@@ -112,10 +141,8 @@ export const DEFAULT_FLOAT_RECT: FloatRect = { x: 48, y: 48, width: 640, height:
  * caller `spawnRect` in content/placement.ts).
  *
  * Beside the other float geometry rather than in that renderer module because
- * e2e/browser/floating.spec.ts asserts the resulting offsets: `src/shared` is
- * reachable from the Playwright tier and `src/renderer` is not, so keeping it
- * there left the spec restating the literal with a "matches …" comment doing a
- * compiler's job.
+ * e2e/browser/floating.spec.ts asserts the resulting offsets, and `src/shared`
+ * is reachable from the Playwright tier where `src/renderer` is not.
  */
 export const NEW_PANE_SPAWN_SPACING = 16
 
@@ -250,13 +277,20 @@ export function captureAnchor(root: ContentNode, id: NodeId): FloatAnchor | null
 
   const { parent: group, tab } = ref
   const index = group.tabs.findIndex((candidate) => candidate.id === tab.id)
+  const groupAnchor = group.tabs.length === 1 ? captureAnchor(root, group.id) : null
   return {
     kind: 'tab',
     groupId: group.id,
     index,
     title: tab.title,
     beforeTabId: group.tabs[index - 1]?.id,
-    afterTabId: group.tabs[index + 1]?.id
+    afterTabId: group.tabs[index + 1]?.id,
+    siblings: group.tabs
+      .filter((candidate) => candidate.id !== tab.id)
+      .map((sibling) => ({ id: sibling.id, title: sibling.title, contentId: sibling.content.id })),
+    wasActive: group.activeTabId === tab.id,
+    groupWasRoot: group.id === root.id,
+    ...(groupAnchor ? { groupAnchor } : {})
   }
 }
 
@@ -264,7 +298,7 @@ export function captureAnchor(root: ContentNode, id: NodeId): FloatAnchor | null
 // Detach / restore
 // ---------------------------------------------------------------------------
 
-export interface DetachedForFloat {
+interface DetachedForFloat {
   /** The docked layout with the pane spliced out, normalized. */
   root: ContentNode
   floating: FloatingPane
@@ -312,9 +346,21 @@ export function restoreFloating(
   titleOf: TabTitler,
   fallbackTargetId: NodeId
 ): ContentNode {
-  const node = entry.content
-  const anchor = entry.anchor
+  return restoreAtAnchor(root, entry.content, entry.anchor, titleOf, fallbackTargetId)
+}
 
+/**
+ * Puts `node` back as close to `anchor` as the layout still allows — the
+ * logic behind `restoreFloating`, over a bare node, so a cross-window move's
+ * rollback (layoutStore's `reinsertAtAnchor`) can use it too.
+ */
+export function restoreAtAnchor(
+  root: ContentNode,
+  node: ContentNode,
+  anchor: FloatAnchor,
+  titleOf: TabTitler,
+  fallbackTargetId: NodeId
+): ContentNode {
   if (anchor.kind === 'tab') {
     const group = findNode(root, anchor.groupId)
     if (group && isTabs(group)) {
@@ -329,6 +375,8 @@ export function restoreFloating(
       const at = ref === before ? ref.index + 1 : ref.index
       return normalize(addTab(root, ref.group.id, createTab(anchor.title, node), at))
     }
+    const rebuilt = rebuildGroup(root, node, anchor, titleOf, fallbackTargetId)
+    if (rebuilt) return rebuilt
   }
 
   if (anchor.kind === 'split') {
@@ -358,6 +406,59 @@ export function restoreFloating(
   // total.
   const target = findNode(root, fallbackTargetId) ? fallbackTargetId : root.id
   return openContent(root, target, node, titleOf)
+}
+
+/**
+ * The group a tab anchor names, put back around `node` when its departure
+ * took the group with it — the case the neighbour lookups above cannot see,
+ * since collapsing a group discards its tab ids along with it.
+ *
+ * - The docked root: never rebuilt, and never nested inside the group that
+ *   replaced it. Its collapse is rewrapped under a fresh id (ensureTabsRoot)
+ *   holding the tabs it kept, so the tab goes back beside the first of those
+ *   still found, at its old index. With none left, the caller's fallback.
+ * - One other tab: the group collapsed into that tab's bare content, which
+ *   now sits in the group's slot. The group is rebuilt there, under its own
+ *   id, both tabs back in order under their own titles and active tab.
+ * - No other tab: the group went entirely, and comes back holding just this
+ *   tab, at the place it sat.
+ *
+ * Null when neither applies, which leaves the caller's own fallback.
+ */
+function rebuildGroup(
+  root: ContentNode,
+  node: ContentNode,
+  anchor: Extract<FloatAnchor, { kind: 'tab' }>,
+  titleOf: TabTitler,
+  fallbackTargetId: NodeId
+): ContentNode | null {
+  const siblings = anchor.siblings ?? []
+  const moved = createTab(anchor.title, node)
+  if (anchor.groupWasRoot) {
+    for (const sibling of siblings) {
+      const ref = findParent(root, sibling.contentId)
+      if (ref?.kind !== 'tab') continue
+      const at = Math.min(anchor.index, ref.parent.tabs.length)
+      return normalize(addTab(root, ref.parent.id, moved, at))
+    }
+    return null
+  }
+  if (siblings.length === 0) {
+    if (!anchor.groupAnchor) return null
+    const group = createTabs([moved], { id: anchor.groupId })
+    return restoreAtAnchor(root, group, anchor.groupAnchor, titleOf, fallbackTargetId)
+  }
+  if (siblings.length !== 1) return null
+  const survivor = siblings[0]!
+  const survivorNode = findNode(root, survivor.contentId)
+  if (!survivorNode) return null
+  const kept = createTab(survivor.title, survivorNode, survivor.id)
+  const group = createTabs(anchor.index === 0 ? [moved, kept] : [kept, moved], {
+    id: anchor.groupId,
+    activeTabId: anchor.wasActive ? moved.id : kept.id
+  })
+  const next = replaceNode(root, survivor.contentId, () => group)
+  return next ? normalize(next) : null
 }
 
 /**
@@ -527,13 +628,34 @@ function sanitizeAnchor(anchor: unknown): FloatAnchor {
   if (typeof anchor !== 'object' || anchor === null) return { kind: 'root' }
   const candidate = anchor as Record<string, unknown>
   if (candidate.kind === 'tab' && typeof candidate.groupId === 'string') {
+    const siblings = Array.isArray(candidate.siblings)
+      ? candidate.siblings.flatMap((value: unknown) => {
+          const sibling = (value ?? {}) as Record<string, unknown>
+          return typeof sibling.id === 'string' && typeof sibling.contentId === 'string'
+            ? [
+                {
+                  id: sibling.id,
+                  title: typeof sibling.title === 'string' ? sibling.title : '',
+                  contentId: sibling.contentId
+                }
+              ]
+            : []
+        })
+      : undefined
     return {
       kind: 'tab',
       groupId: candidate.groupId,
       index: isFiniteNumber(candidate.index) ? candidate.index : 0,
       title: typeof candidate.title === 'string' ? candidate.title : '',
       beforeTabId: stringOrUndefined(candidate.beforeTabId),
-      afterTabId: stringOrUndefined(candidate.afterTabId)
+      afterTabId: stringOrUndefined(candidate.afterTabId),
+      siblings,
+      wasActive: typeof candidate.wasActive === 'boolean' ? candidate.wasActive : undefined,
+      groupWasRoot:
+        typeof candidate.groupWasRoot === 'boolean' ? candidate.groupWasRoot : undefined,
+      ...(typeof candidate.groupAnchor === 'object' && candidate.groupAnchor !== null
+        ? { groupAnchor: sanitizeAnchor(candidate.groupAnchor) }
+        : {})
     }
   }
   if (candidate.kind === 'split' && typeof candidate.splitId === 'string') {

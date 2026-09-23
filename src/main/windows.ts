@@ -1,16 +1,23 @@
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
-import { BrowserWindow, type BrowserWindowConstructorOptions, type WebPreferences } from 'electron'
+import {
+  BrowserWindow,
+  type BrowserWindowConstructorOptions,
+  screen,
+  type WebContents,
+  type WebPreferences
+} from 'electron'
 import icon from '../../resources/icon.png?asset'
 import { IpcChannel } from '../shared/ipc'
+import { createId } from '../shared/model/ids'
 import { contentModuleWindowPreferences, wireContentModulesInto } from './contentTypes'
 import { e2eHidden } from './e2eHidden'
 import { openExternalUrl } from './openExternal'
 import { themeWindowBackground } from './theme'
 
 /**
- * The app's three windows, and everything about constructing them: the
- * pane-tree window, the Settings window and the About window.
+ * The app's three kinds of window, and everything about constructing them:
+ * the pane-tree windows, the Settings window and the About window.
  *
  * index.ts owns app lifecycle and registration order; this owns what a
  * window is. Nothing here knows when it is called, and nothing in index.ts
@@ -22,13 +29,20 @@ import { themeWindowBackground } from './theme'
  */
 
 /**
+ * A pane-tree window's stable identity, minted once on creation. Not
+ * `BrowserWindow.id`: that is per process lifetime, and a persisted layout
+ * must find "the same window" on the next boot.
+ */
+export type WindowId = string
+
+/**
  * macOS only: hide the native title bar but keep the traffic lights, floating
  * them over the 30px of chrome the renderer draws itself — the main window's
  * docked root is always a tab group, and that group's own tab bar carries the
  * gutter (.tab-bar-root in global.css, see content/tabs/TabBar.tsx), while the
- * Settings window still draws a plain title bar (.settings-titlebar) — both
- * sized by --window-titlebar-height (30px) in global.css, as is the About
- * window's own bar (.about-titlebar in about.css, the Settings bar's twin).
+ * Settings and About windows draw a plain title bar (.window-titlebar in
+ * styles/windowTitlebar.css) — all sized by --window-titlebar-height (30px)
+ * in global.css.
  * Shared by all three windows rather than spelled out at each call site, so
  * none of them can drift into looking like a different app — `y` centers the
  * lights in that shared height, so changing the token means retuning this too.
@@ -45,13 +59,75 @@ const hiddenTitleBar =
     ? ({ titleBarStyle: 'hidden', trafficLightPosition: { x: 14, y: 9 } } as const)
     : {}
 
-let settingsWindow: BrowserWindow | null = null
-let aboutWindow: BrowserWindow | null = null
+/** Every live pane-tree window by id. Insertion order is Map order, which e2e relies on to find the window its fixture launched (see e2e.ts). */
+const paneTreeWindows = new Map<WindowId, BrowserWindow>()
 
-// Only read by the E2E_HIDDEN reset hook (see e2e.ts), which needs whichever
-// main window is current — macOS can close them all and build a new one on
-// 'activate' (see index.ts), so this can't be captured once at startup.
-let mainWindowRef: BrowserWindow | null = null
+/**
+ * Every app window front to back, as far as main can tell: a window moves
+ * to the front when it is created and whenever it gains focus, which on
+ * macOS is the stacking order among one app's windows. Electron has no
+ * "topmost window at this point", and creation order answers it backwards
+ * for a cascade: the oldest window is the one underneath. Settings and
+ * About are in it too — one over the cursor hides the pane-tree window
+ * beneath it as surely as another pane-tree window would.
+ */
+const stack: BrowserWindow[] = []
+
+function trackStacking(win: BrowserWindow): void {
+  const toFront = (): void => {
+    const at = stack.indexOf(win)
+    if (at !== -1) stack.splice(at, 1)
+    stack.unshift(win)
+  }
+  toFront()
+  win.on('focus', toFront)
+  win.on('closed', () => {
+    const at = stack.indexOf(win)
+    if (at !== -1) stack.splice(at, 1)
+  })
+}
+
+/**
+ * Listeners for a pane-tree window closing while the app keeps running (not
+ * during a quit — see `markQuitting`), told how many remain. How layout.ts
+ * hears about closes without this module knowing about persistence. The
+ * window's renderer is already destroyed when they run.
+ */
+type CloseListener = (windowId: WindowId, remaining: number) => void
+
+const closeListeners = new Set<CloseListener>()
+
+export function onPaneTreeWindowClosed(listener: CloseListener): () => void {
+  closeListeners.add(listener)
+  return () => closeListeners.delete(listener)
+}
+
+/**
+ * Set once `before-quit` has committed to quitting — never earlier, since a
+ * cancelled quit must leave a later single close behaving normally. Without
+ * it, every window closing as part of the quit would look like the user
+ * closing it, and layout.ts would forget all but the last.
+ */
+let quitting = false
+
+export function markQuitting(): void {
+  quitting = true
+}
+
+/**
+ * Asked before a pane-tree window closes — a close ends its panes (see
+ * layout.ts) — and resolves whether it may. Injected so this module stays
+ * ignorant of what a window holds; index.ts wires it to the same "you would
+ * be ending live work" dialog a pane close asks. Unset, every close goes
+ * ahead.
+ */
+let closeGuard: ((windowId: WindowId, win: BrowserWindow) => Promise<boolean>) | null = null
+
+export function guardPaneTreeWindowClose(
+  guard: (windowId: WindowId, win: BrowserWindow) => Promise<boolean>
+): void {
+  closeGuard = guard
+}
 
 /**
  * e2e only (E2E_HIDDEN): skip show()/showInactive() entirely and leave the
@@ -71,12 +147,22 @@ function showWhenReady(win: BrowserWindow): void {
   })
 }
 
-/** Loads a renderer entry point into `win` — the dev server in dev, the built file otherwise. */
-function loadRenderer(win: BrowserWindow, htmlFile: string): void {
+/**
+ * Loads a renderer entry point into `win` — the dev server in dev, the built
+ * file otherwise. `query` is appended to the URL; the renderer never reads
+ * it, but it gives each pane-tree window a distinct URL, which e2e matches
+ * windows by.
+ */
+function loadRenderer(win: BrowserWindow, htmlFile: string, query?: Record<string, string>): void {
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/${htmlFile}`)
+    const url = new URL(`${process.env.ELECTRON_RENDERER_URL}/${htmlFile}`)
+    for (const [key, value] of Object.entries(query ?? {})) url.searchParams.set(key, value)
+    win.loadURL(url.toString())
   } else {
-    win.loadFile(join(import.meta.dirname, `../renderer/${htmlFile}`))
+    win.loadFile(
+      join(import.meta.dirname, `../renderer/${htmlFile}`),
+      query ? { query } : undefined
+    )
   }
 }
 
@@ -112,19 +198,71 @@ function baseWindowOptions(
   }
 }
 
-export function createWindow(): void {
+/** Offset of a new pane-tree window from the one it cascades off — roughly AppKit's own. */
+const CASCADE_OFFSET_PX = 24
+
+/** A new pane-tree window's size. */
+const PANE_TREE_WINDOW_SIZE = { width: 1200, height: 800 }
+
+/**
+ * Where a new pane-tree window goes when others exist: offset from the
+ * focused one (else the most recent), wrapping to the work-area origin if
+ * the new window — at its own size, not the anchor's — would leave the
+ * display. Undefined for the first window, which takes Electron's default
+ * (centered). Without this every window landed on the same spot and a
+ * second one covered the first completely.
+ */
+function cascadePosition(): Pick<BrowserWindowConstructorOptions, 'x' | 'y'> | undefined {
+  const focused = BrowserWindow.getFocusedWindow()
+  const anchor =
+    (focused && windowIdFor(focused) !== undefined ? focused : undefined) ??
+    livePaneTreeWindows().at(-1)
+  if (!anchor) return undefined
+  const from = anchor.getBounds()
+  const workArea = screen.getDisplayMatching(from).workArea
+  const x = from.x + CASCADE_OFFSET_PX
+  const y = from.y + CASCADE_OFFSET_PX
+  const { width, height } = PANE_TREE_WINDOW_SIZE
+  return {
+    x: x + width > workArea.x + workArea.width ? workArea.x : x,
+    y: y + height > workArea.y + workArea.height ? workArea.y : y
+  }
+}
+
+/** Creates a pane-tree window under `windowId` — minted fresh unless recreating one whose layout was persisted. */
+export function createWindow(windowId: WindowId = createId()): BrowserWindow {
   const mainWindow = new BrowserWindow({
     title: 'Tabs',
-    width: 1200,
-    height: 800,
+    ...PANE_TREE_WINDOW_SIZE,
+    ...cascadePosition(),
     ...baseWindowOptions(contentModuleWindowPreferences())
   })
 
   showWhenReady(mainWindow)
 
-  mainWindowRef = mainWindow
+  paneTreeWindows.set(windowId, mainWindow)
+  trackStacking(mainWindow)
+  // Closing a window ends its panes, the last one's included, so a close
+  // asks first when that would end live work. The one exception is the last
+  // window off macOS: closing it quits the app, and before-quit asks
+  // instead — asking here as well would ask twice. Asking is asynchronous,
+  // so the close is held and re-issued once the answer is yes.
+  let closeConfirmed = false
+  mainWindow.on('close', (event) => {
+    if (quitting || closeConfirmed || !closeGuard) return
+    if (process.platform !== 'darwin' && paneTreeWindows.size <= 1) return
+    event.preventDefault()
+    void closeGuard(windowId, mainWindow).then((proceed) => {
+      if (!proceed || mainWindow.isDestroyed()) return
+      closeConfirmed = true
+      mainWindow.close()
+    })
+  })
   mainWindow.on('closed', () => {
-    if (mainWindowRef === mainWindow) mainWindowRef = null
+    paneTreeWindows.delete(windowId)
+    if (!quitting) {
+      for (const listener of closeListeners) listener(windowId, paneTreeWindows.size)
+    }
   })
 
   // The renderer hides the window header entirely in fullscreen (like a
@@ -152,131 +290,97 @@ export function createWindow(): void {
   // there when the first one does.
   wireContentModulesInto(mainWindow)
 
-  loadRenderer(mainWindow, 'index.html')
+  loadRenderer(mainWindow, 'index.html', { windowId })
+
+  return mainWindow
+}
+
+/** A singleton auxiliary window: opened on demand, focused if already open. */
+interface AuxiliaryWindow {
+  /** Shows and focuses the window, creating it if there isn't one yet. */
+  open(): void
+  /** Whether `win` is this window. */
+  owns(win: BrowserWindow): boolean
 }
 
 /**
- * A real, independent OS window for Settings (see settings.html/
- * settings-main.tsx) — not a modal over the main window, and with no `parent`,
- * matching how a real Preferences window behaves: movable to another Space,
- * usable alongside the main window, closable on its own.
+ * The shape the Settings and About windows share: a real, independent OS
+ * window — no `parent`, so it can move to another Space and stay open beside
+ * the main one — wearing the same `hiddenTitleBar` treatment as the main
+ * window, so its chrome is the app's own (a `.window-titlebar`, see
+ * styles/windowTitlebar.css) and side by side they read as one app. Each
+ * instance holds its own singleton, dropped when the window closes.
  *
- * It wears the same `hiddenTitleBar` treatment as the main window, so its
- * chrome is the app's own (SettingsWindow.tsx draws a .settings-titlebar,
- * the same role the main window's own root tab bar plays — see .tab-bar-root
- * in content/tabs/TabBar.tsx) rather than the OS default — side by side, the
- * two windows read as one app.
+ * `open` needs no guard of its own: its callers — a menu click, a
+ * synchronous ipcMain.on listener — already catch what escapes them (see
+ * menu.ts's withGuardedClicks and ipcListeners.ts's onRendererMessage).
  */
-function createSettingsWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    title: 'Settings',
-    width: 720,
-    height: 560,
-    minWidth: 600,
-    minHeight: 440,
-    maximizable: false,
-    fullscreenable: false,
-    ...baseWindowOptions()
-  })
-
-  showWhenReady(win)
-
-  win.on('closed', () => {
-    settingsWindow = null
-  })
-
-  loadRenderer(win, 'settings.html')
-
-  return win
-}
-
-/**
- * Shows and focuses `get()`'s window, creating it via `create()` and storing
- * it through `set()` if there isn't one yet. Guarded because every caller is
- * unguarded dispatch — a menu click, or a synchronous ipcMain.on listener —
- * where an escaping throw from window construction is the native error modal
- * persist.ts documents. A failed open degrades to "nothing happened".
- */
-function openOrFocus(
-  get: () => BrowserWindow | null,
-  set: (win: BrowserWindow) => void,
-  create: () => BrowserWindow,
-  label: string
-): void {
-  try {
-    const existing = get()
-    if (existing) {
-      if (!e2eHidden) {
-        existing.show()
-        existing.focus()
+function auxiliaryWindow(
+  htmlFile: string,
+  options: BrowserWindowConstructorOptions
+): AuxiliaryWindow {
+  let current: BrowserWindow | null = null
+  return {
+    open() {
+      if (current) {
+        if (!e2eHidden) {
+          current.show()
+          current.focus()
+        }
+        return
       }
-      return
-    }
-    set(create())
-  } catch (error) {
-    console.error(`[tabs] could not open the ${label} window:`, error)
+      const win = new BrowserWindow({ ...options, ...baseWindowOptions() })
+      trackStacking(win)
+      showWhenReady(win)
+      win.on('closed', () => {
+        current = null
+      })
+      loadRenderer(win, htmlFile)
+      current = win
+    },
+    owns: (win) => win === current
   }
 }
 
-/** Opens the Settings window, creating it if needed, or focusing it if already open. */
-export function openSettingsWindow(): void {
-  openOrFocus(
-    () => settingsWindow,
-    (win) => {
-      settingsWindow = win
-    },
-    createSettingsWindow,
-    'Settings'
-  )
-}
+/** Settings (settings.html / settings-main.tsx), behaving like a real Preferences window. */
+const settingsWindow = auxiliaryWindow('settings.html', {
+  title: 'Settings',
+  width: 720,
+  height: 560,
+  minWidth: 600,
+  minHeight: 440,
+  maximizable: false,
+  fullscreenable: false
+})
 
 /**
- * A small, fixed-size window for the app's identity, its attributions and its
- * donation links (see src/renderer/src/about/AboutWindow.tsx). It replaces
- * what `role: 'appMenu'`'s stock About item used to show — Electron's native
- * panel, which can hold a name, a version and an icon and nothing else: no
- * links to open, no per-amount buttons, no copyable addresses.
- *
- * Built like the Settings window rather than like a dialog, and for the same
- * reasons: no `parent`, so it is a real window the user can move to another
- * Space and leave open, and the same `hiddenTitleBar` treatment so its chrome
- * is the app's own. Not resizable, because its content is a fixed column of
- * prose — everything past the fold scrolls inside `.about-body` instead.
+ * The app's identity, its attributions and its donation links (see
+ * src/renderer/src/about/AboutWindow.tsx). It replaces what `role: 'appMenu'`'s
+ * stock About item used to show — Electron's native panel, which can hold a
+ * name, a version and an icon and nothing else: no links to open, no
+ * per-amount buttons, no copyable addresses. Not resizable, because its
+ * content is a fixed column of prose — everything past the fold scrolls
+ * inside `.about-body` instead.
  */
-function createAboutWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    title: 'About Tabs',
-    // Sized so the identity block and all three donation tiers land above the
-    // fold; the credit list below them is reference material and scrolls.
-    width: 460,
-    height: 660,
-    resizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    ...baseWindowOptions()
-  })
+const aboutWindow = auxiliaryWindow('about.html', {
+  title: 'About Tabs',
+  // Sized so the identity block and all three donation tiers land above the
+  // fold; the credit list below them is reference material and scrolls.
+  width: 460,
+  height: 660,
+  resizable: false,
+  maximizable: false,
+  fullscreenable: false
+})
 
-  showWhenReady(win)
-
-  win.on('closed', () => {
-    aboutWindow = null
-  })
-
-  loadRenderer(win, 'about.html')
-
-  return win
+/** Opens the Settings window, creating it if needed, or focusing it if already open. */
+export function openSettingsWindow(): void {
+  settingsWindow.open()
 }
 
 /** Opens the About window, creating it if needed, or focusing it if already open. */
 export function openAboutWindow(): void {
-  openOrFocus(
-    () => aboutWindow,
-    (win) => {
-      aboutWindow = win
-    },
-    createAboutWindow,
-    'About'
-  )
+  aboutWindow.open()
 }
 
 /**
@@ -284,19 +388,44 @@ export function openAboutWindow(): void {
  * rather than a pane-tree window. What the File menu's Close Pane item
  * branches on: neither hosts panes, so neither has a listener for the action
  * and for both the item can only mean "close this window" (see menu.ts).
- *
- * One predicate over the set rather than one per window, so the menu keeps a
- * single branch and a fourth window is an edit here instead of there.
  */
 export function isAuxiliaryWindow(win: BrowserWindow): boolean {
-  return win === settingsWindow || win === aboutWindow
+  return settingsWindow.owns(win) || aboutWindow.owns(win)
 }
 
-/**
- * The current pane-tree window, or null when every window has been closed.
- * A getter rather than a value because macOS can close them all and build a
- * new one on 'activate' — see the comment on `mainWindowRef`.
- */
-export function getMainWindow(): BrowserWindow | null {
-  return mainWindowRef
+/** Every live pane-tree window by id. A live view, not a snapshot: read it at the point of use, never across an await. */
+export function getPaneTreeWindows(): ReadonlyMap<WindowId, BrowserWindow> {
+  return paneTreeWindows
+}
+
+/** The pane-tree window `windowId` names, unless it has been destroyed. */
+export function livePaneTreeWindow(windowId: WindowId): BrowserWindow | undefined {
+  const win = paneTreeWindows.get(windowId)
+  return win && !win.isDestroyed() ? win : undefined
+}
+
+/** Every pane-tree window not yet destroyed, oldest first. */
+export function livePaneTreeWindows(): BrowserWindow[] {
+  return [...paneTreeWindows.values()].filter((win) => !win.isDestroyed())
+}
+
+/** Every live app window, frontmost first, with its pane-tree id — undefined for Settings or About. See `stack`. */
+export function windowsFrontToBack(): { win: BrowserWindow; windowId: WindowId | undefined }[] {
+  return stack
+    .filter((win) => !win.isDestroyed())
+    .map((win) => ({ win, windowId: windowIdFor(win) }))
+}
+
+/** The id `win` was registered under, or undefined for an auxiliary or closed window. A linear scan; the registry holds a handful. */
+function windowIdFor(win: BrowserWindow): WindowId | undefined {
+  for (const [id, candidate] of paneTreeWindows) {
+    if (candidate === win) return id
+  }
+  return undefined
+}
+
+/** The id of the pane-tree window owning `webContents`, or undefined for an auxiliary window or a `<webview>` guest. */
+export function windowIdForWebContents(webContents: WebContents): WindowId | undefined {
+  const win = BrowserWindow.fromWebContents(webContents)
+  return win ? windowIdFor(win) : undefined
 }

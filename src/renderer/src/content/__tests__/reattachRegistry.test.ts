@@ -70,4 +70,36 @@ describe('createReattachRegistry', () => {
     vi.advanceTimersByTime(1000)
     expect(dispose).not.toHaveBeenCalled()
   })
+
+  it('abandon cleans up immediately, with no grace period', () => {
+    const registry = createReattachRegistry<{ n: number }>(300)
+    const cleanup = vi.fn()
+    const instance = registry.acquire('a', () => ({ n: 1 }))
+    registry.abandon('a', cleanup)
+    expect(cleanup).toHaveBeenCalledExactlyOnceWith(instance)
+  })
+
+  it('abandon forgets the id, so a later acquire creates fresh', () => {
+    const registry = createReattachRegistry<{ n: number }>(300)
+    registry.acquire('a', () => ({ n: 1 }))
+    registry.abandon('a', () => {})
+    expect(registry.acquire('a', () => ({ n: 2 }))).toEqual({ n: 2 })
+  })
+
+  it('abandon cancels a pending release, so its disposal never fires', () => {
+    const registry = createReattachRegistry<{ n: number }>(300)
+    const dispose = vi.fn()
+    const cleanup = vi.fn()
+    registry.acquire('a', () => ({ n: 1 }))
+    registry.release('a', dispose)
+    registry.abandon('a', cleanup)
+    vi.advanceTimersByTime(1000)
+    expect(dispose).not.toHaveBeenCalled()
+    expect(cleanup).toHaveBeenCalledOnce()
+  })
+
+  it('abandoning an unknown id is a no-op', () => {
+    const registry = createReattachRegistry<{ n: number }>(300)
+    expect(() => registry.abandon('missing', () => {})).not.toThrow()
+  })
 })

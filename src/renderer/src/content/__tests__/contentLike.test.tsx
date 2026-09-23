@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentRendererDef } from '../../core/registry/registry'
 import { useSettingsStore } from '../../core/store/settingsStore'
 import {
-  installTemporaryContentTypes,
-  testLeaf as leaf
+  testLeaf as leaf,
+  registerTestContentType as registerContentType
 } from '../../testing/contentRegistryFixture'
 import { createContentLike } from '../contentLike'
 
@@ -14,8 +14,6 @@ import { createContentLike } from '../contentLike'
 // consults settingsStore, which reads `window.api.settings.getSync()` at
 // module-eval time. In the node project this file would fail on import. Same
 // reasoning as content/__tests__/externalControlVerbs.test.tsx.
-
-const registerContentType = installTemporaryContentTypes()
 
 /** This file's vocabulary — every case here is about a type's `deriveConfig` hook. */
 function registerType(type: string, deriveConfig?: ContentRendererDef['deriveConfig']): void {

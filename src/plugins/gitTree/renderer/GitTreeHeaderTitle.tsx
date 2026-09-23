@@ -13,7 +13,7 @@ function headLabel(head: GitHead): string {
   return head.kind === 'branch' ? head.name : `detached at ${shortHash(head.hash)}`
 }
 
-/** The branch-scope dropdown's options, in the order the issue specifies them. */
+/** The branch-scope dropdown's options, narrowest first. */
 const BRANCH_SCOPE_OPTIONS: Array<{ value: GitBranchScope; label: string }> = [
   { value: 'current', label: 'Current branch' },
   { value: 'local', label: 'All local branches' },
@@ -23,9 +23,8 @@ const BRANCH_SCOPE_OPTIONS: Array<{ value: GitBranchScope; label: string }> = [
 /**
  * The git tree's `ContentRendererDef.HeaderTitle` — the path bar, browse
  * button, HEAD label and branch-scope select, replacing the pane header's
- * whole title slot. Used to be `GitTreeRenderer`'s own `.git-tree-toolbar`;
- * now the header *is* the toolbar, and the body holds only the commit list
- * and detail panel.
+ * whole title slot — the header *is* the toolbar, and the body holds only the
+ * commit list and detail panel.
  *
  * Reads the HEAD label reactively via `gitTreeHeads` rather than a one-time
  * lookup (see gitTreeRegistry.ts's own doc for why: `Pane.tsx` mounts this
@@ -138,8 +137,9 @@ export function GitTreeHeaderTitle({ leaf }: { leaf: LeafContent }) {
         onKeyDown={(event) => {
           if (event.key === 'Enter') applyPath()
           if (event.key === 'Escape') setPathValue(configuredDir ?? '')
-          // The list's own handler is on an ancestor, so an arrow press
-          // inside the input would move the selection as well as the caret.
+          // Contained, so a keystroke meant for the path bar can't also reach
+          // a bubbling keydown listener above it (the commit list's arrow
+          // keys live on the list itself, a sibling, not an ancestor).
           event.stopPropagation()
         }}
         onBlur={applyPath}

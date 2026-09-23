@@ -70,7 +70,7 @@ test('the Settings window loads the terminal appearance editor stylesheet', asyn
 /**
  * The two windows read as one app in the ways that still apply once the main
  * window's root is always a tab group (see `ensureTabsRoot`): its own tab bar
- * (.tab-bar-root) plays the title-bar role Settings' plain .settings-titlebar
+ * (.tab-bar-root) plays the title-bar role Settings' plain .window-titlebar
  * still does, and `trafficLightPosition` in main/windows.ts keeps both bars
  * pinned to the exact same height on purpose, so the two traffic-light
  * clusters land at the same place on screen. Background color is no longer

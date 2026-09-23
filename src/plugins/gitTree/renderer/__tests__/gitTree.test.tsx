@@ -1,10 +1,13 @@
-import { createLeaf } from '@shared/model/factories'
-import { EMPTY_TYPE } from '@shared/model/types'
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { createLeaf, createSplit } from '@shared/model/factories'
+import { findNode } from '@shared/model/tree'
+import { EMPTY_TYPE, type LeafContent } from '@shared/model/types'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { contentRegistry } from '../../../../renderer/src/core/registry/registry'
+import { useContextMenuStore } from '../../../../renderer/src/core/store/contextMenuStore'
 import { useLayoutStore } from '../../../../renderer/src/core/store/layoutStore'
+import { useModalStore } from '../../../../renderer/src/core/store/modalStore'
 import { createRendererPluginContext } from '../../../../renderer/src/plugin/context'
 import { renderApp } from '../../../../renderer/src/testing/renderApp'
 import { GIT_TREE_TYPE } from '../../shared/manifest'
@@ -71,8 +74,19 @@ async function renderGitTree(commits: Commit[] = HISTORY, cwd = '/repo'): Promis
   window.__fakeApi?.setGitTreeLog(commits, { root: cwd })
   const leaf = createLeaf(GIT_TREE_TYPE, { cwd })
   renderApp({ root: leaf, settings: { disabledContentTypes: [] } })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
   return leaf.id
+}
+
+/**
+ * Waits for the list *and* its default selection. The list renders a commit
+ * before the selection effect lands, so a test that asserts on the selection
+ * right after the list appears races that effect — measured at roughly one
+ * failure in eight full parallel runs.
+ */
+async function listReady(): Promise<void> {
+  await screen.findByTestId('git-tree-list')
+  await waitFor(() => expect(selectedRow()).toBeDefined())
 }
 
 function rows(): HTMLElement[] {
@@ -211,6 +225,23 @@ test('the detail panel shows the full hash, author with email, and changed files
   expect(files[1]).not.toHaveTextContent('+0')
 })
 
+test("moving to a directory that isn't a repository stops the title naming the old one", async () => {
+  await renderGitTree(HISTORY, '/home/ann/projects/tabs')
+  await waitFor(() => {
+    expect(JSON.stringify(useLayoutStore.getState().root)).toContain('"title":"tabs"')
+  })
+
+  window.__fakeApi?.setGitTreeFailure({ kind: 'not-a-repo', path: '/tmp/nowhere' })
+  const user = userEvent.setup()
+  await user.clear(screen.getByTestId('git-tree-path-input'))
+  await user.type(screen.getByTestId('git-tree-path-input'), '/tmp/nowhere{Enter}')
+
+  await screen.findByTestId('git-tree-empty')
+  await waitFor(() => {
+    expect(JSON.stringify(useLayoutStore.getState().root)).toContain('"title":"nowhere"')
+  })
+})
+
 test('a directory that is not a repository is a sentence, not an error', async () => {
   window.__fakeApi?.setGitTreeFailure({ kind: 'not-a-repo', path: '/tmp/nowhere' })
   renderApp({
@@ -344,7 +375,11 @@ test('a pane created with no directory adopts the default one', async () => {
   await waitFor(() => {
     expect(window.__fakeApi?.gitTreeLogCalls()).toContain('/default-repo')
   })
-  expect(await screen.findByTestId('git-tree-path-input')).toHaveValue('/default-repo')
+  // Awaited on the value itself: the input already exists (empty) before the
+  // directory arrives, and syncing it from config is an effect of its own.
+  await waitFor(() => {
+    expect(screen.getByTestId('git-tree-path-input')).toHaveValue('/default-repo')
+  })
 })
 
 test('a directory arriving while the path bar is being typed in does not replace it', async () => {
@@ -444,7 +479,7 @@ test('auto-refresh-on-focus re-reads the pane when the window regains focus, onl
     root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
     settings: { disabledContentTypes: [], contentTypes: { gitTree: { autoRefreshOnFocus: true } } }
   })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
   const before = window.__fakeApi?.gitTreeLogCalls().length ?? 0
 
   await act(async () => {
@@ -461,7 +496,7 @@ test('...and does not, with the setting at its off-by-default value', async () =
     root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
     settings: { disabledContentTypes: [] }
   })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
   const before = window.__fakeApi?.gitTreeLogCalls().length ?? 0
 
   await act(async () => {
@@ -501,7 +536,7 @@ test('the settings toggles show the author and date columns once enabled', async
       contentTypes: { gitTree: { showAuthorColumn: true, showDateColumn: true } }
     }
   })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
 
   expect(screen.getAllByTestId('git-tree-author')).toHaveLength(4)
   expect(screen.getAllByTestId('git-tree-date')).toHaveLength(4)
@@ -535,7 +570,7 @@ test('a pane restored with a branch scope already chosen opens reading it', asyn
   window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo' })
   const leaf = createLeaf(GIT_TREE_TYPE, { cwd: '/repo', branchScope: 'current' })
   renderApp({ root: leaf, settings: { disabledContentTypes: [] } })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
 
   expect((screen.getByTestId('git-tree-branch-scope') as HTMLSelectElement).value).toBe('current')
   await waitFor(() => {
@@ -554,7 +589,7 @@ test('uncommitted changes render as a dimmed row connected into the graph above 
     root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
     settings: { disabledContentTypes: [] }
   })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
 
   // A real fifth row now, not a separate decoration — same testid, same
   // gutter width as every other row (laneCount is a single shared value), and
@@ -595,7 +630,7 @@ test('selecting the working-tree row shows its own changed files, like a commit'
     root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
     settings: { disabledContentTypes: [] }
   })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
   const user = userEvent.setup()
 
   await user.click(workingTreeRow()!)
@@ -613,13 +648,47 @@ test('selecting the working-tree row shows its own changed files, like a commit'
   expect(screen.getByTestId('git-tree-detail')).toHaveTextContent(MERGE.slice(0, 7))
 })
 
+test('Cmd/Ctrl+R re-reads the working-tree detail, the one row whose detail changes', async () => {
+  const workingTreeDetail = (path: string) => ({
+    hash: '',
+    parents: [MERGE],
+    author: '',
+    authorEmail: '',
+    date: '',
+    refs: [],
+    message: 'Uncommitted changes',
+    files: [{ path, insertions: 1, deletions: 0 }],
+    filesTruncated: false
+  })
+  window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo', hasUncommittedChanges: true })
+  window.__fakeApi?.setGitTreeWorkingTreeDetail(workingTreeDetail('before.ts'))
+  renderApp({
+    root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
+    settings: { disabledContentTypes: [] }
+  })
+  await listReady()
+  await userEvent.setup().click(workingTreeRow()!)
+  await waitFor(() => expect(screen.getByTestId('git-tree-file')).toHaveTextContent('before.ts'))
+
+  // Its hash is always empty, so nothing about the selection changes across
+  // a refresh — only the files behind it.
+  window.__fakeApi?.setGitTreeWorkingTreeDetail(workingTreeDetail('after.ts'))
+  await act(async () => {
+    window.__fakeApi?.fireShortcut('refresh-pane')
+  })
+
+  await waitFor(() => expect(screen.getByTestId('git-tree-file')).toHaveTextContent('after.ts'))
+  // And the re-read kept it selected rather than falling back to HEAD.
+  expect(selectedRow()).toBe(workingTreeRow())
+})
+
 test('Home reaches the working-tree row, and arrow keys walk into and out of it', async () => {
   window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo', hasUncommittedChanges: true })
   renderApp({
     root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
     settings: { disabledContentTypes: [] }
   })
-  await screen.findByTestId('git-tree-list')
+  await listReady()
   const user = userEvent.setup()
   await user.click(screen.getByTestId('git-tree-list'))
 
@@ -636,4 +705,554 @@ test('no working-tree row when the working tree is clean', async () => {
 
   expect(workingTreeRow()).toBeUndefined()
   expect(rows()).toHaveLength(4)
+})
+
+/**
+ * Checking out a commit or branch from the commit list.
+ *
+ * The fresh `branchesAtCommit(hash)` read that drives the whole decision is
+ * scripted per test via `setGitTreeBranchesAtCommit` — an unset hash answers
+ * with every list empty, i.e. "no branch at all", so a test only states what
+ * it actually needs. `HISTORY`'s own `refs` (its `%D`-derived decorations,
+ * asserted elsewhere in this file) are never consulted for this — that is
+ * the point of the fresh read (see git.ts's own comment).
+ */
+describe('checking out a commit or branch', () => {
+  // A safety net, not the plan: every test above is written to leave no
+  // dialog open and no gate held, but a test that fails mid-way (an assertion
+  // throwing before its own cleanup runs) would otherwise leave the modal
+  // shell's single-instance store, or the fake's checkout gate, poisoned for
+  // every later test in this file — turning one failure into a cascade of
+  // unrelated ones. Cheap and unconditional, so it costs nothing when a test
+  // already cleaned up after itself.
+  afterEach(() => {
+    useModalStore.getState().close()
+    useContextMenuStore.getState().close()
+    window.__fakeApi?.setGitTreeCheckoutGate(false)
+    window.__fakeApi?.releaseGitTreeCheckout()
+    window.__fakeApi?.setGitTreeCheckoutFailure(undefined)
+    window.__fakeApi?.setGitTreeBranchesAtCommitRejection(undefined)
+  })
+
+  test('right-click opens a context menu with Checkout then Copy SHA-1, and selects the row it opens on', async () => {
+    await renderGitTree()
+
+    fireEvent.contextMenu(rows()[2]!, { clientX: 10, clientY: 10 })
+
+    const menu = screen.getByTestId('context-menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Checkout', 'Copy SHA-1'])
+    // Selects the same way a plain click would, so the detail panel below
+    // shows the commit the menu (and any dialog it leads to) is acting on —
+    // asserted on the panel's actual content, not just the row highlight:
+    // the detail fetch is its own debounced effect (see GitTreeRenderer's
+    // 100ms timer), so a screenshot taken before it settles can show a
+    // selected row beside a still-empty "Select a commit." panel even though
+    // the wiring is correct.
+    expect(selectedRow()).toBe(rows()[2])
+    await waitFor(() => {
+      expect(screen.getByTestId('git-tree-message')).toHaveTextContent('on main')
+    })
+  })
+
+  test('neither trigger does anything on the synthetic uncommitted-changes row', async () => {
+    window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo', hasUncommittedChanges: true })
+    renderApp({
+      root: createLeaf(GIT_TREE_TYPE, { cwd: '/repo' }),
+      settings: { disabledContentTypes: [] }
+    })
+    await listReady()
+    const before = window.__fakeApi?.gitTreeBranchesAtCommitCalls().length ?? 0
+
+    fireEvent.contextMenu(workingTreeRow()!, { clientX: 10, clientY: 10 })
+    // No menu at all — Copy SHA-1 has no hash to copy here either.
+    expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument()
+
+    fireEvent.doubleClick(workingTreeRow()!)
+    expect(window.__fakeApi?.gitTreeBranchesAtCommitCalls().length).toBe(before)
+  })
+
+  test('right-click → Copy SHA-1 copies the full hash of the row right-clicked, not the one selected before', async () => {
+    await renderGitTree()
+    const before = window.__fakeApi?.gitTreeBranchesAtCommitCalls().length ?? 0
+    const user = userEvent.setup()
+    await user.click(rows()[1]!) // ON_FEATURE
+    expect(selectedRow()).toBe(rows()[1])
+
+    fireEvent.contextMenu(rows()[2]!, { clientX: 10, clientY: 10 }) // ON_MAIN
+    await user.click(screen.getByRole('menuitem', { name: 'Copy SHA-1' }))
+
+    // Exactly the one string, and exactly the hash — nothing around it.
+    expect(window.__fakeApi?.copiedText()).toEqual([ON_MAIN])
+    expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument()
+    // Copying is not a checkout.
+    expect(window.__fakeApi?.gitTreeBranchesAtCommitCalls().length).toBe(before)
+  })
+
+  test('one local branch at the commit: checks out immediately with no dialog, and the pane refreshes to the new HEAD', async () => {
+    await renderGitTree()
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, { local: ['feature'] })
+
+    fireEvent.doubleClick(rows()[1]!) // ON_FEATURE, "on feature"
+
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls()).toContainEqual({
+        kind: 'branch',
+        name: 'feature'
+      })
+    })
+    expect(screen.queryByTestId('git-tree-checkout-choose-dialog')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('git-tree-checkout-detach-dialog')).not.toBeInTheDocument()
+
+    // Refreshed without a manual Cmd/Ctrl+R: the header's HEAD label follows
+    // the fake's own self-mutated head after a successful checkout.
+    await waitFor(() => {
+      expect(screen.getByTestId('git-tree-head')).toHaveTextContent('feature')
+    })
+  })
+
+  test('right-click → Checkout behaves the same as double-click for the one-branch case', async () => {
+    await renderGitTree()
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, { local: ['feature'] })
+    const user = userEvent.setup()
+
+    fireEvent.contextMenu(rows()[1]!, { clientX: 10, clientY: 10 })
+    await user.click(screen.getByRole('menuitem', { name: 'Checkout' }))
+
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls()).toContainEqual({
+        kind: 'branch',
+        name: 'feature'
+      })
+    })
+  })
+
+  test('several local branches at the commit: opens a choose dialog naming the commit, defaulted to the first in refname order', async () => {
+    await renderGitTree()
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_MAIN, { local: ['main', 'stable'] })
+    const user = userEvent.setup()
+
+    fireEvent.doubleClick(rows()[2]!) // ON_MAIN, "on main"
+
+    const dialog = await screen.findByTestId('git-tree-checkout-choose-dialog')
+    expect(dialog).toHaveTextContent('on main')
+    const select = within(dialog).getByTestId('dialog-choose-select') as HTMLSelectElement
+    expect(select.value).toBe('main')
+    const optionValues = within(select)
+      .getAllByRole('option')
+      .map((option) => (option as HTMLOptionElement).value)
+    expect(optionValues).toEqual(['main', 'stable'])
+
+    // Close it — the modal shell is a single app-wide singleton (only one may
+    // be open at a time), so leaving this one open would silently refuse
+    // every dialog a later test in this file tries to open.
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  })
+
+  test('picking a branch in the choose dialog checks it out; Cancel leaves the repo untouched', async () => {
+    await renderGitTree()
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_MAIN, { local: ['main', 'stable'] })
+    const user = userEvent.setup()
+    const before = window.__fakeApi?.gitTreeCheckoutCalls().length ?? 0
+
+    fireEvent.doubleClick(rows()[2]!)
+    let dialog = await screen.findByTestId('git-tree-checkout-choose-dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByTestId('git-tree-checkout-choose-dialog')).not.toBeInTheDocument()
+    expect(window.__fakeApi?.gitTreeCheckoutCalls().length).toBe(before)
+
+    fireEvent.doubleClick(rows()[2]!)
+    dialog = await screen.findByTestId('git-tree-checkout-choose-dialog')
+    await user.selectOptions(within(dialog).getByTestId('dialog-choose-select'), 'stable')
+    await user.click(within(dialog).getByRole('button', { name: 'Checkout' }))
+
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls()).toContainEqual({
+        kind: 'branch',
+        name: 'stable'
+      })
+    })
+  })
+
+  test('a lone remote-tracking branch is offered only when there is no local branch, and creates a tracking branch', async () => {
+    await renderGitTree()
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, {
+      remotes: ['origin/feature-x']
+    })
+
+    fireEvent.doubleClick(rows()[1]!)
+
+    // No prompt — a single remote candidate checks out the same as a single
+    // local branch would.
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls()).toContainEqual({
+        kind: 'remote-branch',
+        remote: 'origin',
+        name: 'feature-x',
+        ref: 'origin/feature-x'
+      })
+    })
+  })
+
+  test('no branch at all: opens a detached-HEAD confirm naming the commit; Cancel leaves the repo untouched', async () => {
+    await renderGitTree()
+    const user = userEvent.setup()
+    const before = window.__fakeApi?.gitTreeCheckoutCalls().length ?? 0
+
+    fireEvent.doubleClick(rows()[3]!) // ROOT, "root commit" — no branchesAtCommit answer set
+
+    const dialog = await screen.findByTestId('git-tree-checkout-detach-dialog')
+    expect(dialog).toHaveTextContent('root commit')
+    expect(dialog).toHaveTextContent('detached')
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByTestId('git-tree-checkout-detach-dialog')).not.toBeInTheDocument()
+    expect(window.__fakeApi?.gitTreeCheckoutCalls().length).toBe(before)
+  })
+
+  test('confirming the detached-HEAD dialog checks out the bare commit, and the HEAD label reads detached', async () => {
+    await renderGitTree()
+    const user = userEvent.setup()
+
+    fireEvent.doubleClick(rows()[3]!)
+    const dialog = await screen.findByTestId('git-tree-checkout-detach-dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Checkout' }))
+
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls()).toContainEqual({
+        kind: 'commit',
+        hash: ROOT
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('git-tree-head')).toHaveTextContent(
+        `detached at ${ROOT.slice(0, 7)}`
+      )
+    })
+  })
+
+  test('a second checkout trigger while one is in flight is ignored outright — no second branchesAtCommit read either', async () => {
+    await renderGitTree()
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, { local: ['feature'] })
+    // Calls accumulate across this whole file (see its own top comment on
+    // why) — every assertion below is a delta off a captured baseline,
+    // never an absolute count.
+    const checkoutCallsBefore = window.__fakeApi?.gitTreeCheckoutCalls().length ?? 0
+    window.__fakeApi?.setGitTreeCheckoutGate(true)
+
+    fireEvent.doubleClick(rows()[1]!)
+    await waitFor(() =>
+      expect(window.__fakeApi?.gitTreeCheckoutCalls().length).toBe(checkoutCallsBefore + 1)
+    )
+    const branchesCallsBefore = window.__fakeApi?.gitTreeBranchesAtCommitCalls().length
+
+    // Dropped synchronously by the in-flight guard, before it would even
+    // re-read refs — a rapid second trigger must not race the first's
+    // still-pending `git switch` over git's own index.lock.
+    fireEvent.doubleClick(rows()[1]!)
+    expect(window.__fakeApi?.gitTreeCheckoutCalls().length).toBe(checkoutCallsBefore + 1)
+    expect(window.__fakeApi?.gitTreeBranchesAtCommitCalls().length).toBe(branchesCallsBefore)
+
+    window.__fakeApi?.releaseGitTreeCheckout()
+    await waitFor(() => {
+      expect(screen.getByTestId('git-tree-head')).toHaveTextContent('feature')
+    })
+    // A later trigger, once the first has actually finished, works again.
+    window.__fakeApi?.setGitTreeCheckoutGate(false)
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_MAIN, { local: ['main'] })
+    fireEvent.doubleClick(rows()[2]!)
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls().length).toBe(checkoutCallsBefore + 2)
+    })
+  })
+
+  test('a failed checkout shows the full refusal text in a one-button alert, and still refreshes', async () => {
+    await renderGitTree()
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, { local: ['feature'] })
+    window.__fakeApi?.setGitTreeCheckoutFailure(
+      { kind: 'failed', message: 'error: local changes would be overwritten' },
+      'error: Your local changes to the following files would be overwritten by checkout:\n\tconflict.txt\nPlease commit your changes or stash them before you switch branches.'
+    )
+    const user = userEvent.setup()
+    const logCallsBefore = window.__fakeApi?.gitTreeLogCalls().length ?? 0
+
+    fireEvent.doubleClick(rows()[1]!)
+
+    const dialog = await screen.findByTestId('git-tree-checkout-failed-dialog')
+    // The full multi-line stderr, not just classify()'s one-line summary —
+    // the file name and the "commit or stash" guidance would be lost by that.
+    expect(dialog).toHaveTextContent('conflict.txt')
+    expect(dialog).toHaveTextContent('Please commit your changes or stash them')
+    expect(dialog.querySelectorAll('button')).toHaveLength(1)
+
+    await user.click(within(dialog).getByRole('button', { name: 'OK' }))
+    expect(screen.queryByTestId('git-tree-checkout-failed-dialog')).not.toBeInTheDocument()
+
+    // Still refreshes on a failure — confirms nothing changed rather than
+    // leaving the pane showing whatever it last happened to show.
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeLogCalls().length).toBeGreaterThan(logCallsBefore)
+    })
+
+    // Leave the fake succeeding again for any test that runs after this one.
+    window.__fakeApi?.setGitTreeCheckoutFailure(undefined)
+  })
+
+  test('an IPC rejection mid-checkout still surfaces the alert instead of failing silently, and a later checkout still works', async () => {
+    await renderGitTree()
+    // Not a `GitFailure` value — the IPC hop itself rejecting (main
+    // reloading mid-call, say), which main's "never rejects" can't cover and
+    // the bridge folds into one (see gitTreeBridge's invokeResult).
+    window.__fakeApi?.setGitTreeBranchesAtCommitRejection(new Error('invoke failed'))
+    const user = userEvent.setup()
+
+    fireEvent.doubleClick(rows()[1]!)
+
+    const dialog = await screen.findByTestId('git-tree-checkout-failed-dialog')
+    expect(dialog).toHaveTextContent('invoke failed')
+    await user.click(within(dialog).getByRole('button', { name: 'OK' }))
+    expect(screen.queryByTestId('git-tree-checkout-failed-dialog')).not.toBeInTheDocument()
+
+    // The in-flight guard was released after the failure — a later
+    // checkout on the same pane still works rather than being stuck
+    // refusing forever.
+    window.__fakeApi?.setGitTreeBranchesAtCommitRejection(undefined)
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, { local: ['feature'] })
+    fireEvent.doubleClick(rows()[1]!)
+
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls()).toContainEqual({
+        kind: 'branch',
+        name: 'feature'
+      })
+    })
+  })
+
+  test('checking out in one pane refreshes another git tree pane pointed at the exact same directory', async () => {
+    window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo' })
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, { local: ['feature'] })
+    const leafA = createLeaf(GIT_TREE_TYPE, { cwd: '/repo' })
+    const leafB = createLeaf(GIT_TREE_TYPE, { cwd: '/repo' })
+    renderApp({
+      root: createSplit('horizontal', [leafA, leafB]),
+      settings: { disabledContentTypes: [] }
+    })
+
+    const lists = await screen.findAllByTestId('git-tree-list')
+    expect(lists).toHaveLength(2)
+    await waitFor(() => expect(screen.getAllByTestId('git-tree-head')).toHaveLength(2))
+
+    const rowsInFirstPane = within(lists[0]!).getAllByTestId('git-tree-row')
+    const featureRow = rowsInFirstPane.find((row) => row.getAttribute('data-hash') === ON_FEATURE)
+    if (!featureRow) throw new Error('feature row not found in first pane')
+    fireEvent.doubleClick(featureRow)
+
+    await waitFor(() => {
+      const heads = screen.getAllByTestId('git-tree-head')
+      expect(heads[0]).toHaveTextContent('feature')
+      expect(heads[1]).toHaveTextContent('feature')
+    })
+  })
+
+  test("a git tree pane pointed at a different directory is not refreshed by another pane's checkout", async () => {
+    window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo' })
+    window.__fakeApi?.setGitTreeBranchesAtCommit(ON_FEATURE, { local: ['feature'] })
+    const leafA = createLeaf(GIT_TREE_TYPE, { cwd: '/repo' })
+    const leafB = createLeaf(GIT_TREE_TYPE, { cwd: '/other-repo' })
+    renderApp({
+      root: createSplit('horizontal', [leafA, leafB]),
+      settings: { disabledContentTypes: [] }
+    })
+
+    const lists = await screen.findAllByTestId('git-tree-list')
+    expect(lists).toHaveLength(2)
+    const otherRepoCallsBefore = (window.__fakeApi?.gitTreeLogCalls() ?? []).filter(
+      (dir) => dir === '/other-repo'
+    ).length
+
+    const rowsInFirstPane = within(lists[0]!).getAllByTestId('git-tree-row')
+    const featureRow = rowsInFirstPane.find((row) => row.getAttribute('data-hash') === ON_FEATURE)
+    if (!featureRow) throw new Error('feature row not found in first pane')
+    fireEvent.doubleClick(featureRow)
+
+    await waitFor(() => {
+      expect(window.__fakeApi?.gitTreeCheckoutCalls()).toContainEqual({
+        kind: 'branch',
+        name: 'feature'
+      })
+    })
+    // Give the (absent) cross-pane refresh a turn it would need to have taken.
+    await Promise.resolve()
+    const otherRepoCallsAfter = (window.__fakeApi?.gitTreeLogCalls() ?? []).filter(
+      (dir) => dir === '/other-repo'
+    ).length
+    expect(otherRepoCallsAfter).toBe(otherRepoCallsBefore)
+  })
+})
+
+describe('the divider between history and details', () => {
+  /** A pane pointed at /repo, opened with `config` on top — how a test stands in for a split saved by an earlier session. */
+  async function renderPane(config: Record<string, unknown> = {}): Promise<string> {
+    window.__fakeApi?.setGitTreeLog(HISTORY, { root: '/repo' })
+    const leaf = createLeaf(GIT_TREE_TYPE, { cwd: '/repo', ...config })
+    renderApp({ root: leaf, settings: { disabledContentTypes: [] } })
+    await listReady()
+    return leaf.id
+  }
+
+  function savedConfig(paneId: string): Record<string, unknown> {
+    const node = findNode(useLayoutStore.getState().root, paneId)
+    if (node?.type !== GIT_TREE_TYPE) throw new Error('git tree pane not found')
+    return (node as LeafContent).config
+  }
+
+  function divider(): HTMLElement {
+    return screen.getByTestId('git-tree-divider')
+  }
+
+  /** The detail panel's share of the body, as the renderer publishes it to CSS. */
+  function detailBasis(): string {
+    return divider().parentElement?.style.getPropertyValue('--git-detail-basis') ?? ''
+  }
+
+  /**
+   * jsdom lays nothing out, so the two rects the divider measures on a press
+   * are stubbed: a 500px body, with the divider's top edge `detailHeight`
+   * above its bottom.
+   */
+  function layOut(detailHeight: number): void {
+    const el = divider()
+    const body = el.parentElement
+    if (!body) throw new Error('divider has no body')
+    body.getBoundingClientRect = () => new DOMRect(0, 0, 400, 500)
+    el.getBoundingClientRect = () => new DOMRect(0, 500 - detailHeight, 400, 0)
+  }
+
+  function press(clientY: number): void {
+    fireEvent.pointerDown(divider(), { pointerId: 1, button: 0, buttons: 1, clientY })
+  }
+
+  function move(clientY: number, buttons = 1): void {
+    fireEvent.pointerMove(divider(), { pointerId: 1, buttons, clientY })
+  }
+
+  function release(clientY: number): void {
+    fireEvent.pointerUp(divider(), { pointerId: 1, button: 0, buttons: 0, clientY })
+  }
+
+  test('an untouched pane keeps the 60/40 it always had, details open', async () => {
+    const paneId = await renderPane()
+
+    expect(detailBasis()).toBe('40%')
+    expect(divider()).not.toHaveAttribute('data-collapsed')
+    expect(screen.getByTestId('git-tree-detail')).toBeInTheDocument()
+    expect(savedConfig(paneId)).not.toHaveProperty('detailFraction')
+  })
+
+  test('a saved split is what the pane opens with', async () => {
+    await renderPane({ detailFraction: 0.25 })
+
+    expect(detailBasis()).toBe('25%')
+  })
+
+  test('a saved collapse shows only the history, and reads no detail it would not show', async () => {
+    const readsBefore = window.__fakeApi?.gitTreeDetailReads().length ?? 0
+    await renderPane({ detailCollapsed: true })
+
+    expect(divider()).toHaveAttribute('data-collapsed', 'true')
+    expect(screen.queryByTestId('git-tree-detail')).not.toBeInTheDocument()
+    // Past the detail read's 100ms debounce, and across a selection change.
+    fireEvent.keyDown(screen.getByTestId('git-tree-list'), { key: 'ArrowDown' })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(window.__fakeApi?.gitTreeDetailReads().length ?? 0).toBe(readsBefore)
+  })
+
+  test('dragging it previews every move, and saves the split on release', async () => {
+    const paneId = await renderPane()
+    layOut(200)
+
+    press(300)
+    move(200)
+    // 100px up from 200px of details in a 500px body.
+    expect(detailBasis()).toBe('60%')
+    // Only the release is worth a layout save.
+    expect(savedConfig(paneId)).not.toHaveProperty('detailFraction')
+
+    release(200)
+    expect(savedConfig(paneId)).toMatchObject({ detailFraction: 0.6, detailCollapsed: false })
+    expect(detailBasis()).toBe('60%')
+  })
+
+  test('dragging it to the bottom collapses the details, and back up reopens them on the selected commit', async () => {
+    const paneId = await renderPane()
+    layOut(200)
+
+    press(300)
+    move(490)
+    release(490)
+    expect(screen.queryByTestId('git-tree-detail')).not.toBeInTheDocument()
+    expect(divider()).toHaveAttribute('data-collapsed', 'true')
+    expect(savedConfig(paneId)).toMatchObject({ detailCollapsed: true })
+
+    // Collapsed, the divider is an 8px bar along the body's bottom.
+    layOut(8)
+    press(496)
+    move(296)
+    release(296)
+    expect(divider()).not.toHaveAttribute('data-collapsed')
+    expect(savedConfig(paneId)).toMatchObject({ detailFraction: 0.416, detailCollapsed: false })
+    // The detail read resumes with the panel.
+    expect(await screen.findByTestId('git-tree-message')).toHaveTextContent('merge feature')
+  })
+
+  test('a press that moves nothing saves nothing', async () => {
+    const paneId = await renderPane()
+    layOut(200)
+
+    press(300)
+    release(300)
+
+    expect(savedConfig(paneId)).not.toHaveProperty('detailFraction')
+    expect(savedConfig(paneId)).not.toHaveProperty('detailCollapsed')
+  })
+
+  test('a release it never saw ends the drag where it was last shown', async () => {
+    const paneId = await renderPane()
+    layOut(200)
+
+    press(300)
+    move(250)
+    // A move with the button up: the release landed somewhere this window
+    // never heard from (a browser pane's guest, say).
+    move(250, 0)
+    expect(savedConfig(paneId)).toMatchObject({ detailFraction: 0.5 })
+
+    // The drag is over, so a later held move is no longer a resize.
+    move(100)
+    expect(detailBasis()).toBe('50%')
+  })
+
+  test('a press a split separator already claimed is left to it', async () => {
+    const paneId = await renderPane()
+    layOut(200)
+    // What react-resizable-panels does for a press inside its own band: claim
+    // it from a document capture listener, before any React handler runs.
+    const claim = (event: Event): void => event.preventDefault()
+    document.addEventListener('pointerdown', claim, true)
+    try {
+      press(300)
+      move(200)
+      release(200)
+    } finally {
+      document.removeEventListener('pointerdown', claim, true)
+    }
+
+    expect(detailBasis()).toBe('40%')
+    expect(savedConfig(paneId)).not.toHaveProperty('detailFraction')
+  })
 })

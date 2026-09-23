@@ -1,5 +1,10 @@
-import type { Api, CoreApi } from '@shared/api'
+import type { Api, CaffeinateFlags } from '@shared/api'
+import type { OwnershipChange } from '@shared/externalControl'
 import type { LayoutSnapshot } from '@shared/layout'
+import type {
+  CrossWindowMessageFromMain,
+  CrossWindowMessageFromRenderer
+} from '@shared/layoutCrossWindow'
 import { DEFAULT_SETTINGS, type Settings } from '@shared/settings'
 import type { ShortcutActionId } from '@shared/shortcuts'
 import type { ExtraStubType, FakeApiHandle, TestSeed } from '@shared/testing/fakeApiHandle'
@@ -41,14 +46,21 @@ export function createFakeApi(seed: TestSeed = {}): FakeApiHandle {
   const copiedText: string[] = []
   const settingsChange = new Emitter<Partial<Settings>>()
   const fullScreenChange = new Emitter<boolean>()
-  const ownershipChange = new Emitter<{ paneId: string; owned: boolean }>()
+  const ownershipChange = new Emitter<OwnershipChange>()
+  const crossWindowFromMain = new Emitter<CrossWindowMessageFromMain>()
+  const crossWindowSent: CrossWindowMessageFromRenderer[] = []
   // One emitter for every shortcut, carrying the id — the same shape the real
   // bridge uses, so subscribers filter rather than the channel doing it.
   const shortcut = new Emitter<ShortcutActionId>()
   const content = createFakeContentBridge()
+  let caffeinateRunning = false
+  const caffeinateStarts: CaffeinateFlags[] = []
+  let caffeinateStops = 0
+  const caffeinateRunningChange = new Emitter<boolean>()
+  const caffeinateOpenDialog = new Emitter<void>()
 
-  const core: CoreApi = {
-    pane: { confirmClose: async () => handle.confirmCloseResponse },
+  const api: Api = {
+    pane: { confirmClose: async () => true },
     appWindow: {
       isFullScreen: async () => fullScreen,
       onFullScreenChange: (callback) => fullScreenChange.subscribe(callback),
@@ -98,7 +110,22 @@ export function createFakeApi(seed: TestSeed = {}): FakeApiHandle {
       // See settings.set above — write-only by design.
       set: (snapshot) => {
         layoutSets.push(snapshot)
-      }
+      },
+      // Cross-window drag needs a real second window, so main's side is
+      // whatever a test emits (FakeApiHandle.emitCrossWindow) and the
+      // renderer's side is recorded. One message is answered: `release`,
+      // which every targetless in-window drop waits on before flying the
+      // ghost home — with no second window the answer is always "no",
+      // deferred a tick like a real round trip.
+      sendCrossWindow: (message) => {
+        crossWindowSent.push(message)
+        if (message.type === 'release') {
+          queueMicrotask(() =>
+            crossWindowFromMain.emit({ type: 'release-result', committed: false })
+          )
+        }
+      },
+      onCrossWindow: (listener) => crossWindowFromMain.subscribe(listener)
     },
     shortcuts: {
       onShortcut: (id, callback) =>
@@ -111,6 +138,26 @@ export function createFakeApi(seed: TestSeed = {}): FakeApiHandle {
     },
     bell: { ring: () => {} },
     fonts: { listFamilies: async () => [] },
+    caffeinate: {
+      isRunningSync: () => caffeinateRunning,
+      // Synchronous, self-contained flips rather than a round trip a test
+      // would have to separately emit back: a real click on Start/Decaf
+      // should be immediately visible in what the button/menu-forwarding
+      // wiring reads next, the same way the real bridge's own state changes
+      // once main's broadcastRunning lands.
+      start: (flags) => {
+        caffeinateStarts.push(flags)
+        caffeinateRunning = true
+        caffeinateRunningChange.emit(true)
+      },
+      stop: () => {
+        caffeinateStops += 1
+        caffeinateRunning = false
+        caffeinateRunningChange.emit(false)
+      },
+      onRunningChanged: (callback) => caffeinateRunningChange.subscribe(callback),
+      onOpenDialog: (callback) => caffeinateOpenDialog.subscribe(() => callback())
+    },
     externalControl: {
       onRequest: () => () => {},
       respond: () => {},
@@ -130,11 +177,8 @@ export function createFakeApi(seed: TestSeed = {}): FakeApiHandle {
     content: content.api
   }
 
-  const api: Api = core
-
   const handle: FakeApiHandle = {
     api,
-    confirmCloseResponse: true,
     reset(next = {}) {
       settings = { ...DEFAULT_SETTINGS, ...next.settings }
       layout = next.layout
@@ -144,7 +188,10 @@ export function createFakeApi(seed: TestSeed = {}): FakeApiHandle {
       settingsSets.length = 0
       openedExternalUrls.length = 0
       copiedText.length = 0
-      handle.confirmCloseResponse = true
+      caffeinateRunning = false
+      caffeinateStarts.length = 0
+      caffeinateStops = 0
+      crossWindowSent.length = 0
       // Emitter subscriber sets deliberately survive — see FakeApiHandle.reset.
     },
     fireShortcut: (id) => shortcut.emit(id),
@@ -153,9 +200,18 @@ export function createFakeApi(seed: TestSeed = {}): FakeApiHandle {
       fullScreen = value
       fullScreenChange.emit(value)
     },
+    fireCaffeinateOpenDialog: () => caffeinateOpenDialog.emit(),
+    emitCaffeinateRunningChanged: (running) => {
+      caffeinateRunning = running
+      caffeinateRunningChange.emit(running)
+    },
+    caffeinateStarts: () => [...caffeinateStarts],
+    caffeinateStops: () => caffeinateStops,
     emitOwnershipChanged: (paneId, owned) => {
       ownershipChange.emit({ paneId, owned })
     },
+    emitCrossWindow: (message) => crossWindowFromMain.emit(message),
+    crossWindowSent: () => [...crossWindowSent],
     layoutSets: () => [...layoutSets],
     settingsSets: () => [...settingsSets],
     openedExternalUrls: () => [...openedExternalUrls],

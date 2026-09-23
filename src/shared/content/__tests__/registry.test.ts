@@ -17,7 +17,7 @@ describe('the content-type census', () => {
     // The census itself throws at module evaluation on any list/folder
     // mismatch (see buildCensus); what this pins is the part a throw cannot:
     // that the order consumers observe really is the list's, since the
-    // pane-header button order rides on it.
+    // creation-action order (empty-pane toolbar, Cmd+P palette) rides on it.
     expect(CONTENT_TYPE_MANIFESTS.map((manifest) => manifest.type)).toEqual([...PLUGIN_PACKAGES])
   })
 

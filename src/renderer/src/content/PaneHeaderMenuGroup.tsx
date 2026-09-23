@@ -82,8 +82,7 @@ interface PaneHeaderMenuGroupProps {
 
 /**
  * A root chrome button — plain, always-visible, behaves exactly like
- * `HeaderButton` on its own — plus, when it has more than one related
- * action, a menu revealed on hover/focus one level deeper than the outer
+ * `HeaderButton` on its own — plus its related actions in a menu revealed on hover/focus one level deeper than the outer
  * chrome-row reveal (`.pane-header-controls:hover`).
  *
  * *Opening* stays driven by real, synchronous `:hover`/`:focus-within` in
@@ -98,7 +97,7 @@ interface PaneHeaderMenuGroupProps {
  * milliseconds later, lands on the now-revealed menu covering it instead:
  * two different elements, so the browser fires no click on either. Confirmed
  * directly (measured via the DOM, not guessed): that version silently ate
- * every content-type creation click in this exact spot. Only *closing* is
+ * every root-button click in this exact spot. Only *closing* is
  * lagged, and that lives entirely in the stylesheet too — a transition
  * delay on the dropdown's own rule (see `.pane-header-dropdown` in
  * global.css) — which doesn't affect a click, since one only ever happens
@@ -116,10 +115,6 @@ interface PaneHeaderMenuGroupProps {
  * the group's hover/focus satisfied (the menu is still a descendant of it)
  * — so covering the trigger doesn't cause the menu to immediately close
  * under its own reveal.
- *
- * With zero extra items it renders as a bare root button and no hover
- * affordance, which is what keeps a content-type group correct when only
- * one content type is registered.
  */
 export function PaneHeaderMenuGroup({ root, items }: PaneHeaderMenuGroupProps) {
   const groupRef = useRef<HTMLSpanElement>(null)
@@ -146,44 +141,35 @@ export function PaneHeaderMenuGroup({ root, items }: PaneHeaderMenuGroupProps) {
     )
   }
 
-  const hasMenu = items.length > 0
-
   return (
     // Not itself interactive — no click/keyboard handler, just a hover/focus
     // probe that re-measures the dropdown's fit against the viewport. The
     // real interactive elements are the button and menu items inside it.
     // biome-ignore lint/a11y/noStaticElementInteractions: see above
-    <span
-      ref={groupRef}
-      className="pane-header-group"
-      onMouseEnter={hasMenu ? measure : undefined}
-      onFocus={hasMenu ? measure : undefined}
-    >
+    <span ref={groupRef} className="pane-header-group" onMouseEnter={measure} onFocus={measure}>
       <HeaderButton testId={root.testId} label={root.label} onPress={root.onPress}>
         {root.icon}
       </HeaderButton>
-      {hasMenu && (
-        <div
-          ref={dropdownRef}
-          className="pane-header-dropdown"
-          role="menu"
-          aria-label={`${root.label} — more`}
-          style={offsetX ? { transform: `translateX(${offsetX}px)` } : undefined}
-        >
-          {[{ ...root, testId: `${root.testId}-menu-item` }, ...items].map((item) => (
-            <HeaderButton
-              key={item.testId}
-              testId={item.testId}
-              label={item.label}
-              disabled={item.disabled}
-              role="menuitem"
-              onPress={item.onPress}
-            >
-              {item.icon}
-            </HeaderButton>
-          ))}
-        </div>
-      )}
+      <div
+        ref={dropdownRef}
+        className="pane-header-dropdown"
+        role="menu"
+        aria-label={`${root.label} — more`}
+        style={offsetX ? { transform: `translateX(${offsetX}px)` } : undefined}
+      >
+        {[{ ...root, testId: `${root.testId}-menu-item` }, ...items].map((item) => (
+          <HeaderButton
+            key={item.testId}
+            testId={item.testId}
+            label={item.label}
+            disabled={item.disabled}
+            role="menuitem"
+            onPress={item.onPress}
+          >
+            {item.icon}
+          </HeaderButton>
+        ))}
+      </div>
     </span>
   )
 }

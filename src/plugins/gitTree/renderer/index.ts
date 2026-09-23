@@ -8,10 +8,10 @@ import { gitTreeCtx } from './pluginContext'
  * against the renderer plugin API — the single line registerBuiltins needs
  * for this type.
  *
- * Claims no external-control verbs and feeds nothing into core's spatial
- * navigation. The entry point exists anyway so that gaining either later is an
- * edit here rather than in registerBuiltins, which is the point of core
- * listing types instead of listing their capabilities.
+ * Registers the content def; claims no external-control verbs and feeds
+ * nothing into core's spatial navigation. Gaining either later is an edit
+ * here rather than in registerBuiltins, which is the point of core listing
+ * types instead of listing their capabilities.
  */
 export function activate(ctx: RendererPluginContext): void {
   gitTreeCtx.set(ctx)

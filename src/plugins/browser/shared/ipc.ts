@@ -21,7 +21,7 @@ export const BrowserGuestEvent = {
  * placeNewPane runs — well before that verb's relay resolves, which is what
  * left an agent-owned pane's popup-deny and scheme-allowlist guards unarmed
  * for the whole mount/load wait (see main/browserExternalControl.ts's
- * registerBrowserControlVerbs and renderer/browserExternalControl.ts's
+ * registerBrowserControlVerbs and renderer/navigationVerbs.ts's
  * handleCreateBrowserPane).
  */
 export const BrowserMethod = {

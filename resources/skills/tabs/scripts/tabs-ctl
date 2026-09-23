@@ -16,7 +16,7 @@
  * and assemble the wire request — which is what keeps `describe` honest. A
  * schema emitted alongside a separate hand-rolled parser would just be a
  * fourth thing to keep in sync (after the ControlRequest union, the two
- * process-side switches, and SKILL.md); a schema the parser is derived from
+ * process-side verb registries, and SKILL.md); a schema the parser is derived from
  * cannot disagree with what the command actually accepts.
  *
  * Per-flag fields:
@@ -32,8 +32,8 @@
  *   placeholder usage-string stand-in, when `<flagname>` reads badly
  *
  * `target: true` marks the verbs taking an `ElementTarget` — a union of
- * `{ref}` and `{x,y}` that flat flags can't express, and the one shape here
- * that needs its own builder.
+ * `{ref}`, `{x,y}` and a semantic `{role,name,selector,nth}` match that flat
+ * flags can't express, and the one shape here that needs its own builder.
  */
 const TARGET_SCHEMA = {
   oneOf: [
@@ -68,8 +68,8 @@ const TARGET_SCHEMA = {
 }
 
 /**
- * Wire caps restated from src/shared (externalControl.ts and
- * content/browser/externalControl.ts) — the app enforces them, this file only
+ * Wire caps restated from src/shared/externalControl.ts and
+ * src/plugins/browser/shared/externalControl.ts — the app enforces them, this file only
  * states them. `describe` emits them under `limits`, and
  * tabsCtlDescribe.test.ts pins each against the shared constant, so a cap
  * changed in the app fails a test instead of leaving this CLI (and the
@@ -185,7 +185,7 @@ const COMMANDS = {
   'create-browser-pane': {
     request: 'createBrowserPane',
     summary:
-      'Open a browser pane and wait for its first page. It always opens as a new tab alongside whatever is already in the pane you are running in. The returned paneId is the only pane you may target.',
+      'Open a browser pane and wait for its first page. Where it appears relative to the pane you are running in — a new tab (the default), a split, or its own unpinned window — is the user\'s setting (Settings → Browser → "New pane placement"), not a per-call choice. The returned paneId is the only pane you may target.',
     flags: {
       url: { required: true, doc: 'http://, https://, or about:blank.' }
     },
@@ -459,7 +459,11 @@ const COMMANDS = {
       }
     },
     oneOf: ['key', 'command'],
-    result: { command: 'string', note: 'string' }
+    result: {
+      command: 'string',
+      element: { role: 'string', name: 'string', tag: 'string' },
+      note: 'string'
+    }
   },
 
   scroll: {

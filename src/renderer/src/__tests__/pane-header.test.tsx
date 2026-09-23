@@ -13,7 +13,8 @@ import {
   wrapInTabGroup
 } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
-import { registerSecondStubType, STUB_TYPE, unregisterSecondStubType } from '../testing/stubContent'
+import { STUB_TYPE } from '../testing/stubContent'
+import { registerSecondStubType } from '../testing/temporaryStubTypes'
 
 // Ported from e2e/pane-header.spec.ts, with stub content standing in where a
 // terminal was only "some non-empty content". The tests whose subject is the
@@ -167,24 +168,20 @@ test('the header never contributes a content-type creation button, however many 
 
   registerSecondStubType()
 
-  try {
-    // Both bar kinds: a leaf's own title bar, and the docked root's tab strip
-    // (whose own root button is New tab rather than Split horizontally — see
-    // isDockedRoot in PaneHeaderControls.tsx).
-    const leafHeader = headerOf(initialPane())
-    expect(within(leafHeader).queryByTestId('pane-new-stub-button')).not.toBeInTheDocument()
-    expect(within(leafHeader).queryByTestId('pane-new-stub-two-button')).not.toBeInTheDocument()
-    expect(within(leafHeader).getByTestId(PANE_BUTTON.splitHorizontal)).toBeInTheDocument()
-    expect(within(leafHeader).getByTestId(PANE_BUTTON.close)).toBeInTheDocument()
+  // Both bar kinds: a leaf's own title bar, and the docked root's tab strip
+  // (whose own root button is New tab rather than Split horizontally — see
+  // isDockedRoot in PaneHeaderControls.tsx).
+  const leafHeader = headerOf(initialPane())
+  expect(within(leafHeader).queryByTestId('pane-new-stub-button')).not.toBeInTheDocument()
+  expect(within(leafHeader).queryByTestId('pane-new-stub-two-button')).not.toBeInTheDocument()
+  expect(within(leafHeader).getByTestId(PANE_BUTTON.splitHorizontal)).toBeInTheDocument()
+  expect(within(leafHeader).getByTestId(PANE_BUTTON.close)).toBeInTheDocument()
 
-    const rootHeader = headerOf(panes()[0]!)
-    expect(within(rootHeader).queryByTestId('pane-new-stub-button')).not.toBeInTheDocument()
-    expect(within(rootHeader).queryByTestId('pane-new-stub-two-button')).not.toBeInTheDocument()
-    expect(within(rootHeader).getByTestId(PANE_BUTTON.newTab)).toBeInTheDocument()
-    expect(within(rootHeader).getByTestId(PANE_BUTTON.close)).toBeInTheDocument()
-  } finally {
-    unregisterSecondStubType()
-  }
+  const rootHeader = headerOf(panes()[0]!)
+  expect(within(rootHeader).queryByTestId('pane-new-stub-button')).not.toBeInTheDocument()
+  expect(within(rootHeader).queryByTestId('pane-new-stub-two-button')).not.toBeInTheDocument()
+  expect(within(rootHeader).getByTestId(PANE_BUTTON.newTab)).toBeInTheDocument()
+  expect(within(rootHeader).getByTestId(PANE_BUTTON.close)).toBeInTheDocument()
 })
 
 // --- The docked root's own chrome acts on the tab it is showing ---

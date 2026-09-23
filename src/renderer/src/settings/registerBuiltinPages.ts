@@ -27,7 +27,7 @@ import { hasSettingsPage, registerSettingsPage } from './settingsPageRegistry'
  * Sidebar position comes from `order` — core pages carry their own, and each
  * package's is stamped by its context from its census position — so the
  * *activation sequence* here still carries no meaning, while the sidebar ends
- * up in PLUGIN_PACKAGES order all the same (like the pane-header buttons,
+ * up in PLUGIN_PACKAGES order all the same (like the creation actions,
  * arrived at differently).
  */
 const settingsEntries = import.meta.glob<{ activate: (ctx: SettingsPluginContext) => void }>(

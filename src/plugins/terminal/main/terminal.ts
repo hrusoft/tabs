@@ -11,6 +11,7 @@ import {
   getProcessCwdSync
 } from '../../../main/plugin/api'
 import { TerminalMethod, terminalDataEvent, terminalExitEvent } from '../shared/ipc'
+import { ORPHAN_GRACE_MS } from '../shared/orphans'
 import { terminalMainCtx } from './pluginContext'
 
 /**
@@ -46,6 +47,49 @@ interface TerminalEntry {
   pty: IPty
   webContents: WebContents
   unregisterHost: () => void
+  /**
+   * Output held for the next window to attach, while this pty's pane is on
+   * its way to another window (see holdOutput); null when output flows.
+   */
+  held: string[] | null
+  heldLength: number
+}
+
+/**
+ * The most held output kept, in characters: enough for seconds of a noisy
+ * build, bounded so a move that never completes cannot grow it forever.
+ * Past it, newer output is dropped — the pane redraws on the next repaint.
+ */
+const MAX_HELD_OUTPUT = 4 * 1024 * 1024
+
+/**
+ * Ptys that exited while their output was held — their shell ended with its
+ * pane between windows — kept for whichever window attaches next: it gets
+ * the last output and the exit, where it would otherwise find no pty and
+ * quietly spawn a fresh shell over the dead one's scrollback. `webContents`
+ * is the window the pane was leaving, for the orphan sweep.
+ */
+const exitedWhileHeld = new Map<string, { pid: number; held: string[]; webContents: WebContents }>()
+
+/** Sends `to` the output held for it, as one write — it is a byte stream, so chunk boundaries mean nothing. */
+function emitHeld(id: string, held: readonly string[], to: WebContents): void {
+  if (held.length > 0) terminalMainCtx.get().ipc.emit(to, terminalDataEvent(id), held.join(''))
+}
+
+/** Hands `to` a pty's last held output and its exit. */
+function deliverExited(id: string, held: readonly string[], to: WebContents): void {
+  if (to.isDestroyed()) return
+  emitHeld(id, held, to)
+  terminalMainCtx.get().ipc.emit(to, terminalExitEvent(id))
+}
+
+/** Sends everything `entry` was holding to its current host, and lets output flow again. */
+function flushHeldOutput(id: string, entry: TerminalEntry): void {
+  const held = entry.held
+  entry.held = null
+  entry.heldLength = 0
+  if (!held || entry.webContents.isDestroyed()) return
+  emitHeld(id, held, entry.webContents)
 }
 
 /** Main-process registry of live pty processes, keyed by the leaf ContentNode's id. */
@@ -71,12 +115,21 @@ function createTerminal(
   cols: number,
   rows: number
 ): number {
+  const exited = exitedWhileHeld.get(id)
+  if (exited) {
+    exitedWhileHeld.delete(id)
+    deliverExited(id, exited.held, webContents)
+    return exited.pid
+  }
   const existing = terminals.get(id)
   if (existing) {
     // Keep forwarding data to whichever webContents just asked to attach,
-    // and re-point the pane-host registry the same way.
+    // and re-point the pane-host registry the same way. Output held while
+    // the pane crossed windows goes to it first: the renderer subscribes
+    // before it calls create, so none of it lands unheard.
     existing.webContents = webContents
     existing.unregisterHost = terminalMainCtx.get().registerPaneHost(id, webContents)
+    flushHeldOutput(id, existing)
     return existing.pty.pid
   }
 
@@ -128,7 +181,9 @@ function createTerminal(
   terminals.set(id, {
     pty,
     webContents,
-    unregisterHost: terminalMainCtx.get().registerPaneHost(id, webContents)
+    unregisterHost: terminalMainCtx.get().registerPaneHost(id, webContents),
+    held: null,
+    heldLength: 0
   })
 
   // Both handlers swallow exceptions: node-pty can deliver them during final
@@ -137,6 +192,13 @@ function createTerminal(
   pty.onData((data) => {
     try {
       const entry = terminals.get(id)
+      if (entry?.held) {
+        if (entry.heldLength + data.length <= MAX_HELD_OUTPUT) {
+          entry.held.push(data)
+          entry.heldLength += data.length
+        }
+        return
+      }
       if (entry && !entry.webContents.isDestroyed())
         terminalMainCtx.get().ipc.emit(entry.webContents, terminalDataEvent(id), data)
     } catch {
@@ -150,6 +212,15 @@ function createTerminal(
       terminals.delete(id)
       // A self-exiting shell must also stop passing the control caller check.
       entry?.unregisterHost()
+      if (entry?.held) {
+        // Mid-move: nobody is listening yet. See exitedWhileHeld.
+        exitedWhileHeld.set(id, {
+          pid: entry.pty.pid,
+          held: entry.held,
+          webContents: entry.webContents
+        })
+        return
+      }
       if (entry && !entry.webContents.isDestroyed())
         terminalMainCtx.get().ipc.emit(entry.webContents, terminalExitEvent(id))
     } catch {
@@ -230,9 +301,90 @@ function disposeTerminal(id: string): void {
   }
 }
 
+/**
+ * The bridge's dispose: only the webContents currently hosting `id` may kill
+ * it. After a cross-window move the pty belongs to the window that
+ * reattached it, and a late dispose from the window it left (its reattach
+ * cache's grace timer) must not reach the live process.
+ */
+function disposeTerminalFrom(webContents: WebContents, id: string): void {
+  const entry = terminals.get(id)
+  if (entry && entry.webContents !== webContents) return
+  disposeTerminal(id)
+}
+
+/** Pending orphan sweeps, so a test reset can cancel them. */
+const orphanSweeps = new Set<ReturnType<typeof setTimeout>>()
+
+/**
+ * Kills the ptys of a window whose panes core says are gone for good (see
+ * MainPluginModule.onWindowDiscarded): those whose host renderer is already
+ * destroyed now, after `ORPHAN_GRACE_MS`, and only if still hosted there by
+ * then — one being carried to another window is reattached
+ * (`createTerminal` re-points its host) when the destination mounts it.
+ * Left alone, a real orphan would run unseen until quit and then turn up in
+ * the quit dialog.
+ *
+ * The hosts are the ones gone *at this call*, not at the timer: a window
+ * closing during the grace is not this sweep's — in particular the last
+ * window, whose layout is kept so a reactivate reattaches its shells, and
+ * which a sweep that re-asked "destroyed?" at expiry killed along with the
+ * one actually discarded.
+ */
+export function disposeOrphanedTerminals(): void {
+  const gone = new Set(
+    [...terminals.values(), ...exitedWhileHeld.values()]
+      .map((entry) => entry.webContents)
+      .filter((wc) => wc.isDestroyed())
+  )
+  if (gone.size === 0) return
+  const sweep = setTimeout(() => {
+    orphanSweeps.delete(sweep)
+    for (const [id, entry] of [...terminals]) {
+      if (gone.has(entry.webContents)) disposeTerminal(id)
+    }
+    for (const [id, record] of [...exitedWhileHeld]) {
+      if (gone.has(record.webContents)) exitedWhileHeld.delete(id)
+    }
+  }, ORPHAN_GRACE_MS)
+  orphanSweeps.add(sweep)
+}
+
+/** e2e only: kills every pty and forgets any pending orphan sweep. */
+export function resetTerminalsForTests(): void {
+  for (const sweep of orphanSweeps) clearTimeout(sweep)
+  orphanSweeps.clear()
+  exitedWhileHeld.clear()
+  disposeAllTerminals()
+}
+
 /** Kills every remaining pty; called on app quit so nothing is left orphaned. */
 export function disposeAllTerminals(): void {
   for (const id of [...terminals.keys()]) disposeTerminal(id)
+}
+
+/**
+ * Starts holding `id`'s output (see TerminalEntry.held) — only at the
+ * request of the window currently hosting it, which is the one its pane is
+ * leaving, the same rule `disposeTerminalFrom` applies.
+ */
+function holdOutputFrom(webContents: WebContents, id: string): void {
+  const entry = terminals.get(id)
+  if (!entry || entry.webContents !== webContents) return
+  entry.held ??= []
+}
+
+/** Ends a hold for a move that did not happen, delivering the held output to its host. */
+function releaseOutputFrom(webContents: WebContents, id: string): void {
+  const exited = exitedWhileHeld.get(id)
+  if (exited?.webContents === webContents) {
+    exitedWhileHeld.delete(id)
+    deliverExited(id, exited.held, webContents)
+    return
+  }
+  const entry = terminals.get(id)
+  if (!entry || entry.webContents !== webContents) return
+  flushHeldOutput(id, entry)
 }
 
 /** Wires the terminal's bridge methods — the main half of renderer/terminalBridge.ts. Nothing but IPC. */
@@ -251,8 +403,10 @@ export function registerTerminalIpc(): void {
   ipc.on(TerminalMethod.resize, (_event, id, cols, rows) =>
     resizeTerminal(id as string, cols as number, rows as number)
   )
-  ipc.handle(TerminalMethod.dispose, (_event, id) => disposeTerminal(id as string))
+  ipc.handle(TerminalMethod.dispose, (event, id) => disposeTerminalFrom(event.sender, id as string))
   ipc.handle(TerminalMethod.getCwd, (_event, id) => getTerminalCwd(id as string))
+  ipc.on(TerminalMethod.holdOutput, (event, id) => holdOutputFrom(event.sender, id as string))
+  ipc.on(TerminalMethod.releaseOutput, (event, id) => releaseOutputFrom(event.sender, id as string))
 }
 
 /**

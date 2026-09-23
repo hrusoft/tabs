@@ -3,6 +3,7 @@ import { collectLeaves } from '@shared/model/tree'
 import type { NodeId, Tab, TabsContent } from '@shared/model/types'
 import { paneAttr } from '@shared/paneDomAttrs'
 import { Fragment, useState } from 'react'
+import { useCaffeinateStore } from '../../caffeinate/caffeinateStore'
 import { paneTitleForContent } from '../../core/registry/titles'
 import { useBellStore } from '../../core/store/bellStore'
 import { useContextMenuStore } from '../../core/store/contextMenuStore'
@@ -17,7 +18,7 @@ import { fireAndReport } from '../fireAndReport'
 import { chromePointerDown, pinOrUnpinItem } from '../floating/chrome'
 import { useFloatingWindow } from '../floating/floatingContext'
 import { InlineTitleEditor } from '../InlineTitleEditor'
-import { BellIcon, PlusIcon, SettingsIcon } from '../icons'
+import { BellIcon, CoffeeCupIcon, PlusIcon, SettingsIcon } from '../icons'
 import { PaneGrip, PaneHeaderControls } from '../PaneHeaderControls'
 import { HeaderButton } from '../PaneHeaderMenuGroup'
 import { placeNewPaneLike } from '../placement'
@@ -35,10 +36,29 @@ function RootSettingsButton() {
     <HeaderButton
       testId="settings-open-button"
       label="Settings"
-      className="tab-bar-settings-button"
+      className="tab-bar-icon-button"
       onPress={() => window.api.appWindow.openSettings()}
     >
       <SettingsIcon />
+    </HeaderButton>
+  )
+}
+
+/**
+ * Appears only while the managed caffeinate process is running (see
+ * caffeinateStore.ts) — clicking it does exactly what the File menu's Decaf
+ * item does, straight to main, no dialog involved. Lives immediately before
+ * RootSettingsButton, on the same root-only bar.
+ */
+function CaffeinateButton() {
+  return (
+    <HeaderButton
+      testId="caffeinate-decaf-button"
+      label="Decaf"
+      className="tab-bar-icon-button"
+      onPress={() => window.api.caffeinate.stop()}
+    >
+      <CoffeeCupIcon />
     </HeaderButton>
   )
 }
@@ -66,6 +86,7 @@ export function TabBar({ group }: { group: TabsContent }) {
   const renameTab = useLayoutStore((state) => state.renameTab)
   const ungroupTabs = useLayoutStore((state) => state.ungroupTabs)
   const isRoot = useLayoutStore((state) => state.root.id === group.id)
+  const caffeinateRunning = useCaffeinateStore((state) => state.running)
   // Narrow primitive selectors, not the whole drag object: `setPointer`
   // replaces `drag` on every pointermove, and a whole-object subscription
   // would re-render every tab strip at pointer frequency for the entire
@@ -232,6 +253,7 @@ export function TabBar({ group }: { group: TabsContent }) {
         </HeaderButton>
       </div>
       <PaneHeaderControls node={group} />
+      {isRoot && caffeinateRunning && <CaffeinateButton />}
       {isRoot && <RootSettingsButton />}
     </div>
   )

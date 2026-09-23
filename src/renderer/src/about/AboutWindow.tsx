@@ -2,10 +2,11 @@ import { ATTRIBUTIONS, RUNTIME_COMPONENTS } from '@shared/attributions'
 import { CRYPTO_ADDRESSES, DONATION_TIERS, formatDonationAmount } from '@shared/donations'
 import { useEffect, useRef, useState } from 'react'
 import appIcon from '../../../../resources/icon.png'
+import '../styles/windowTitlebar.css'
 import './about.css'
 
 /**
- * The About window's whole tree (see createAboutWindow in
+ * The About window's whole tree (see `aboutWindow` in
  * src/main/windows.ts): who made the app, what it is built on, and how to
  * support it.
  *
@@ -24,14 +25,14 @@ import './about.css'
  * navigate back out of.
  *
  * Like the Settings window it draws its own title bar, since both hide the
- * native one (see `hiddenTitleBar` in windows.ts); `.about-titlebar` is
- * `.settings-titlebar`'s twin so the three windows read as one app.
+ * native one (see `hiddenTitleBar` in windows.ts) — the same
+ * `.window-titlebar`, so the three windows read as one app.
  */
 export function AboutWindow() {
   const info = useAppInfo()
   return (
     <div className="about-shell">
-      <header className="about-titlebar" data-testid="about-titlebar">
+      <header className="window-titlebar" data-testid="about-titlebar">
         About
       </header>
       <div className="about-body" data-testid="about-window">

@@ -11,19 +11,15 @@ import { fireAndReport } from '../fireAndReport'
  * content type — or, when every type is turned off, the one sentence that says
  * why the row is missing and where to fix it.
  *
- * Each button makes the *same* call the pane header's matching creation button
- * makes, aimed at this pane: `openContent(node.id, action.createContent())`.
- * That reads like a new placement rule and isn't one — `tree.openContent`
- * already replaces an empty target in place rather than tabbing beside it (its
- * "an empty pane -> `content` replaces it" branch), so the header button
- * pressed on a blank pane has always filled that pane. This is the same
- * behaviour reached from inside the pane instead of from its chrome, which is
- * why it needs no store operation of its own.
+ * Each button opens its type's content aimed at this pane —
+ * `openContent(node.id, …)` — which needs no placement rule or store operation
+ * of its own: `tree.openContent` already replaces an empty target in place
+ * rather than tabbing beside it (its "an empty pane -> `content` replaces it"
+ * branch).
  *
  * Icons, labels and factories all come from `createAction` on the content
  * registry (../creationActions.ts), so a new content type appears here for
- * free the moment it declares the pane-header button it already had to
- * declare — no list here to add it to.
+ * free the moment it declares a `createAction` — no list here to add it to.
  */
 export function EmptyPaneRenderer({ node }: ContentRendererProps) {
   const isDropTarget = useDragStore(
@@ -48,10 +44,9 @@ export function EmptyPaneRenderer({ node }: ContentRendererProps) {
             <button
               key={action.testId}
               type="button"
-              // Prefixed rather than reused: this pane's own header already
-              // carries a button with `action.testId`, and two elements
-              // sharing a test id inside one pane would break every
-              // exact-match getByTestId aimed at either of them.
+              // Prefixed (`empty-…`): the id every test tier addresses these
+              // buttons by, and distinct from the palette's rows for the same
+              // types.
               data-testid={`empty-${action.testId}`}
               aria-label={action.label}
               title={action.label}
@@ -63,8 +58,8 @@ export function EmptyPaneRenderer({ node }: ContentRendererProps) {
                 // setActivePane no-ops on an id no tree holds — but the
                 // contract belongs here rather than resting on that.)
                 event.stopPropagation()
-                // Origin-aware like the pane header's matching button, and
-                // the origin here is this blank pane itself — which offers no
+                // Origin-aware like every creation path, and the origin here
+                // is this blank pane itself — which offers no
                 // directory, so a type that would have inherited one falls
                 // back to its own default instead. That fallback is the
                 // point: an empty pane is the one origin guaranteed to have

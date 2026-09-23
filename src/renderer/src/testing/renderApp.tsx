@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, type Settings } from '@shared/settings'
 import { type RenderResult, render } from '@testing-library/react'
 import { StrictMode } from 'react'
 import App from '../App'
+import { useCaffeinateStore } from '../caffeinate/caffeinateStore'
 import { resetUnpinMemoryForTests } from '../content/floating/unpin'
 import { useBellStore } from '../core/store/bellStore'
 import { useCommandPaletteStore } from '../core/store/commandPaletteStore'
@@ -11,6 +12,7 @@ import { useContextMenuStore } from '../core/store/contextMenuStore'
 import { useControlStore } from '../core/store/controlStore'
 import { useDragStore } from '../core/store/dragStore'
 import { repairDockedRoot, useLayoutStore } from '../core/store/layoutStore'
+import { useModalStore } from '../core/store/modalStore'
 import { useNavFlashStore } from '../core/store/navFlashStore'
 import { useSettingsStore } from '../core/store/settingsStore'
 import { registerTestContent } from './registerTestContent'
@@ -24,8 +26,9 @@ import { registerTestContent } from './registerTestContent'
  */
 // Anything new that holds renderer store state needs a reset added here or it
 // silently leaks into the next jsdom test — the same rule main/e2e.ts's reset
-// states for main-process state. The list is currently every `create<...>` in
-// core/store.
+// states for main-process state. Almost every `create<...>` here lives under
+// core/store; caffeinateStore is the one exception (it lives beside its
+// feature, not in core/store), and still needs the same treatment.
 function resetStores(root?: ContentNode, settings?: Partial<Settings>): void {
   window.__fakeApi?.reset({ settings })
   // Seeded roots go through the same repair as every real boot path
@@ -43,6 +46,8 @@ function resetStores(root?: ContentNode, settings?: Partial<Settings>): void {
   useBellStore.setState({ ringing: new Set() })
   useControlStore.setState({ controlled: new Set() })
   useCommandPaletteStore.setState({ step: { kind: 'closed' } })
+  useModalStore.setState({ modal: null })
+  useCaffeinateStore.setState({ running: false })
   // Module-level, not a store, but per-test state all the same: where each
   // pane's floating window last sat (floating/unpin.ts).
   resetUnpinMemoryForTests()

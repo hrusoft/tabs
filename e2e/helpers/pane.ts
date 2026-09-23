@@ -32,13 +32,16 @@ export function headerOf(pane: Locator): Locator {
 /**
  * The pane meant to be interacted with in a freshly loaded app or harness
  * page — as opposed to `page.getByTestId('pane').first()`, which is always
- * the docked root's own auto-wrapping tab group now (see `ensureTabsRoot` in
+ * the docked root's own auto-wrapping tab group (see `ensureTabsRoot` in
  * tree.ts). A fresh load starts with exactly that wrapper plus the one real
  * pane its lone default tab holds, in DOM order, so `.nth(1)` is the one a
- * test actually wants to split, fill, close, and so on — the same role
- * `.first()` played before the root was always a tab group. jsdom's twin is
+ * test actually wants to split, fill, close, and so on. jsdom's twin is
  * `initialPane` in src/renderer/src/testing/domQueries.ts.
  */
+export function initialPane(page: Page): Locator {
+  return page.getByTestId('pane').nth(1)
+}
+
 /**
  * The pane enclosing `content` — for a content-body locator (`git-tree`,
  * `browser`) whose header chrome sits beside it, not inside it, so
@@ -48,10 +51,6 @@ export function headerOf(pane: Locator): Locator {
  */
 export function paneOf(content: Locator): Locator {
   return content.locator('xpath=ancestor::*[@data-testid="pane"][1]')
-}
-
-export function initialPane(page: Page): Locator {
-  return page.getByTestId('pane').nth(1)
 }
 
 /**

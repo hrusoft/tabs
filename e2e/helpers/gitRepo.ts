@@ -61,6 +61,13 @@ export function git(cwd: string, args: string[], date = '2026-01-01T00:00:00+00:
   execFileSync('git', args, { cwd, env: gitEnv(date), stdio: 'pipe' })
 }
 
+/** Like `git`, but for a read whose output a test needs (e.g. `rev-parse`), trimmed. */
+export function gitOutput(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, env: gitEnv('2026-01-01T00:00:00+00:00') })
+    .toString()
+    .trim()
+}
+
 /** A directory that is not a repository at all. */
 export function createPlainDirectory(): string {
   return makeDir('tabs-e2e-plain-')
@@ -126,10 +133,20 @@ export function createRepoWithMerge(): string {
  * against one. The local branch that made the commit is deleted afterwards,
  * so only the remote-tracking ref still reaches it — proving `all` sees more
  * than `local` does, not just more than `current`.
+ *
+ * `origin` is a genuinely **configured** remote (`git remote add`, to a URL
+ * that is never fetched from — only its config entry matters), not only a
+ * `refs/remotes/*` ref — measured: `git switch -c <name> --track <ref>`
+ * refuses with "starting point '<ref>' is not a branch" when `origin` isn't a
+ * real configured remote, even though the ref itself resolves fine for
+ * reading. Every other use of this fixture (the branch-scope filter tests) is
+ * unaffected — `git log --remotes` matches `refs/remotes/*` regardless of
+ * whether the remote is configured.
  */
 export function createRepoWithBranches(): string {
   const dir = makeDir('tabs-e2e-branches-')
   git(dir, ['init', '-q', '-b', 'main'])
+  git(dir, ['remote', 'add', 'origin', 'https://example.invalid/repo.git'])
 
   writeFileSync(path.join(dir, 'root.txt'), 'root\n')
   git(dir, ['add', '-A'], '2026-01-01T00:00:00+00:00')
@@ -148,6 +165,57 @@ export function createRepoWithBranches(): string {
   git(dir, ['update-ref', 'refs/remotes/origin/remote-only', 'remote-only'])
   git(dir, ['checkout', '-q', 'main'])
   git(dir, ['branch', '-D', 'remote-only'])
+
+  return dir
+}
+
+/**
+ * A repository with two local branches, `main` and `stable`, pointing at the
+ * exact same commit — checkout's "several branches at one commit" case.
+ * `stable` is created without moving HEAD, so both names resolve to the same
+ * hash.
+ */
+export function createRepoWithTwoBranchesAtOneCommit(): string {
+  const dir = makeDir('tabs-e2e-two-branches-')
+  git(dir, ['init', '-q', '-b', 'main'])
+
+  writeFileSync(path.join(dir, 'root.txt'), 'root\n')
+  git(dir, ['add', '-A'], '2026-01-01T00:00:00+00:00')
+  git(dir, ['commit', '-q', '-m', 'root commit'], '2026-01-01T00:00:00+00:00')
+
+  writeFileSync(path.join(dir, 'shared.txt'), 'shared\n')
+  git(dir, ['add', '-A'], '2026-01-02T00:00:00+00:00')
+  git(dir, ['commit', '-q', '-m', 'shared tip'], '2026-01-02T00:00:00+00:00')
+
+  git(dir, ['branch', 'stable'])
+
+  return dir
+}
+
+/**
+ * A repository set up so switching from `main` to `feature` genuinely
+ * conflicts with an uncommitted local edit — checkout's "git refuses" case.
+ * `conflict.txt` holds a different committed value on each branch, and the
+ * caller is expected to dirty it a third way before attempting the checkout
+ * (see e2e/git-tree.spec.ts's own refusal test) — git only refuses a switch
+ * over a file that both differs between the two branches *and* is locally
+ * modified; a file identical between them is carried over silently no matter
+ * how dirty it is.
+ */
+export function createRepoForConflictingCheckout(): string {
+  const dir = makeDir('tabs-e2e-conflict-')
+  git(dir, ['init', '-q', '-b', 'main'])
+
+  writeFileSync(path.join(dir, 'conflict.txt'), 'main version\n')
+  git(dir, ['add', '-A'], '2026-01-01T00:00:00+00:00')
+  git(dir, ['commit', '-q', '-m', 'initial'], '2026-01-01T00:00:00+00:00')
+
+  git(dir, ['checkout', '-q', '-b', 'feature'])
+  writeFileSync(path.join(dir, 'conflict.txt'), 'feature version\n')
+  git(dir, ['add', '-A'], '2026-01-02T00:00:00+00:00')
+  git(dir, ['commit', '-q', '-m', 'on feature'], '2026-01-02T00:00:00+00:00')
+
+  git(dir, ['checkout', '-q', 'main'])
 
   return dir
 }

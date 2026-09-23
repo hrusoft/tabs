@@ -75,10 +75,11 @@ export interface MainPluginModule {
    */
   windowPreferences?: WebPreferences
   /**
-   * Wires the pane-tree window — the main window only, never the Settings
-   * window, which hosts no panes and so gets none of the preferences above.
-   * Called from createWindow, so it runs again for the window macOS builds on
-   * 'activate' after every window has been closed.
+   * Wires a pane-tree window — every one of them, never the Settings or
+   * About window, which host no panes and so get none of the preferences
+   * above. Called from createWindow, so it runs for each window as it is
+   * created: at boot, for New Window, and for one a macOS reactivate or
+   * restore brings back.
    */
   wireWindow?(window: BrowserWindow): void
   /**
@@ -97,6 +98,21 @@ export interface MainPluginModule {
    * `void`-returning signature, so the guard against that is a runtime one.
    */
   onQuitSync?(): void
+  /**
+   * A pane-tree window closed, and every pane it held is gone for good — any
+   * window, the last one included (macOS keeps the last one's layout for a
+   * reactivate, which brings it back on fresh content, not its panes). Its
+   * renderer is already destroyed and nothing will remount those panes, so
+   * release whatever this type still holds for panes whose
+   * host WebContents is destroyed — the terminal's ptys, which would
+   * otherwise run unreachable until quit. Allow for one exception: a pane
+   * in the middle of a cross-window move is still hosted by the window it
+   * left until another window mounts it, which is why the terminal waits a
+   * grace period for that claim before killing anything.
+   *
+   * Not called while quitting: `onQuitSync` covers that.
+   */
+  onWindowDiscarded?(): void
   /**
    * e2e only: returns this type's mutable main-process state to what a freshly
    * launched app would have. Anything keyed by a pane id belongs here, or it
@@ -195,7 +211,5 @@ export interface MainPluginContext {
    */
   settings: {
     get(): Settings
-    /** Fires after core applies a change; returns the unsubscribe function. */
-    subscribe(listener: (partial: Partial<Settings>) => void): () => void
   }
 }

@@ -4,9 +4,9 @@
  * process's close-blocker registry. It lives here rather than in either
  * process because main's loadSettings runs synchronously before any window
  * exists, so a type's defaults and merge must be importable with no DOM,
- * React, or Electron dependency. Today the descriptors are a static list
- * (CONTENT_TYPE_SETTINGS in settings.ts); a plugin loader could populate
- * that list dynamically without this interface changing.
+ * React, or Electron dependency. The descriptors are gathered from the
+ * package manifests (CONTENT_TYPE_SETTINGS in settings.ts, derived from the
+ * census in content/registry.ts).
  */
 export interface ContentTypeSettingsDescriptor<T = unknown> {
   /** Matches ContentNode.type / the contentRegistry key. */
@@ -35,8 +35,8 @@ export interface ContentTypeSettingsDescriptor<T = unknown> {
    * Name every key the type owns, whether or not this particular file had one:
    * `consumed` means "mine", not "found".
    *
-   * Convention, matching migrateSettings' own doc: fill only namespaced keys
-   * that are ABSENT, so a namespaced value always beats a legacy one.
+   * Convention: fill only namespaced keys that are ABSENT, so a namespaced
+   * value always beats a legacy one.
    *
    * MUST BE TOTAL, exactly like `merge` above — and the consequence is worth
    * spelling out rather than leaving as "don't throw". `loadSettings`

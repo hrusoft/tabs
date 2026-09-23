@@ -16,9 +16,16 @@ window.__fakeApi = handle
 // settings store, which reads the bridge at module-eval time. It has to run
 // here rather than inside mountTestApp so the browser tier boots exactly the
 // way the real entry points do — tokens applied before the first render.
-void Promise.all([import('../core/theme/installTheme'), import('./mountTestApp')]).then(
-  ([{ installTheme }, { mountTestApp }]) => {
-    installTheme()
-    mountTestApp()
-  }
-)
+// installCaffeinate rides along for a sharper reason than "matches
+// main.tsx": it is no longer wired from an effect in <App/> at all (see
+// main.tsx's module comment), so a harness that skipped it here would have
+// no caffeinate wiring, silently, forever.
+void Promise.all([
+  import('../core/theme/installTheme'),
+  import('../caffeinate/installCaffeinate'),
+  import('./mountTestApp')
+]).then(([{ installTheme }, { installCaffeinate }, { mountTestApp }]) => {
+  installTheme()
+  installCaffeinate()
+  mountTestApp()
+})

@@ -6,9 +6,9 @@ import {
 /**
  * Where `createBrowserPane` (the ctl/tabs-skill verb) places a newly created
  * browser pane relative to the caller's own pane — see handleCreateBrowserPane
- * in ../renderer/browserExternalControl.ts. Has no effect on panes a person
- * opens by hand (New Tab, the split shortcuts, the pane-header button all go
- * through content/placement.ts directly and never read this setting).
+ * in ../renderer/navigationVerbs.ts. Has no effect on panes a person
+ * opens by hand (New Tab, the split shortcuts, the empty-pane toolbar and the
+ * Cmd+P palette never read this setting).
  */
 export const BROWSER_NEW_PANE_PLACEMENTS = [
   'tab',

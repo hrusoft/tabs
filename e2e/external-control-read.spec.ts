@@ -25,9 +25,10 @@ import { FIXTURE_ASSET_BYTES, testServerForSpec } from './helpers/testServer'
 const server = testServerForSpec()
 
 test('an agent can read back a pane it owns: info, text, and a real PNG on disk', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -72,9 +73,10 @@ test('an agent can read back a pane it owns: info, text, and a real PNG on disk'
 })
 
 test('screenshot clips to one element, in CSS pixels, at the same scale factor', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url())
 
   const full = await runTabsCtl(['screenshot', '--pane', paneId], env)
@@ -141,9 +143,10 @@ test('read-back verbs refuse a pane this caller does not own', async ({ page, el
 })
 
 test('save-resource gets bytes out of a page: a blob behind a strict CSP, and element srcs', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/blobpage'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -261,9 +264,10 @@ test('save-resource gets bytes out of a page: a blob behind a strict CSP, and el
 })
 
 test('save-resource reads a blob the page only minted — the about:blank cases the resource tree cannot see', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', 'about:blank')
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -326,9 +330,10 @@ test('save-resource reads a blob the page only minted — the about:blank cases 
  * answer rather than an obviously wrong one.
  */
 test('pane-info flags an error page and refuses to invent a viewport for a hidden pane', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url())
 
   // A healthy, visible pane: a real viewport, and neither flag.
@@ -387,8 +392,11 @@ test('pane-info flags an error page and refuses to invent a viewport for a hidde
  * which is what makes the narrowed reads below prove something rather than
  * merely agreeing with the unnarrowed one.
  */
-test('read-page narrows by role and selector, and pages by offset', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('read-page narrows by role and selector, and pages by offset', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/listing'))
 
   // Bare read: capped, and the <select> really is out of reach.
@@ -451,8 +459,11 @@ test('read-page narrows by role and selector, and pages by offset', async ({ pag
   await closeAgentSession(page, env, paneId)
 })
 
-test('an agent can read the console, including a message that arrives late', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('an agent can read the console, including a message that arrives late', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -521,9 +532,10 @@ test('an agent can read the console, including a message that arrives late', asy
 })
 
 test('an agent can read network metadata, with credential headers redacted by default', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -567,9 +579,10 @@ test('an agent can read network metadata, with credential headers redacted by de
 })
 
 test('an agent can capture response bodies: opt-in, size-capped and content-type aware', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -676,9 +689,10 @@ test('an agent can capture response bodies: opt-in, size-capped and content-type
  * there is nothing to recover afterwards.
  */
 test('read-network can answer briefly, to a file, and hand back one body whole', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url())
 
   // --brief keeps the identity/outcome fields and drops the header maps.
@@ -833,9 +847,10 @@ test('read-network can answer briefly, to a file, and hand back one body whole',
 })
 
 test('read-network narrows to what broke and collapses a poll loop into one counted entry', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -931,9 +946,10 @@ test('capture verbs refuse a pane this caller does not own', async ({ page, elec
 })
 
 test('read verbs report readiness, and settled flips only with the DOM actually quiet', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -983,9 +999,10 @@ test('read verbs report readiness, and settled flips only with the DOM actually 
 })
 
 test('read verbs report frame/shadow counts, and coordinate clicks reach inside both even though reads cannot', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/nested'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -1134,9 +1151,10 @@ test('read verbs report frame/shadow counts, and coordinate clicks reach inside 
 })
 
 test('screenshot reveals a backgrounded pane itself and says so with activated: true', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
 
@@ -1167,9 +1185,10 @@ test('screenshot reveals a backgrounded pane itself and says so with activated: 
 })
 
 test('screenshot --no-activate fails on a backgrounded pane and leaves the visible tab alone', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
 

@@ -3,9 +3,8 @@
  * stamps these (Pane, TabBar, EmptyPaneRenderer) and everything that queries
  * them back off the live DOM (dragController's hit-testing, spatialNav,
  * paneDom, and both test tiers through testing/paneSelectors.ts and
- * e2e/helpers). Renaming one used to be an eight-file edit with no compile
- * error anywhere; every producer and consumer now spells the name through
- * this map. Process-agnostic on purpose — no DOM API is touched here, so the
+ * e2e/helpers). Every producer and consumer spells the name through this
+ * map, so renaming one is a compile error wherever it's stale. Process-agnostic on purpose — no DOM API is touched here, so the
  * Playwright tier's node-side helpers can import it too.
  */
 export const PANE_ATTR = {

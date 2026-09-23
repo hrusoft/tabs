@@ -30,9 +30,13 @@ export function onRendererMessage<Args extends unknown[]>(
  * state — an async invoke + hydrate-in-effect flashes defaults for a frame
  * and lets an early user action be overwritten by the late response (see
  * settingsStore.ts / layoutStore.ts).
+ *
+ * `value` receives the event so a per-window getter (layout.ts's, resolving
+ * which pane-tree window asked) can tell callers apart; every other caller
+ * here ignores the parameter.
  */
-export function registerSyncGetter(channel: string, value: () => unknown): void {
+export function registerSyncGetter(channel: string, value: (event: IpcMainEvent) => unknown): void {
   onRendererMessage(channel, (event) => {
-    event.returnValue = value()
+    event.returnValue = value(event)
   })
 }

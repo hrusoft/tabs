@@ -481,3 +481,40 @@ test('a centered position leaves equal margins on both axes, not an inset corner
   // Not merely symmetrical by accident of being in a corner.
   expect(win.x - origin.x).toBeGreaterThan(NEW_PANE_SPAWN_SPACING)
 })
+
+// A floating window's panes stay in it (an accepted limitation of the
+// cross-window drag), so dragging one must not arm main's cursor poll:
+// armed, another window would preview a drop this window's detach then
+// refuses. A docked pane's drag arms, which keeps the refusal non-vacuous.
+test('dragging a pane inside a floating window never offers it to another window', async ({
+  page
+}) => {
+  const armed = () =>
+    page.evaluate(
+      () => (window.__fakeApi?.crossWindowSent() ?? []).filter((m) => m.type === 'armed').length
+    )
+  const engage = async (pane: ReturnType<typeof initialPane>) => {
+    const box = await requireBox(headerOf(pane))
+    await grabAndHover(headerOf(pane), box.x + box.width / 2 + 30, box.y + box.height + 30)
+    await expect(page.locator('.drag-ghost')).toBeVisible()
+  }
+  const cancel = async () => {
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.drag-ghost')).toHaveCount(0)
+    await page.mouse.up()
+  }
+
+  await splitHorizontal(initialPane(page))
+  await engage(dockedPanes(page).nth(1))
+  expect(await armed()).toBe(1)
+  await cancel()
+
+  await unpin(headerOf(dockedPanes(page).nth(2)))
+  const float = floatingWindows(page).first()
+  await splitHorizontal(windowPane(float))
+  const inner = float.getByTestId('pane')
+  await expect(inner).toHaveCount(2)
+  await engage(inner.last())
+  expect(await armed()).toBe(1)
+  await cancel()
+})

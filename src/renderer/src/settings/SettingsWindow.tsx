@@ -1,3 +1,4 @@
+import '../styles/windowTitlebar.css'
 import './settings.css'
 import { isContentTypeEnabled } from '@shared/content/enablement'
 import { useState, useSyncExternalStore } from 'react'
@@ -19,8 +20,8 @@ import {
  *
  * The title bar above it is the app's own chrome, not the OS's: this window
  * hides its native title bar the same way the main one does (see
- * createSettingsWindow in src/main/windows.ts), so it has to draw and provide
- * its own drag region — .settings-titlebar, sized and positioned to match
+ * `settingsWindow` in src/main/windows.ts), so it has to draw and provide
+ * its own drag region — .window-titlebar, sized and positioned to match
  * the main window's own root tab bar (.tab-bar-root in
  * content/tabs/TabBar.tsx), so the two read as one app's chrome even though
  * they're two different mechanisms (this window has no tab group of its own
@@ -53,7 +54,7 @@ export function SettingsWindow() {
   const ActivePage = pages.find((page) => page.id === visibleTab)?.Component
   return (
     <div className="settings-shell">
-      <header className="settings-titlebar" data-testid="settings-titlebar">
+      <header className="window-titlebar" data-testid="settings-titlebar">
         Settings
       </header>
       <div className="settings-window" data-testid="settings-window">

@@ -28,10 +28,12 @@
    gutter is how far the root tab bar's content starts in from the left to
    clear the macOS traffic lights, tuned against the same position — named
    here so the tests that pin it read the token rather than restating the
-   number. */
+   number. The monospace stack sits with them for the same reason: every
+   window that shows a literal (a shortcut, a hash, a path) shares it. */
 :root {
   --window-titlebar-height: 30px;
   --traffic-light-gutter: 89px;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 * {
@@ -126,7 +128,6 @@ body {
    already declares — `--surface` is this level's, `--surface-next` the one a
    tab reveals when opened. */
 .pane {
-  box-sizing: border-box;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -189,12 +190,10 @@ body {
    narrow suppression to a subset of sides for one of its children — see
    ContentRendererProps.suppressBorderLeft/Right/Bottom and SplitRenderer's
    childEdgeProps. A single pane that IS a tabs-group's whole tab
-   content still gets all three classes, same net effect as the old combined
-   rule; the split path is what needed the split. Each rule sets only its own
-   side's longhand — the old combined rule's `border: none` shorthand reset
-   all four sides at once, which is exactly wrong here: applying two of these
-   three classes together must leave the third side's `.pane` border (top
-   included) alone. */
+   content gets all three. Each rule sets only its own side's longhand — a
+   `border: none` shorthand would reset all four sides at once, which is
+   exactly wrong here: applying two of these three classes together must
+   leave the third side's `.pane` border (top included) alone. */
 .pane-suppress-left {
   border-left: none;
 }
@@ -233,8 +232,8 @@ body {
    `--chrome-bottom` alone is the right distance — subtracting a pixel for it
    was double-counting an offset that was never there for the overlay to
    begin with. Confirmed by measuring: at `chrome-bottom - 1px` the outline's
-   rendered top sat 1px above the chrome bar's own bottom border (the
-   overhang the ticket reported); at `chrome-bottom` it lands exactly flush.
+   rendered top sat 1px above the chrome bar's own bottom border; at
+   `chrome-bottom` it lands exactly flush.
 
    An overlay rather than a real border, for the reason activation is kept
    free of layout everywhere here: a border appearing on activation would
@@ -374,17 +373,16 @@ body {
   cursor: default;
 }
 
-/* The moved toolbar icons read at a smaller size than they did in the old
-   34px toolbar, to sit closer to the glyph buttons' visual weight in the
-   compact header. */
+/* Header icons are drawn small, to sit close to the glyph buttons' visual
+   weight in the compact header. */
 .pane-header-button svg {
   display: block;
   width: 13px;
   height: 13px;
 }
 
-/* Divides the creation groups (split/tab actions, content-type creation)
-   from the destructive group (close, clear). */
+/* Divides the creation groups (split and tab actions) from the destructive
+   group (close, clear). */
 .pane-header-separator {
   flex: none;
   width: 1px;
@@ -553,8 +551,11 @@ body {
    the thing demanding attention, not a trailing decoration easy to miss
    beside the close button/header controls. Mounted only while ringing, so
    the loop just runs for as long as the element exists — no
-   forwards/onAnimationEnd teardown like nav-flash's one-shot fade needs. */
-.bell-icon {
+   forwards/onAnimationEnd teardown like nav-flash's one-shot fade needs.
+   The same color and pulse mark the ringing pane's own content outline
+   (.pane-alert::after, below), declared once so the two breathe in sync. */
+.bell-icon,
+.pane-alert::after {
   --cue-color: var(--bell-alert);
   --cue-pulse: bell-pulse 3s ease-in-out infinite;
 }
@@ -575,8 +576,8 @@ body {
   display: block;
 }
 
-/* Shared by .bell-icon and .pane-alert::after below, so the two breathe in
-   sync rather than as two independently-timed loops. Never below 30%
+/* Shared by .bell-icon and .pane-alert::after, so the two breathe in sync
+   rather than as two independently-timed loops. Never below 30%
    opacity — a bell that fades near-invisible reads as "attention that's
    stopped," not "attention pending" — and opacity-only (no scale/size
    change): a growing icon reads as a flash, which is exactly what this
@@ -603,31 +604,21 @@ body {
   }
 }
 
-/* The bell's cue on the pane's own content, not just its chrome — the shared
-   overlay box above (this pane's content area, its chrome bar excluded; see
-   that rule's comment for the geometry rationale), recolored and pulsing
-   instead of static. It keeps its own color rule rather than being merged into
-   .pane-active's, because the two classes genuinely coexist: ring() only drops
-   a bell when the pane is both active *and* the window focused (bellStore.ts),
-   so an active pane ringing while the window is unfocused is a common case,
-   not an edge one. Declared after .pane-active::after on purpose — same
-   specificity, so the cascade alone (last rule wins on the one property that
-   conflicts, `border`) lets the pulsing bell color win over the static accent
-   one when both apply, no z-index needed. And deliberately no z-index here
-   either, for the same reason as .pane-active::after: .tab-active (1) must
-   still break this outline under the active tab, exactly as it breaks the
-   neutral and active-accent ones. */
-.pane-alert::after {
-  --cue-color: var(--bell-alert);
-  --cue-pulse: bell-pulse 3s ease-in-out infinite;
-}
-
-/* One rule for both cue outlines, parameterized like the icons above: each
-   marker class sets only --cue-color/--cue-pulse. The cascade story in the
-   comments above still holds — this rule sits after .pane-active::after, and
-   for a pane both ringing and controlled the later marker rule (Controlled
-   panes section) wins the custom properties exactly as the later full rule
-   used to win `border`.
+/* The bell's and the agent's cue on the pane's own content, not just its
+   chrome — the shared overlay box (this pane's content area, its chrome bar
+   excluded; see that rule's comment for the geometry), recolored and pulsing
+   instead of static, parameterized like the icons: each marker sets only
+   --cue-color/--cue-pulse. Kept apart from .pane-active's color rather than
+   merged into it, because the classes genuinely coexist: ring() only drops a
+   bell when the pane is both active *and* the window focused (bellStore.ts),
+   so an active pane ringing while the window is unfocused is a common case.
+   Declared after .pane-active::after on purpose — same specificity, so the
+   cascade alone (last rule wins on the one conflicting property, `border`)
+   lets the pulsing cue win over the static accent when both apply. For a pane
+   both ringing and controlled, the later marker (Controlled panes section)
+   wins the custom properties. Deliberately no z-index, for the same reason as
+   .pane-active::after: .tab-active (1) must still break this outline under
+   the active tab, exactly as it breaks the neutral and active-accent ones.
 
    The box-shadow is an inward glow off the same border, not a second effect:
    `inset` paints from the pseudo-element's own edge toward its center, so it
@@ -656,8 +647,10 @@ body {
    in the one place the product spec calls out: this never propagates to a
    parent tab. A controlled pane isn't demanding the user's attention the way
    a bell is — it's a pane already being watched, by something else — so
-   TabBar's containment check has no counterpart here on purpose. */
-.control-icon {
+   TabBar's containment check has no counterpart here on purpose. Declared
+   after the bell's marker, so it wins the cue for a pane that is both. */
+.control-icon,
+.pane-controlled::after {
   --cue-color: var(--agent);
   --cue-pulse: control-pulse 4.5s ease-in-out infinite;
 }
@@ -680,18 +673,6 @@ body {
   69% {
     opacity: 0.3;
   }
-}
-
-/* The shared overlay box again (this pane's content area, its chrome bar
-   excluded — declared with .pane-active::after in the Panes section), and the
-   same cascade trick as the bell: declared after .pane-active::after so the
-   cascade lets it win on the one conflicting property (border) when a pane is
-   simultaneously active and controlled — no z-index needed — and .tab-active
-   (1) still breaks it under an active tab for the same reason it breaks the
-   others. */
-.pane-controlled::after {
-  --cue-color: var(--agent);
-  --cue-pulse: control-pulse 4.5s ease-in-out infinite;
 }
 
 /* --- Tabs --- */
@@ -740,7 +721,7 @@ body {
    structurally `.app-content`'s only child, which floating windows (drawn
    in .floating-layer) can never be — gets a taller chrome bar to fit the
    macOS traffic lights — --window-titlebar-height, shared with the Settings
-   window's own title bar (.settings-titlebar), and trafficLightPosition in
+   and About windows' own title bar (.window-titlebar), and trafficLightPosition in
    main/windows.ts is tuned to center in that same number — plus the
    traffic-light gutter itself. In fullscreen macOS hides the lights, so
    both collapse and the bar reads exactly like a nested one. Overriding
@@ -776,29 +757,30 @@ body {
    it. */
 .tab-bar-root .pane-header-controls,
 .tab-bar-root .pane-header-dropdown,
-.tab-bar-settings-button {
+.tab-bar-icon-button {
   -webkit-app-region: no-drag;
 }
 
 /* A modifier over .pane-header-button (the button renders through
-   HeaderButton — see RootSettingsButton in TabBar.tsx): only what differs
-   from a group's own chrome buttons lives here — kept off the window edge,
-   dimmed at rest since it sits on the bar permanently rather than inside a
+   HeaderButton — see RootSettingsButton and CaffeinateButton in TabBar.tsx,
+   the two buttons the root bar carries permanently): only what differs from
+   a group's own chrome buttons lives here — kept off the window edge, dimmed
+   at rest since it sits on the bar permanently rather than inside a
    hover-revealed toolbar, and a slightly larger glyph to read as window
    chrome. The svg rule wins over .pane-header-button's by source order at
    equal specificity. */
-.tab-bar-settings-button {
+.tab-bar-icon-button {
   flex: none;
   color: var(--text-dim);
   padding: 4px;
   margin-right: 6px;
 }
 
-.tab-bar-settings-button:hover {
+.tab-bar-icon-button:hover {
   color: var(--text);
 }
 
-.tab-bar-settings-button svg {
+.tab-bar-icon-button svg {
   width: 15px;
   height: 15px;
 }
@@ -1003,10 +985,9 @@ body {
   transition: opacity 0.1s ease;
 }
 
-/* Revealed on hover only, including on the active tab, which used to show it
-   unconditionally: the slot is reserved either way (`opacity`, not
-   `display`), so nothing reflows when it appears — but a tab is now sized to
-   its own label, and a permanently visible × on the one tab that is already
+/* Revealed on hover only, the active tab included: the slot is reserved
+   either way (`opacity`, not `display`), so nothing reflows when it appears —
+   but a tab is sized to its own label, and a permanently visible × on the one tab that is already
    the widest of the group reads as clutter rather than as an affordance. */
 .tab:hover .tab-close,
 .tab:focus-visible .tab-close {
@@ -1032,16 +1013,10 @@ body {
 
 /* Sizing only — the overflow/clip behavior for both of these lives in
    SplitRenderer.tsx's SPLIT_CLIP_STYLE, passed as a `style` prop to
-   <Group>/<Panel> rather than declared here. react-resizable-panels sets its
-   own inline `overflow` on both of these exact elements, which a stylesheet
-   rule can never beat — an `overflow: hidden` used to sit here for
-   `.split-pane` and never actually applied, for that reason; see
-   SPLIT_CLIP_STYLE's comment for what it's replaced by and why. */
-.split-view {
-  height: 100%;
-  width: 100%;
-}
-
+   <Group>/<Panel> rather than declared here, because react-resizable-panels
+   sets its own inline `overflow` on both of these exact elements, which a
+   stylesheet rule can never beat. */
+.split-view,
 .split-pane {
   height: 100%;
   width: 100%;
@@ -1051,24 +1026,11 @@ body {
   height: 100%;
 }
 
-.split-separator {
-  /* No explicit width: react-resizable-panels hard-codes flexBasis: 'auto'
-     on the separator (a stylesheet rule can't win against an inline style),
-     which collapses it to 0 with no content of its own — so adjacent panes
-     sit flush against each other rather than showing a visible gap. It's
-     still a real, draggable resize handle: the library pads a hit target
-     around it regardless of its rendered size. background/transition below
-     are inert as a result (nothing to paint on a 0-width box) — left in so
-     a future explicit width (a design change, not a bug) picks them up for
-     free. */
-  background: var(--border);
-  transition: background 0.15s ease;
-}
-
-.split-separator:hover,
-.split-separator[data-separator="active"] {
-  background: var(--accent);
-}
+/* `.split-separator` deliberately has no rule: react-resizable-panels
+   hard-codes flexBasis: 'auto' on it inline, which collapses it to 0 width
+   with no content of its own, so adjacent panes sit flush and there is
+   nothing to paint. It is still a real, draggable resize handle — the
+   library pads a hit target around it regardless of its rendered size. */
 
 /* --- Content --- */
 
@@ -1105,8 +1067,8 @@ body {
 }
 
 .empty-pane-toolbar button {
-  /* The ticket's fixed size. box-sizing is global, so the border sits inside
-     these 32px and every button measures 32x32 whatever its state. */
+  /* A fixed size. box-sizing is global, so the border sits inside these
+     32px and every button measures 32x32 whatever its state. */
   width: 32px;
   height: 32px;
   display: flex;
@@ -1391,6 +1353,177 @@ body {
   color: color-mix(in srgb, var(--text) 65%, transparent);
 }
 
+/* --- Modal (see Modal.tsx) --- */
+
+/* A real dimming backdrop like .command-palette-backdrop's, one tier above
+   it (2150, vs. 2100) — a modal is the most interruptive overlay short of a
+   tooltip, so if the command palette and a modal were ever both open (not a
+   reachable state today) the modal should read as on top. Still below the
+   tooltip (2200): a tooltip has to win against everything, modal included. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 360px;
+  max-height: 80vh;
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgb(var(--shadow-rgb) / calc(0.5 * var(--shadow-strength)));
+  color: var(--text);
+  /* Modal.tsx deliberately calls .focus() on this element (see its module
+     comment) so a focused <webview> guest can't swallow the next keypress —
+     the same reason the stub content type sets this (CLAUDE.md). The UA's
+     own focus ring would otherwise paint a second, differently-colored
+     border on top of the one directly above, and the panel's border/shadow
+     already signal "this is the focused surface" without it. */
+  outline: none;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* The confirm/alert/choose dialogs' own message line (core/dialogs.tsx).
+   pre-wrap is load-bearing, not cosmetic: a checkout refusal's message can be
+   git's own multi-line stderr (a file list, a "commit or stash" hint), and
+   the default `normal` would collapse every newline and tab into one run of
+   whitespace — reading as one run-on sentence instead of the list it is. */
+.modal-message {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+/* A form body's own footer row — not a shell-provided slot (see core/modal.ts's
+   comment on why there is no generic "buttons" prop), just a shared class so
+   every dialog's Start/Cancel-shaped row lines up the same way. */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* The choose dialog's own select (core/dialogs.tsx). Full-width, unlike the
+   git tree header's compact branch-scope select, since it's the dialog's one
+   input rather than one control among several in a toolbar row. */
+.modal-select {
+  width: 100%;
+  padding: 5px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.modal-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.modal-button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.modal-button:hover {
+  background: var(--bg-elevated);
+}
+
+.modal-button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.modal-button-primary:hover {
+  background: var(--accent);
+  opacity: 0.9;
+}
+
+/* --- Caffeinate dialog (see caffeinate/CaffeinateDialog.tsx) --- */
+
+.caffeinate-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.caffeinate-row input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+.caffeinate-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.caffeinate-row-label {
+  font-size: 13px;
+}
+
+.caffeinate-row-hint {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+}
+
+.caffeinate-timer-row {
+  /* Not `center`: with a two-line label+hint stacked on the left, centering
+     the input against the whole block leaves it floating between the two
+     lines rather than beside the row's own label — screenshotted and
+     measured wrong before this. */
+  align-items: flex-start;
+  justify-content: space-between;
+  cursor: default;
+}
+
+.caffeinate-timer-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Only ever used inside .caffeinate-timer-row, whose flex-start alignment
+     (see above) this nudges down to sit level with the "Stop after" label
+     rather than the row's own top edge. */
+  margin-top: 1px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 80%, transparent);
+}
+
+.caffeinate-timer-input input {
+  width: 56px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
 /* --- Tooltip (see Tooltip.tsx) --- */
 
 /* Adds no box: the button inside becomes, for layout purposes, exactly as
@@ -1451,7 +1584,6 @@ body {
    one, and gets the accent color when it is the active pane. */
 .floating-window {
   position: absolute;
-  box-sizing: border-box;
   pointer-events: auto;
   overflow: hidden;
   border-radius: 6px;
@@ -1504,9 +1636,9 @@ body {
    themselves 8px from each corner, so anything larger than 8px here is a
    corner handle overlapping an edge handle for no gain, and it reaches far
    enough into the chrome to swallow the pane grip that sits just inside the
-   window's top-left corner. At 12px it did precisely that once the chrome
-   shrank to 21px: the grip's own center landed inside the handle, leaving a
-   floating tab group with no way to be moved or right-clicked. */
+   window's top-left corner. At 12px it did precisely that: the grip's own
+   center landed inside the handle, leaving a floating tab group with no way
+   to be moved or right-clicked. */
 .floating-resize-nw,
 .floating-resize-ne,
 .floating-resize-sw,

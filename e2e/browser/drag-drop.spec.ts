@@ -314,14 +314,12 @@ test('a drop with no preview flies the tab back and changes nothing', async ({ p
     els.map((el) => el.getAttribute('data-drop-tab-id'))
   )
 
-  // Off-screen: no pane covers it, so no dock zone previews (the whole
-  // viewport is pane chrome now that root's own tab bar plays the window's
-  // title-bar role — see App.tsx — so there is no more "outside every pane"
-  // element on the page).
-  const viewport = page.viewportSize()
-  if (!viewport) throw new Error('no viewport size')
-
-  await grabAndHover(tabs.nth(0), viewport.width + 200, viewport.height / 2)
+  // The dragged tab's own content is never a target — the drop would nest
+  // the tab into itself — so hovering there previews nothing. It has to be
+  // the active tab for that content to be on screen at all.
+  await tabs.nth(0).click()
+  const ownBody = await requireBox(initialPane(page))
+  await grabAndHover(tabs.nth(0), ownBody.x + ownBody.width / 2, ownBody.y + ownBody.height / 2)
 
   await expect(page.getByTestId('dock-preview')).toHaveCount(0)
   await expect(page.locator('.drag-ghost')).toBeVisible()

@@ -1,6 +1,33 @@
+import type { CheckoutTarget } from '../shared/checkoutTargets'
 import { GitTreeMethod } from '../shared/ipc'
-import type { GitBranchScope, GitCommitResult, GitLogResult } from '../shared/types'
+import type {
+  GitBranchesAtCommitResult,
+  GitBranchScope,
+  GitCheckoutResult,
+  GitCommitResult,
+  GitFailure,
+  GitLogResult
+} from '../shared/types'
 import { gitTreeCtx } from './pluginContext'
+
+/**
+ * Invokes a method that answers with a result value, folding a rejected IPC
+ * hop (main reloading mid-call, say) into the same failure value main
+ * answers with. Main's handlers never reject; this is what makes the whole
+ * round trip never reject, once here rather than at each caller.
+ */
+function invokeResult<T>(
+  method: string,
+  ...args: unknown[]
+): Promise<T | { ok: false; reason: GitFailure }> {
+  return (gitTreeCtx.get().ipc.invoke(method, ...args) as Promise<T>).catch((error: unknown) => ({
+    ok: false as const,
+    reason: {
+      kind: 'failed' as const,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }))
+}
 
 /**
  * The git tree's typed client over the generic content bridge — the renderer
@@ -10,9 +37,10 @@ import { gitTreeCtx } from './pluginContext'
  * are this package's code (see the terminal's terminalBridge.ts, the same
  * pattern with the same rationale).
  *
- * Every method resolves; none reject. A directory that isn't a repo, a
- * missing `git`, an empty repo — all ordinary states, classified main-side
- * into `GitFailure` values the pane renders as sentences (see ../shared/types.ts).
+ * Every result-typed method resolves; none reject (see `invokeResult`). A
+ * directory that isn't a repo, a missing `git`, an empty repo — all ordinary
+ * states, classified main-side into `GitFailure` values the pane renders as
+ * sentences (see ../shared/types.ts).
  */
 export const gitTreeBridge = {
   /**
@@ -27,19 +55,17 @@ export const gitTreeBridge = {
     skip: number,
     branchScope: GitBranchScope
   ): Promise<GitLogResult> =>
-    gitTreeCtx
-      .get()
-      .ipc.invoke(GitTreeMethod.log, dir, limit, skip, branchScope) as Promise<GitLogResult>,
+    invokeResult<GitLogResult>(GitTreeMethod.log, dir, limit, skip, branchScope),
   /** Everything the detail panel shows for one commit: full message, author, and the files it touched. */
   commit: (dir: string, hash: string): Promise<GitCommitResult> =>
-    gitTreeCtx.get().ipc.invoke(GitTreeMethod.commit, dir, hash) as Promise<GitCommitResult>,
+    invokeResult<GitCommitResult>(GitTreeMethod.commit, dir, hash),
   /**
    * The same shape of detail, for the working tree's own uncommitted state
    * rather than a real commit — what answers a selection on the synthetic row
    * (`UNCOMMITTED_CHANGES_HASH`) the renderer prepends when the tree is dirty.
    */
   workingTree: (dir: string): Promise<GitCommitResult> =>
-    gitTreeCtx.get().ipc.invoke(GitTreeMethod.workingTree, dir) as Promise<GitCommitResult>,
+    invokeResult<GitCommitResult>(GitTreeMethod.workingTree, dir),
   /**
    * Where a pane with no directory of its own should start looking — the
    * fallback for when creation inherited nothing (see CLAUDE.md's
@@ -56,5 +82,16 @@ export const gitTreeBridge = {
   chooseDirectory: (current: string | undefined): Promise<string | undefined> =>
     gitTreeCtx.get().ipc.invoke(GitTreeMethod.chooseDirectory, current) as Promise<
       string | undefined
-    >
+    >,
+  /**
+   * The refs behind the checkout decision, read fresh — never the log's own
+   * `%D` decorations, which mix local, remote-tracking, HEAD and tag names
+   * into one ambiguous string and may in any case be stale by the time a
+   * trigger fires (see git.ts's own comment).
+   */
+  branchesAtCommit: (dir: string, hash: string): Promise<GitBranchesAtCommitResult> =>
+    invokeResult<GitBranchesAtCommitResult>(GitTreeMethod.branchesAtCommit, dir, hash),
+  /** Checks out `target` — a local branch, a remote-tracking branch (creating a local tracking branch), or a bare commit (detached HEAD). */
+  checkout: (dir: string, target: CheckoutTarget): Promise<GitCheckoutResult> =>
+    invokeResult<GitCheckoutResult>(GitTreeMethod.checkout, dir, target)
 }

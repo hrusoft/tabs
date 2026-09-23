@@ -41,9 +41,7 @@ const MIN_PANE_SIZE_PERCENT: `${number}%` = `${MIN_PANE_SIZE * 100}%`
  * sets its own inline `overflow` on both of those exact elements (`hidden`
  * on the Group, `auto` on the Panel's inner div — see react-resizable-
  * panels' source), and a plain stylesheet rule can never beat a plain inline
- * style. `.split-pane { overflow: hidden }` in global.css predates this and
- * was always dead code for that reason — kept only for `height`/`width` now.
- * A `style` *prop* on `<Group>`/`<Panel>` works because the library spreads
+ * style. A `style` *prop* on `<Group>`/`<Panel>` works because the library spreads
  * it into its own style object ahead of the properties it truly owns
  * (`display`/`flexDirection`/`touchAction`, `flexGrow`) but after its own
  * `overflow` default, so this is the one thing about that default we can
@@ -58,13 +56,10 @@ const MIN_PANE_SIZE_PERCENT: `${number}%` = `${MIN_PANE_SIZE * 100}%`
  * and a split sits on the path between a split child and the tabs-group
  * ancestor whose border it now can suppress (see
  * ContentRendererProps.suppressBorderLeft/Right/Bottom). Without this,
- * `.split-pane`'s true `overflow: auto` turned that 1px bleed into a real,
+ * `.split-pane`'s true `overflow: auto` turns that 1px bleed into a real,
  * visible scrollbar on the active pane, and `.split-view`'s true
- * `overflow: hidden` clipped the bleed outright on whichever side reached it
- * first — together the bug report this fixes: "the highlight border isn't
- * fully rendered" plus "active panes get scroll bars", both introduced by
- * teaching a split child to suppress a side of its own border for the first
- * time. `clip` still blocks real overflow the same as the `hidden`/`auto`
+ * `overflow: hidden` clips the bleed outright on whichever side reaches it
+ * first — a half-drawn highlight beside a stray scrollbar. `clip` still blocks real overflow the same as the `hidden`/`auto`
  * it replaces (no scrollbar, no programmatic scroll) — the margin only
  * excuses exactly the 1px this file's own overlay can produce.
  */
@@ -149,11 +144,9 @@ export function SplitRenderer({
    * - suppressBorderLeft/Right/Bottom (see ContentRendererProps): a child
    *   suppresses a side only if that side IS the split's own edge on that
    *   side — the sides it doesn't touch are real seams against a sibling and
-   *   keep their border. This is the fix for the bug where splitting a lone
-   *   pane made its surviving content shift a pixel: before it, a split's
-   *   children always fell back to a full border regardless of what the
-   *   split itself received, redrawing a border on sides that used to be
-   *   flush against the tabs-group around them.
+   *   keep their border. Otherwise splitting a lone pane would shift its
+   *   surviving content a pixel, redrawing a border on sides flush against
+   *   the tabs-group around it.
    */
   function childEdgeProps(index: number): {
     cornerLeft: boolean
@@ -338,8 +331,7 @@ export function SplitRenderer({
   function mirrorClusterMembers({ index, containerStart, containerLength }: BoundaryContext): void {
     if (!gestureRef.current) {
       // Only discover starting on the gesture's second tick, once
-      // wasCoDraggedLastTick() can answer for certain — see its doc comment
-      // and the module doc above. Skipping tick one here (rather than
+      // wasCoDraggedLastTick() can answer for certain — see its doc comment. Skipping tick one here (rather than
       // discovering early and just gating the result) means the first tick
       // never even measures candidates for a solo drag, avoiding any risk of
       // caching a coincidental one before the real answer is known.
@@ -434,7 +426,7 @@ export function SplitRenderer({
           // jerky pointer move whose delta pushed a third pane past its own
           // MIN_PANE_SIZE in the same tick as the intended pair — see
           // draggedIndex) — NOT the same as no drag being in progress.
-          // Deliberately does not clear gestureRef/tickCountRef: the only
+          // Deliberately does not clear gestureRef/hadPriorTickRef: the only
           // real gesture boundary is release (commitClusterMembers, below).
           // Wiping an established cluster here would be unrecoverable —
           // rediscovery anchors to node.sizes, the pre-drag baseline that

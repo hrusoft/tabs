@@ -1,6 +1,6 @@
 {
   "name": "tabs",
-  "version": "2026.09.11",
+  "version": "2026.09.23",
   "description": "Tabs — a recursive tab manager for arbitrary content",
   "type": "module",
   "main": "./out/main/index.js",
@@ -66,6 +66,7 @@
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-serialize": "0.14.0",
     "@xterm/addon-web-links": "0.12.0",
     "@xterm/addon-webgl": "0.19.0",
     "@xterm/xterm": "6.0.0",

@@ -5,10 +5,7 @@ import { expect, test } from 'vitest'
 import { headerOf, initialPane } from '../testing/domQueries'
 import { fillEmptyPane } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
-import {
-  registerStubHeaderChromeType,
-  unregisterStubHeaderChromeType
-} from '../testing/stubContent'
+import { registerStubHeaderChromeType } from '../testing/temporaryStubTypes'
 
 // Generic-mechanism coverage for ContentRendererDef.HeaderControl/HeaderTitle
 // (registry.ts) against a synthetic stub type — proves the wiring in
@@ -30,51 +27,39 @@ test('a HeaderControl renders leftmost in the header controls row, ahead of Spli
   renderApp()
   const user = userEvent.setup()
   registerStubHeaderChromeType()
-  try {
-    await fillEmptyPane(user, initialPane(), 'pane-new-stub-header-chrome-button')
-    const header = headerOf(initialPane())
-    const control = within(header).getByTestId('stub-header-control')
-    const splitButton = within(header).getByTestId(PANE_BUTTON.splitHorizontal)
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-header-chrome-button')
+  const header = headerOf(initialPane())
+  const control = within(header).getByTestId('stub-header-control')
+  const splitButton = within(header).getByTestId(PANE_BUTTON.splitHorizontal)
 
-    // DOCUMENT_POSITION_FOLLOWING on the split button means it comes *after*
-    // the stub control in document order — structure-agnostic, so it holds
-    // whichever of the two ends up nested inside its own wrapper.
-    expect(
-      control.compareDocumentPosition(splitButton) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-  } finally {
-    unregisterStubHeaderChromeType()
-  }
+  // DOCUMENT_POSITION_FOLLOWING on the split button means it comes *after*
+  // the stub control in document order — structure-agnostic, so it holds
+  // whichever of the two ends up nested inside its own wrapper.
+  expect(
+    control.compareDocumentPosition(splitButton) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
 })
 
 test("a HeaderControl's press reaches the pane's own registered capability", async () => {
   renderApp()
   const user = userEvent.setup()
   registerStubHeaderChromeType()
-  try {
-    await fillEmptyPane(user, initialPane(), 'pane-new-stub-header-chrome-button')
-    const header = headerOf(initialPane())
-    expect(screen.getByTestId('stub-clear-count')).toHaveTextContent('0')
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-header-chrome-button')
+  const header = headerOf(initialPane())
+  expect(screen.getByTestId('stub-clear-count')).toHaveTextContent('0')
 
-    await user.click(within(header).getByTestId('stub-header-control'))
+  await user.click(within(header).getByTestId('stub-header-control'))
 
-    expect(screen.getByTestId('stub-clear-count')).toHaveTextContent('1')
-  } finally {
-    unregisterStubHeaderChromeType()
-  }
+  expect(screen.getByTestId('stub-clear-count')).toHaveTextContent('1')
 })
 
 test("a HeaderTitle replaces the pane's entire title slot", async () => {
   renderApp()
   const user = userEvent.setup()
   registerStubHeaderChromeType()
-  try {
-    await fillEmptyPane(user, initialPane(), 'pane-new-stub-header-chrome-button')
-    const header = headerOf(initialPane())
+  await fillEmptyPane(user, initialPane(), 'pane-new-stub-header-chrome-button')
+  const header = headerOf(initialPane())
 
-    expect(within(header).getByTestId('stub-header-title')).toBeInTheDocument()
-    expect(header.querySelector('.pane-title')).not.toBeInTheDocument()
-  } finally {
-    unregisterStubHeaderChromeType()
-  }
+  expect(within(header).getByTestId('stub-header-title')).toBeInTheDocument()
+  expect(header.querySelector('.pane-title')).not.toBeInTheDocument()
 })

@@ -27,6 +27,10 @@ way around.
 - **Keyboard-first navigation** — jump between panes and tabs, open new ones, and
   rearrange your layout without touching the mouse; shortcuts are rebindable in
   Settings.
+- **Browser panes** — open a web page in any pane, right beside the terminal
+  running your dev server.
+- **Git history** — a git tree pane draws a repository's commit graph, with each
+  commit's changed files a click away.
 - **Floating panes** — pop any pane out of the main window when you want it
   free-floating, and dock it back in whenever you like.
 - **Light and dark themes** — the whole app follows your system appearance, or you

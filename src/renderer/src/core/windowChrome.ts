@@ -1,5 +1,5 @@
 /**
- * Feeds `--pane-corner-radius` (global.css) with the OS-applied rounding of
+ * Feeds `--os-corner-radius` (global.css) with the OS-applied rounding of
  * the window's own corners, before the first frame — the same
  * before-createRoot, module-scope contract as installTheme(), and for the
  * same reason: an async fetch here would flash a sharp corner against the

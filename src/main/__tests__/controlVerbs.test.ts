@@ -5,9 +5,10 @@ import type { MainControlContext, MainControlVerbTable } from '../controlVerbs'
 import {
   mainControlVerb,
   registerMainControlVerbs,
-  relayBudgetFor,
   resetMainControlVerbsForTests,
-  unhandledMainControlVerbs
+  unhandledMainControlVerbs,
+  verbBudgetFor,
+  withVerbDeadline
 } from '../controlVerbs'
 
 /**
@@ -83,7 +84,7 @@ describe('the main-process control verb registry', () => {
   describe('per-request relay budgets', () => {
     it('returns a number-form budget unchanged', () => {
       registerMainControlVerbs(pingTable())
-      expect(relayBudgetFor({ type: 'ping', paneId: 'pane-1' })).toBe(1000)
+      expect(verbBudgetFor({ type: 'ping', paneId: 'pane-1' })).toBe(1000)
     })
 
     it('evaluates a function-form budget against the request it prices', () => {
@@ -98,12 +99,12 @@ describe('the main-process control verb registry', () => {
       registerMainControlVerbs(table)
       const base = { type: 'navigate', paneId: 'p', targetPaneId: 't', url: 'about:blank' } as const
 
-      expect(relayBudgetFor(base)).toBe(4000)
-      expect(relayBudgetFor({ ...base, retryOnRedirect: true })).toBe(9000)
+      expect(verbBudgetFor(base)).toBe(4000)
+      expect(verbBudgetFor({ ...base, retryOnRedirect: true })).toBe(9000)
     })
 
     it('is undefined for an unclaimed verb, leaving the fallback to the relay', () => {
-      expect(relayBudgetFor({ type: 'ping', paneId: 'pane-1' })).toBeUndefined()
+      expect(verbBudgetFor({ type: 'ping', paneId: 'pane-1' })).toBeUndefined()
     })
   })
 
@@ -126,5 +127,43 @@ describe('the main-process control verb registry', () => {
         expect(CONTROL_REQUEST_TYPES).toContain(verb)
       }
     })
+  })
+})
+
+describe('withVerbDeadline', () => {
+  it('answers with a timeout once the budget plus grace has passed', async () => {
+    vi.useFakeTimers()
+    try {
+      const answer = withVerbDeadline(new Promise(() => {}), 'saveResource', 1000, 500)
+      await vi.advanceTimersByTimeAsync(1499)
+      let settled = false
+      void answer.then(() => (settled = true))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await answer).toEqual({ ok: false, error: 'saveResource timed out after 1000ms' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("passes a handler's own answer through", async () => {
+    expect(await withVerbDeadline(Promise.resolve({ ok: true }), 'ping', 1000, 0)).toEqual({
+      ok: true
+    })
+  })
+
+  it('never cuts off a verb whose budget is infinite', async () => {
+    vi.useFakeTimers()
+    try {
+      let settled = false
+      void withVerbDeadline(new Promise(() => {}), 'batch', Number.POSITIVE_INFINITY, 0).then(
+        () => (settled = true)
+      )
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      expect(settled).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

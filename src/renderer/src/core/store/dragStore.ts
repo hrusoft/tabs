@@ -1,15 +1,5 @@
-import type { DockZone, NodeId } from '@shared/model/types'
+import type { DragSubject, DropTarget } from '@shared/model/drag'
 import { create } from 'zustand'
-
-export type DropTarget =
-  | { kind: 'tab-bar'; groupId: NodeId; index: number }
-  | { kind: 'empty-pane'; paneId: NodeId }
-  | { kind: 'dock'; targetId: NodeId; zone: DockZone }
-
-/** What is being dragged: a tab out of its bar, or a whole pane by its header. */
-export type DragSubject =
-  | { kind: 'tab'; tabId: NodeId; sourceGroupId: NodeId }
-  | { kind: 'pane'; paneId: NodeId }
 
 export interface DragInfo {
   subject: DragSubject
@@ -38,9 +28,7 @@ export interface DragState {
 export const useDragStore = create<DragState>()((set) => ({
   drag: null,
   beginDrag: (subject, title, x, y) =>
-    set({
-      drag: { subject, title, x, y, target: null, phase: 'active', returnTo: null }
-    }),
+    set({ drag: { subject, title, x, y, target: null, phase: 'active', returnTo: null } }),
   setPointer: (x, y) =>
     set((state) => (state.drag?.phase === 'active' ? { drag: { ...state.drag, x, y } } : state)),
   setTarget: (target) =>

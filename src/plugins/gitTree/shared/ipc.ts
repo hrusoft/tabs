@@ -10,5 +10,7 @@ export const GitTreeMethod = {
   commit: 'commit',
   workingTree: 'workingTree',
   defaultDirectory: 'defaultDirectory',
-  chooseDirectory: 'chooseDirectory'
+  chooseDirectory: 'chooseDirectory',
+  branchesAtCommit: 'branchesAtCommit',
+  checkout: 'checkout'
 } as const

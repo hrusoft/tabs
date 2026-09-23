@@ -27,7 +27,7 @@ test('an agent can run script in a pane and fill a form, and gets clean errors w
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -139,7 +139,7 @@ test('a batch runs its requests in order, stops at the first failure, and refuse
   page,
   electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
@@ -249,9 +249,10 @@ test('a batch runs its requests in order, stops at the first failure, and refuse
  * pendingness — they are sized to the head start, not to guessed page timing.
  */
 test('wait-for resolves when text appears and hands back a usable ref for a selector match', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -303,9 +304,10 @@ test('wait-for resolves when text appears and hands back a usable ref for a sele
 })
 
 test('wait-for --gone waits out a spinner, and validates its condition shape loudly', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -351,9 +353,10 @@ test('wait-for --gone waits out a spinner, and validates its condition shape lou
 })
 
 test('wait-for survives the page navigating mid-wait, and --url-contains rides navigation', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -388,8 +391,8 @@ test('wait-for survives the page navigating mid-wait, and --url-contains rides n
   await closeAgentSession(page, env, paneId)
 })
 
-test('wait-for --idle settles only once the DOM stops churning', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('wait-for --idle settles only once the DOM stops churning', async ({ page, electronApp }) => {
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -409,8 +412,11 @@ test('wait-for --idle settles only once the DOM stops churning', async ({ page }
   await closeAgentSession(page, env, paneId)
 })
 
-test('wait-for composes inside a batch on its own per-request budget', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('wait-for composes inside a batch on its own per-request budget', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -448,9 +454,10 @@ test('wait-for composes inside a batch on its own per-request budget', async ({ 
 })
 
 test('assert checks a condition right now: pass with a usable ref, fail naming the premise', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -513,9 +520,10 @@ test('assert checks a condition right now: pass with a usable ref, fail naming t
 })
 
 test('an assert step makes a batch self-verifying: the transcript names the premise that broke', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url('/waity'))
   await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
 
@@ -543,8 +551,11 @@ test('an assert step makes a batch self-verifying: the transcript names the prem
   await closeAgentSession(page, env, paneId)
 })
 
-test('navigation verbs wait for the page and report load failures by name', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('navigation verbs wait for the page and report load failures by name', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   // Creation's own result is the subject here, so no createAgentPane.
   const created = await runTabsCtl(['create-browser-pane', '--url', server.url()], env)
@@ -584,7 +595,7 @@ test('navigation verbs wait for the page and report load failures by name', asyn
 })
 
 test('reload and history verbs settle on the page they land on', async ({ page, electronApp }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
   await expect.poll(() => guestText(electronApp, '#status')).toBe('idle')
@@ -623,8 +634,8 @@ test('reload and history verbs settle on the page they land on', async ({ page, 
   await closeAgentSession(page, env, paneId)
 })
 
-test('navigation verbs report where the pane actually ended up', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('navigation verbs report where the pane actually ended up', async ({ page, electronApp }) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   // Creation's own reporting is part of the subject, so no createAgentPane.
   // The first load server-redirects: loaded says a load settled, url says
@@ -690,8 +701,11 @@ test('navigation verbs report where the pane actually ended up', async ({ page }
   await closeAgentSession(page, env, paneId)
 })
 
-test('--retry-on-redirect re-asserts the requested URL once after a bounce', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('--retry-on-redirect re-asserts the requested URL once after a bounce', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url())
 
   // Without the flag the bounce is reported, never fought: the answer names
@@ -732,8 +746,11 @@ test('--retry-on-redirect re-asserts the requested URL once after a bounce', asy
   await closeAgentSession(page, env, paneId)
 })
 
-test('a title the page sets after load-settle is flagged as a URL fallback', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('a title the page sets after load-settle is flagged as a URL fallback', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
   const paneId = await createAgentPane(env, '--url', server.url())
 
   // The SPA shape: no <title> in the HTML, the real one set by script after
@@ -757,8 +774,11 @@ test('a title the page sets after load-settle is flagged as a URL fallback', asy
   await closeAgentSession(page, env, paneId)
 })
 
-test('titleFromUrl is correct on reload and history steps, not only navigate', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('titleFromUrl is correct on reload and history steps, not only navigate', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   // Starts on a URL-derived page so the very first read exercises the flag.
   const paneId = await createAgentPane(env, '--url', server.url('/missing'))
@@ -812,8 +832,11 @@ test('titleFromUrl is correct on reload and history steps, not only navigate', a
   await closeAgentSession(page, env, paneId)
 })
 
-test('a page script cannot steer an agent pane outside the scheme allowlist', async ({ page }) => {
-  const { env } = await openAgentSession(page)
+test('a page script cannot steer an agent pane outside the scheme allowlist', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
 
@@ -837,9 +860,10 @@ test('a page script cannot steer an agent pane outside the scheme allowlist', as
 })
 
 test('execute-js --out writes the full result to a file instead of truncating', async ({
-  page
+  page,
+  electronApp
 }) => {
-  const { env } = await openAgentSession(page)
+  const { env } = await openAgentSession(page, electronApp)
 
   const paneId = await createAgentPane(env, '--url', server.url())
 

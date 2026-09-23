@@ -12,7 +12,7 @@ import { TabsRenderer } from './tabs/TabsRenderer'
  * Separated from registerBuiltins so the non-Electron test tiers can register
  * exactly these and then substitute a stub for terminal and browser — see
  * testing/registerTestContent.ts. Sharing the real thing matters: registration
- * order is the pane-header button order, and a `displayName` here is asserted
+ * order is the creation-action order, and a `displayName` here is asserted
  * against in the jsdom tier, so a hand-copied second list would let both
  * non-Electron tiers stay green against a layout the app doesn't have.
  *

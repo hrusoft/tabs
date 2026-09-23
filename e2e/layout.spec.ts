@@ -131,7 +131,7 @@ test('a layout save whose directory has vanished degrades instead of killing the
     await expect(page.getByTestId('pane')).toHaveCount(2)
 
     // Exactly what the suite itself used to do to an orphaned app: delete the
-    // userData directory out from under a live process. saveLayout runs inside
+    // userData directory out from under a live process. saveLayoutFile runs inside
     // a synchronous ipcMain.on listener, so before it was guarded the next
     // debounced layout:set threw ENOENT straight into Electron's C++ dispatch —
     // an uncaught main-process exception, i.e. a native error dialog that under

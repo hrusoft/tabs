@@ -2,11 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { readdirSync, unlinkSync } from 'node:fs'
 import * as net from 'node:net'
 import { dirname, join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
+import type { WebContents } from 'electron'
 import type {
   BatchStep,
   ControlRequest,
   ControlResponse,
   CoreControlRequest,
+  OwnershipChange,
   RelayedControlRequest,
   RelayedControlResponse
 } from '../shared/externalControl'
@@ -14,10 +17,16 @@ import { CONTROL_REQUEST_TYPES, MAX_BATCH_SIZE, PANE_GONE_ERROR } from '../share
 import { IpcChannel } from '../shared/ipc'
 import { controlSocketPath, parseControlSocketPid } from './controlSocket'
 import type { MainControlContext, MainControlVerbTable } from './controlVerbs'
-import { mainControlVerb, registerMainControlVerbs, relayBudgetFor } from './controlVerbs'
+import {
+  mainControlVerb,
+  registerMainControlVerbs,
+  verbBudgetFor,
+  withVerbDeadline
+} from './controlVerbs'
 import { onRendererMessage, registerSyncGetter } from './ipcListeners'
 import { forEachLiveWindow } from './liveWindows'
 import { getPaneHost, hasPaneHost } from './paneHostRegistry'
+import { createRendererRelay } from './rendererRelay'
 
 /**
  * Child pane id → the pane id that created it — the only panes a caller may
@@ -37,13 +46,10 @@ import { getPaneHost, hasPaneHost } from './paneHostRegistry'
  */
 const ownerOf = new Map<string, string>()
 
-interface Pending {
-  resolve: (response: ControlResponse) => void
-  timer: ReturnType<typeof setTimeout>
-}
-
 /** Requests relayed to a renderer, awaiting its reply — see relayToRenderer. */
-const pending = new Map<string, Pending>()
+const relay = createRendererRelay<RelayedControlRequest, RelayedControlResponse>(
+  IpcChannel.externalControlRequest
+)
 
 /**
  * Margin a relay budget keeps above a renderer-side wait it must outlive.
@@ -77,7 +83,8 @@ export function isOwnedPane(paneId: string): boolean {
  */
 function broadcastOwnership(paneId: string, owned: boolean): void {
   forEachLiveWindow((win) => {
-    win.webContents.send(IpcChannel.externalControlOwnershipChanged, { paneId, owned })
+    const change: OwnershipChange = { paneId, owned }
+    win.webContents.send(IpcChannel.externalControlOwnershipChanged, change)
   })
 }
 
@@ -142,30 +149,63 @@ function rememberClosed(paneId: string, ownerPaneId: string): void {
 }
 
 /**
- * Asks the renderer that owns the caller's window to actually mutate the pane
- * tree — main has no live tree of its own (see layoutStore.ts) — and waits
- * for its reply, tagged with a fresh requestId so the answer can be matched
- * back up (main → renderer is otherwise fire-and-forget only). Resolves with
- * an error instead of rejecting if the caller's pane isn't live or the
- * renderer never answers, since every caller here is a socket connection
- * expecting a `ControlResponse`, not a thrown exception.
+ * The pane-tree windows as external control needs them, injected by
+ * `registerExternalControlServer` — windows.ts cannot be imported here
+ * without a cycle back through the plugin context.
  */
-function relayToRenderer(callerId: string, request: ControlRequest): Promise<ControlResponse> {
-  const webContents = getPaneHost(callerId)
+interface ControlWindows {
+  /** The renderer of the live window whose layout holds `paneId`, if any holds it. */
+  rendererHolding(paneId: string): WebContents | undefined
+  /** Every live pane-tree window's renderer. */
+  allRenderers(): WebContents[]
+}
+
+let controlWindows: ControlWindows = {
+  rendererHolding: () => undefined,
+  allRenderers: () => []
+}
+
+/**
+ * Asks a renderer to actually do the work — main has no live tree of its own
+ * (see layoutStore.ts) — and waits for its reply, tagged with a fresh
+ * requestId so the answer can be matched back up (main → renderer is
+ * otherwise fire-and-forget only). Resolves with an error instead of
+ * rejecting if that renderer isn't live or never answers, since every caller
+ * here is a socket connection expecting a `ControlResponse`, not a thrown
+ * exception.
+ */
+function relayInto(
+  webContents: WebContents | undefined,
+  callerId: string,
+  request: ControlRequest
+): Promise<ControlResponse> {
   if (!webContents || webContents.isDestroyed()) {
     return Promise.resolve({ ok: false, error: 'not running inside a Tabs pane' })
   }
   const requestId = randomUUID()
-  const timeoutMs = relayBudgetFor(request) ?? DEFAULT_RELAY_TIMEOUT_MS
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      pending.delete(requestId)
-      resolve({ ok: false, error: 'timed out waiting for a response' })
-    }, timeoutMs)
-    pending.set(requestId, { resolve, timer })
-    const payload: RelayedControlRequest = { requestId, request }
-    webContents.send(IpcChannel.externalControlRequest, payload)
-  })
+  const timeoutMs = verbBudgetFor(request) ?? DEFAULT_RELAY_TIMEOUT_MS
+  // The relay's one refusal: its timeout, or a send that never reached the
+  // window (rendererRelay.ts), so the wording covers both.
+  const unanswered: RelayedControlResponse = {
+    requestId,
+    response: { ok: false, error: 'the window did not answer (timed out, or unreachable)' }
+  }
+  return relay
+    .send(webContents, callerId, { requestId, request }, unanswered, timeoutMs)
+    .then((reply) => reply.response)
+}
+
+/**
+ * A verb's relay. One naming a `targetPaneId` goes to the window holding that
+ * pane: each renderer finds panes only in its own tree, and a pane an agent
+ * owns can be dragged into another window than the agent's terminal. Every
+ * other verb — and a target too new for main's copy of the layouts, which is
+ * still in the window that created it — goes to the caller's own window.
+ */
+function relayToRenderer(callerId: string, request: ControlRequest): Promise<ControlResponse> {
+  const targetHost =
+    'targetPaneId' in request ? controlWindows.rendererHolding(request.targetPaneId) : undefined
+  return relayInto(targetHost ?? getPaneHost(callerId), callerId, request)
 }
 
 /**
@@ -221,11 +261,11 @@ function isListedPane(value: unknown): value is ListedPane {
  * rather than trusted, so a batch can't be used to smuggle a request that
  * claims to come from some other pane.
  *
- * There is deliberately no batch-wide deadline. Each relaying step runs on
- * its own verb's budget (relayToRenderer prices per sub-request — the batch's
- * own `timeoutMs` below is never consulted, since this handler never relays),
- * a wait step's budget is the caller's to size, and cutting a batch off
- * midway would discard the transcript that is its whole point.
+ * There is deliberately no batch-wide deadline (its `timeoutMs` below is
+ * infinite). Each step runs on its own verb's budget — every sub-request goes
+ * back through handleRequest — a wait step's budget is the caller's to size,
+ * and cutting a batch off midway would discard the transcript that is its
+ * whole point.
  */
 async function handleBatch(
   request: Extract<ControlRequest, { type: 'batch' }>
@@ -279,7 +319,8 @@ async function handleBatch(
 const CORE_CONTROL_VERBS: MainControlVerbTable<CoreControlRequest> = {
   ping: { timeoutMs: DEFAULT_RELAY_TIMEOUT_MS, handle: () => ({ ok: true }) },
   batch: {
-    timeoutMs: DEFAULT_RELAY_TIMEOUT_MS,
+    // No batch-wide deadline — see handleBatch.
+    timeoutMs: Number.POSITIVE_INFINITY,
     batchable: false,
     handle: (request) => handleBatch(request)
   },
@@ -303,14 +344,37 @@ const CORE_CONTROL_VERBS: MainControlVerbTable<CoreControlRequest> = {
   },
   listOwnedPanes: {
     timeoutMs: DEFAULT_RELAY_TIMEOUT_MS,
-    handle: async (request, ctx) => {
-      const response = await ctx.relay(request)
-      if (!response.ok) return response
-      // The renderer answers with every pane a type could list — it has no
+    handle: async (request) => {
+      // Every window, not only the caller's: an owned pane may have been
+      // dragged into another one. All of them or nothing: a list missing one
+      // window's panes reads as "your pane is gone", and SKILL.md's remedy for
+      // that is to open it again — a duplicate. A window mid-reload is
+      // refused at once rather than waited on, since it will answer shortly.
+      // A crashed one is left out: nothing in it can be driven until the
+      // window goes, and refusing for it would refuse forever.
+      const renderers = controlWindows
+        .allRenderers()
+        .filter((webContents) => !webContents.isCrashed())
+      if (renderers.length === 0) return { ok: false, error: 'not running inside a Tabs pane' }
+      if (renderers.some((webContents) => webContents.isLoading())) {
+        return {
+          ok: false,
+          error: 'a window is reloading, so its panes cannot be listed; try again'
+        }
+      }
+      const responses = await Promise.all(
+        renderers.map((webContents) => relayInto(webContents, request.paneId, request))
+      )
+      const failed = responses.find((response) => !response.ok)
+      if (failed) return failed
+      // A renderer answers with every pane a type could list — it has no
       // notion of ownership — so the narrowing to this caller's own panes
       // happens here, before anything reaches the socket.
-      const listed = response.result?.panes
-      const panes = (Array.isArray(listed) ? listed : [])
+      const panes = responses
+        .flatMap((response) => {
+          const listed = response.ok ? response.result?.panes : undefined
+          return Array.isArray(listed) ? listed : []
+        })
         .filter(isListedPane)
         .filter((pane) => ownerOf.get(pane.paneId) === request.paneId)
       return { ok: true, result: { panes } }
@@ -385,7 +449,13 @@ async function handleRequest(request: unknown): Promise<ControlResponse> {
   // the socket, and a throw escaping this call would unwind handleBatch,
   // discarding the transcript and stoppedAt index the batch contract promises.
   try {
-    return await verb.handle(request, contextFor(request.paneId))
+    // Bounded past the verb's budget — see withVerbDeadline.
+    return await withVerbDeadline(
+      Promise.resolve(verb.handle(request, contextFor(request.paneId))),
+      request.type,
+      verbBudgetFor(request) ?? DEFAULT_RELAY_TIMEOUT_MS,
+      RELAY_HEADROOM_MS
+    )
   } catch (error) {
     return { ok: false, error: String(error) }
   }
@@ -396,11 +466,7 @@ function registerRelayResponseListener(): void {
   onRendererMessage(
     IpcChannel.externalControlResponse,
     (_event, payload: RelayedControlResponse) => {
-      const entry = pending.get(payload.requestId)
-      if (!entry) return
-      pending.delete(payload.requestId)
-      clearTimeout(entry.timer)
-      entry.resolve(payload.response)
+      relay.resolve(payload)
     }
   )
 }
@@ -428,8 +494,7 @@ function registerOwnershipSyncIpc(): void {
 export function resetExternalControlForTests(): void {
   ownerOf.clear()
   closedBy.clear()
-  for (const entry of pending.values()) clearTimeout(entry.timer)
-  pending.clear()
+  relay.refuse()
 }
 
 /**
@@ -494,7 +559,8 @@ function sweepControlSockets(dir: string): void {
  * Called from whenReady *after* registerContentModules, so every content
  * type's verbs are claimed before the socket can accept a request for one.
  */
-export function registerExternalControlServer(): void {
+export function registerExternalControlServer(windows: ControlWindows): void {
+  controlWindows = windows
   registerRelayResponseListener()
   registerOwnershipSyncIpc()
 
@@ -502,17 +568,30 @@ export function registerExternalControlServer(): void {
   sweepControlSockets(dirname(socketPath))
 
   const server = net.createServer((socket) => {
+    // A decoder rather than a per-chunk `toString`: a large request arrives in
+    // several chunks, and a multi-byte character split across a boundary
+    // would otherwise decode as U+FFFD on both sides — valid JSON still, so
+    // the corrupted text would reach the page with no error at all.
+    const decoder = new StringDecoder('utf8')
     let buffer = ''
+    let received = 0
+    // One request per connection: anything after the first line is ignored
+    // rather than run as a second request against an already-ending socket.
+    let answered = false
     socket.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString('utf-8')
+      if (answered) return
+      received += chunk.byteLength
+      buffer += decoder.write(chunk)
       const newlineIndex = buffer.indexOf('\n')
       if (newlineIndex === -1) {
-        if (buffer.length > MAX_REQUEST_BYTES) {
+        if (received > MAX_REQUEST_BYTES) {
+          answered = true
           socket.end(`${JSON.stringify({ ok: false, error: 'request too large' })}\n`)
           buffer = ''
         }
         return
       }
+      answered = true
       const line = buffer.slice(0, newlineIndex)
       buffer = ''
 

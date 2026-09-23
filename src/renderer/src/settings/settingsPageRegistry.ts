@@ -64,7 +64,7 @@ export function listSettingsPages(): SettingsPageDef[] {
   return store.values().sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
 }
 
-/** Monotonic counter bumped on every (un)register; a useSyncExternalStore snapshot. */
+/** Monotonic counter bumped on every register; a useSyncExternalStore snapshot. */
 export function getSettingsPagesVersion(): number {
   return store.version()
 }

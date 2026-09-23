@@ -11,7 +11,9 @@ export const TerminalMethod = {
   write: 'write',
   resize: 'resize',
   dispose: 'dispose',
-  getCwd: 'getCwd'
+  getCwd: 'getCwd',
+  holdOutput: 'holdOutput',
+  releaseOutput: 'releaseOutput'
 } as const
 
 /** Per-terminal output stream (`data:<leaf id>`). */

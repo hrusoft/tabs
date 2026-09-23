@@ -170,39 +170,13 @@
 
 /* --- Settings window --- */
 
-/* The Settings window's own root — a real OS window (see createSettingsWindow
+/* The Settings window's own root — a real OS window (see `settingsWindow`
    in src/main/windows.ts), not an overlay: its own title bar on top, the
    sidebar + content split filling everything below. */
 .settings-shell {
   display: flex;
   flex-direction: column;
   height: 100%;
-}
-
-/* This window's own title bar: a drag handle, room for the traffic lights,
-   and a centered title. The window hides its native title bar the same way
-   the main window does (see createSettingsWindow in main/windows.ts) and so
-   draws its own; its height and drag behavior are kept in step with the
-   main window's root tab bar (--window-titlebar-height, both keyed off the
-   same trafficLightPosition in main/windows.ts) so the two windows read as one
-   app — though they no longer share a background color (the root bar's is
-   depth-striped; this one stays a fixed elevated shade). The traffic-light
-   gutter (padding-left) is balanced by an equal padding-right, which lands
-   the title on the window's true center. */
-.settings-titlebar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--window-titlebar-height);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  padding-left: 78px;
-  padding-right: 78px;
-  -webkit-app-region: drag;
-  color: var(--text-dim);
-  font-size: 12.5px;
-  font-weight: 500;
 }
 
 .settings-window {
@@ -260,7 +234,7 @@
   font-weight: 600;
 }
 
-/* --- AI settings --- */
+/* --- Section descriptions and action rows (the kit's, used by several pages) --- */
 
 .settings-section-desc {
   margin: 0 0 10px;
@@ -300,12 +274,10 @@
    — inline in a sentence, or a line of its own. Both carry `user-select: text`
    against the app-wide `user-select: none` on body: a snippet nobody can
    select is one they have to transcribe by eye, which is how a typo'd setting
-   key ends up looking like a bug in this app. Monospace spelled out for the
-   reason .settings-shortcut-chip spells it out — there is no --mono-font
-   token, and minting one here would leave two spellings. */
+   key ends up looking like a bug in this app. */
 .settings-code,
 .settings-code-block {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   color: var(--text);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -339,7 +311,7 @@
   flex: none;
   min-width: 104px;
   font: inherit;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   text-align: center;
   color: var(--text);

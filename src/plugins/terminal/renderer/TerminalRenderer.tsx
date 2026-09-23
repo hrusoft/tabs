@@ -1,4 +1,5 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
@@ -8,13 +9,24 @@ import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import type { LeafContent } from '@shared/model/types'
 import { useEffect, useRef } from 'react'
-import type { ContentRendererProps } from '../../../renderer/src/plugin/api'
+import {
+  type ContentRendererProps,
+  CROSS_WINDOW_TRANSFER_STATE_KEY
+} from '../../../renderer/src/plugin/api'
 import type { TerminalAppearance } from '../shared/settings'
 import { openTerminalLink } from './links'
 import { terminalCtx } from './pluginContext'
 import { terminalBridge } from './terminalBridge'
-import { acquireTerminal, releaseTerminal } from './terminalRegistry'
+import {
+  abandonTerminal,
+  acquireTerminal,
+  releaseTerminal,
+  type TerminalInstance
+} from './terminalRegistry'
 import { getTerminalSettings, useTerminalSetting } from './terminalSettingsAccess'
+
+/** Scrollback lines a cross-window move carries — capped independently of the user's setting, since the snapshot crosses IPC as one string. */
+const CROSS_WINDOW_TRANSFER_SCROLLBACK_LINES = 2000
 
 /** Maps the user's terminal settings onto xterm's constructor/options shape. */
 function toXtermOptions(appearance: TerminalAppearance): ConstructorParameters<typeof Terminal>[0] {
@@ -47,6 +59,9 @@ export function TerminalRenderer({ node }: ContentRendererProps<LeafContent>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const serializeAddonRef = useRef<SerializeAddon | null>(null)
+  // Set by prepareCrossWindowDetach, read by the effect's cleanup — see abandonTerminal.
+  const pendingAbandonRef = useRef(false)
   const cwd = node.config.cwd as string | undefined
   const enableWebglRendering = useTerminalSetting((settings) => settings.enableWebglRendering)
   const terminalAppearance = useTerminalSetting((settings) => settings.appearance)
@@ -90,6 +105,9 @@ export function TerminalRenderer({ node }: ContentRendererProps<LeafContent>) {
       // which xterm core doesn't do on its own. Both kinds of link funnel into
       // the same modifier-gated activate.
       term.loadAddon(new WebLinksAddon(openTerminalLink))
+      // Backs captureTransferState; loading is free, only serialize() costs.
+      const serializeAddon = new SerializeAddon()
+      term.loadAddon(serializeAddon)
       term.open(shadow)
       // xterm routes keystrokes through a hidden <textarea>, which core's
       // navigation handler would otherwise read as a text field and leave
@@ -136,7 +154,19 @@ export function TerminalRenderer({ node }: ContentRendererProps<LeafContent>) {
         term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n')
       })
 
-      return { term, fitAddon, container: shadow, unsubscribeData, unsubscribeExit }
+      // A cross-window move's captured scrollback, seeded before any live pty
+      // data arrives. This factory runs only on first creation (a same-window
+      // remount reattaches above), exactly when a blank instance needs it;
+      // cleared at once so no later save carries it.
+      const transferState = node.config[CROSS_WINDOW_TRANSFER_STATE_KEY] as string | undefined
+      if (transferState) {
+        term.write(transferState)
+        terminalCtx
+          .get()
+          .layout.setLeafConfig(node.id, { [CROSS_WINDOW_TRANSFER_STATE_KEY]: undefined })
+      }
+
+      return { term, fitAddon, serializeAddon, container: shadow, unsubscribeData, unsubscribeExit }
     })
 
     // No-op if this is the instance's first mount (already a child of
@@ -144,6 +174,7 @@ export function TerminalRenderer({ node }: ContentRendererProps<LeafContent>) {
     container.appendChild(instance.container)
     termRef.current = instance.term
     fitAddonRef.current = instance.fitAddon
+    serializeAddonRef.current = instance.serializeAddon
     // Mounting into a hidden pane (e.g. an inactive tab): skip the fit for
     // the same reason as the ResizeObserver guard below — the observer fires
     // with the real box once the pane is shown.
@@ -187,16 +218,28 @@ export function TerminalRenderer({ node }: ContentRendererProps<LeafContent>) {
       cancelled = true
       container.removeEventListener('click', focusOnClick)
       resizeObserver.disconnect()
-      // Debounced, not immediate: a remount within the grace period (a move,
-      // a tab promoting/collapsing, a sibling split changing) reattaches to
-      // this same instance instead of tearing it down.
-      releaseTerminal(node.id, (dying) => {
+      // This window's own state, the bell included — all that comes down
+      // either way.
+      const teardownLocal = (dying: TerminalInstance): void => {
         dying.unsubscribeData()
         dying.unsubscribeExit()
         dying.term.dispose()
-        void terminalBridge.dispose(node.id)
         terminalCtx.get().bell.clear(node.id)
-      })
+      }
+      if (pendingAbandonRef.current) {
+        // A cross-window move, not a close: the pty now belongs to whichever
+        // window reattaches it, so no terminalBridge.dispose.
+        abandonTerminal(node.id, teardownLocal)
+      } else {
+        // Debounced, not immediate: a remount within the grace period (an
+        // in-window move, a tab promoting/collapsing, a sibling split
+        // changing) reattaches to this same instance instead of tearing it
+        // down.
+        releaseTerminal(node.id, (dying) => {
+          teardownLocal(dying)
+          void terminalBridge.dispose(node.id)
+        })
+      }
     }
   }, [node.id])
 
@@ -235,6 +278,23 @@ export function TerminalRenderer({ node }: ContentRendererProps<LeafContent>) {
             // next would come back.
             if (term.buffer.active.type !== 'normal') return
             term.clear()
+          },
+          captureTransferState: (): string | undefined => {
+            const term = termRef.current
+            const serializeAddon = serializeAddonRef.current
+            if (!term || !serializeAddon) return undefined
+            return serializeAddon.serialize({ scrollback: CROSS_WINDOW_TRANSFER_SCROLLBACK_LINES })
+          },
+          prepareCrossWindowDetach: (): (() => void) => {
+            pendingAbandonRef.current = true
+            // Output from here on belongs to whichever window attaches next
+            // — this one unsubscribes as it unmounts, after the scrollback
+            // it carries was captured.
+            terminalBridge.holdOutput(node.id)
+            return () => {
+              pendingAbandonRef.current = false
+              terminalBridge.releaseOutput(node.id)
+            }
           }
         }
       }),

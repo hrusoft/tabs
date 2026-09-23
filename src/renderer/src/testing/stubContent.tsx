@@ -1,10 +1,8 @@
 import { createLeaf } from '@shared/model/factories'
 import type { LeafContent } from '@shared/model/types'
-import { act } from '@testing-library/react'
 import { useEffect, useRef, useState } from 'react'
 import { getPaneCapability, registerPaneHandle } from '../core/registry/paneHandles'
 import type { ContentRendererDef, ContentRendererProps } from '../core/registry/registry'
-import { contentRegistry } from '../core/registry/registry'
 import { useBellStore } from '../core/store/bellStore'
 
 export const STUB_TYPE = 'stub'
@@ -75,22 +73,6 @@ export const stubContentDef: ContentRendererDef<LeafContent> = {
 
 export const SECOND_STUB_TYPE = 'stub-two'
 
-/**
- * Registers the second stub type inside act() — for the jsdom files that need
- * "which one is the root button" to be a real question, each of which was
- * writing out the same act-wrapped register plus the same afterEach. Pair with
- * `unregisterSecondStubType` in afterEach (or a finally).
- */
-export function registerSecondStubType(): void {
-  act(() => {
-    contentRegistry.register(secondStubContentDef)
-  })
-}
-
-export function unregisterSecondStubType(): void {
-  contentRegistry.unregister(SECOND_STUB_TYPE)
-}
-
 function SecondStubRenderer({ node }: ContentRendererProps<LeafContent>) {
   return <div data-testid="stub-two-content">{node.id}</div>
 }
@@ -122,16 +104,14 @@ export const secondStubContentDef: ContentRendererDef<LeafContent> = {
   }
 }
 
-export const STUB_HEADER_CHROME_TYPE = 'stub-header-chrome'
+const STUB_HEADER_CHROME_TYPE = 'stub-header-chrome'
 
 /**
  * A HeaderControl exercising the generic mechanism end to end: presses
  * `getPaneCapability(leaf.id, 'clear')`, the same core capability Cmd/Ctrl+K
  * uses, which this type's own renderer (below) registers — proof the press
- * reaches something real, not just that the button renders. (The terminal's
- * real HeaderControl reads the same capability through its own package
- * context rather than this core-internal helper, which no package can
- * import.) A bare button and a bare input, with no press handlers of their
+ * reaches something real, not just that the button renders. (A package
+ * reaches the same lookup as `ctx.panes.getCapability`.) A bare button and a bare input, with no press handlers of their
  * own: the header's drag handle is what ignores a press on an interactive
  * element (see Pane's `onHeaderPointerDown`), and the browser-tier
  * pane-drag spec pins that against this very title.
@@ -182,18 +162,8 @@ function StubHeaderChromeRenderer({ node }: ContentRendererProps<LeafContent>) {
  * separate from stubContentDef (registered by every test via
  * registerTestContent) so those tests' button-count/ordering assertions
  * aren't perturbed by a header control that isn't there for most of them.
- * Registered/unregistered per test like secondStubContentDef above.
+ * Registered per test (see temporaryStubTypes.ts), like secondStubContentDef.
  */
-export function registerStubHeaderChromeType(): void {
-  act(() => {
-    contentRegistry.register(stubHeaderChromeContentDef)
-  })
-}
-
-export function unregisterStubHeaderChromeType(): void {
-  contentRegistry.unregister(STUB_HEADER_CHROME_TYPE)
-}
-
 export const stubHeaderChromeContentDef: ContentRendererDef<LeafContent> = {
   type: STUB_HEADER_CHROME_TYPE,
   displayName: 'Stub with header chrome',

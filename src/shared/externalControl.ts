@@ -14,8 +14,7 @@ import {
  * This file is the *registry*: core's own verbs, the transport envelopes, and
  * the assembled `ControlRequest` union. A content type's verbs are declared
  * with the type and reach core as one name through
- * src/shared/content/externalControl.ts, exactly as its `window.api` namespaces
- * reach `Api` through content/api.ts — so core names no type here.
+ * src/shared/content/externalControl.ts — so core names no type here.
  *
  * Two things about that split are worth stating so nobody undoes them:
  *
@@ -146,4 +145,10 @@ export interface RelayedControlRequest {
 export interface RelayedControlResponse {
   requestId: string
   response: ControlResponse
+}
+
+/** Main's broadcast over `externalControlOwnershipChanged` when a pane gains or loses an owner. */
+export interface OwnershipChange {
+  paneId: string
+  owned: boolean
 }

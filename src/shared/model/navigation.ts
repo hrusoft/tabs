@@ -159,9 +159,8 @@ export function ancestorTabSteps(
  * The pane to focus after closing `closedId` (removed from `oldRoot`, giving
  * `newRoot`) — the closest sibling that survived, not the tree's global
  * first pane. Both the split and the tab case take `neighbourOf`'s
- * right-then-left convention — the same one `withTabRemoved` applies to the
- * group's own activeTabId, now stated once in tree.ts. Null
- * when there's no sibling to land on — `closedId` was the whole tree, or the
+ * right-then-left convention (tree.ts) — the same one `withTabRemoved`
+ * applies to the group's own activeTabId. Null when there's no sibling to land on — `closedId` was the whole tree, or the
  * sole tab of its group (which `normalize` collapses in place to a fresh
  * empty leaf one level up) — either way the caller's default fallback
  * (`firstPaneId` of the new root) is already correct.

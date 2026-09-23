@@ -1,3 +1,5 @@
+import type { DragSubject, DropTarget } from '@shared/model/drag'
+import { subjectSubtree } from '@shared/model/drag'
 import {
   canDockPane,
   canDockTab,
@@ -7,13 +9,17 @@ import {
   findParent,
   findTab
 } from '@shared/model/tree'
-import type { ContentNode, DockZone, NodeId } from '@shared/model/types'
+import type { ContentNode, DockZone, NodeId, TabsContent } from '@shared/model/types'
 import { isTabs } from '@shared/model/types'
 import { PANE_ATTR } from '@shared/paneDomAttrs'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import type { DragSubject, DropTarget } from '../core/store/dragStore'
 import { useDragStore } from '../core/store/dragStore'
-import { ownerRootOf, splitsDockedRootOutOfItself, useLayoutStore } from '../core/store/layoutStore'
+import {
+  canLeaveWindow,
+  ownerRootOf,
+  splitsDockedRootOutOfItself,
+  useLayoutStore
+} from '../core/store/layoutStore'
 import { armPointerGesture } from './pointerGesture'
 
 /** Pointer movement past this many pixels turns a press into a drag. */
@@ -62,6 +68,30 @@ let springTimer: ReturnType<typeof setTimeout> | null = null
 let springKey: string | null = null
 let returnTimer: ReturnType<typeof setTimeout> | null = null
 
+/**
+ * A released drag with no local target has asked main whether it landed in
+ * another window; the ghost holds in place until `resolveDeferredRelease`
+ * hears back. Any press or key in the window abandons the wait and ends the
+ * held drag on the spot (`abandonDeferredRelease`): a stale answer cannot
+ * then touch a new drag (main's own detach/insert ran correctly
+ * regardless), and an answer that never comes — a hung destination, since
+ * relays do not time out — cannot hold the ghost, and spatial navigation,
+ * which sits out a live drag, until the user happens to press a header.
+ */
+let awaitingCrossWindowRelease = false
+
+function abandonDeferredRelease(): void {
+  stopAwaitingRelease()
+  if (!awaitingCrossWindowRelease) return
+  awaitingCrossWindowRelease = false
+  useDragStore.getState().endDrag()
+}
+
+function stopAwaitingRelease(): void {
+  window.removeEventListener('pointerdown', abandonDeferredRelease, { capture: true })
+  window.removeEventListener('keydown', abandonDeferredRelease, { capture: true })
+}
+
 function swallowSettlingClick(event: MouseEvent): void {
   event.stopPropagation()
   event.preventDefault()
@@ -109,11 +139,10 @@ export function markSplitResizeReleased(): void {
 }
 
 /**
- * True while a split resize owns the pointer gesture. Consulted so no other
- * pointer-driven interaction — activating a pane, starting a pane/tab drag —
- * can act at the same time.
+ * True while a split resize owns the pointer gesture. Consulted so a pane/tab
+ * drag can't start or run at the same time.
  */
-export function isSplitResizing(): boolean {
+function isSplitResizing(): boolean {
   return resizingSplit
 }
 
@@ -147,6 +176,9 @@ function armSession(
   // A resize drag exclusively owns the pointer gesture until it's released —
   // see isSplitResizing.
   if (isSplitResizing()) return
+  // The capture listener has already abandoned any answer still owed for a
+  // real press; this covers one dispatched to the header alone.
+  abandonDeferredRelease()
   // A new press interrupts an in-flight fly-back; without this the stale
   // timer would clear the fresh drag mid-gesture.
   if (returnTimer !== null) {
@@ -194,6 +226,17 @@ function onPointerMove(event: PointerEvent): void {
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return
     session.engaged = true
     useDragStore.getState().beginDrag(session.subject, session.title, event.clientX, event.clientY)
+    // At engagement, not at the press: reaching another window takes far
+    // more travel than the threshold, so main is armed well before it matters.
+    // Only for something that can leave: armed, main relays a hover and the
+    // other window previews a drop this window's detach would then refuse.
+    if (canLeaveWindow(useLayoutStore.getState(), session.subject)) {
+      window.api.layout.sendCrossWindow({
+        type: 'armed',
+        subject: session.subject,
+        title: session.title
+      })
+    }
   }
 
   useDragStore.getState().setPointer(event.clientX, event.clientY)
@@ -221,95 +264,108 @@ function subjectRoot(): ContentNode {
  * the dragged thing into itself.
  */
 function draggedSubtree(root: ContentNode): ContentNode | null {
-  if (!session) return null
-  if (session.subject.kind === 'tab') {
-    return findTab(root, session.subject.tabId)?.tab.content ?? null
-  }
-  return findNode(root, session.subject.paneId)
+  return session ? subjectSubtree(root, session.subject) : null
+}
+
+/**
+ * The drop target at a point, in precedence order: a tab bar, then an edge
+ * dock zone, then an empty pane, then a center dock. Edge zones must beat
+ * the empty-pane target because a blank tab's empty content covers its whole
+ * pane — checked the other way round, such panes could never be edge-docked
+ * onto. Each candidate is asked only once everything ahead of it declined.
+ *
+ * Shared with content/crossWindowDrag.ts, which supplies its own candidates:
+ * the order is the one thing both resolvers must agree on, so it is written
+ * once, here.
+ */
+export function targetByPrecedence(candidates: {
+  tabBar: () => DropTarget | null
+  dock: () => Extract<DropTarget, { kind: 'dock' }> | null
+  emptyPane: () => DropTarget | null
+}): DropTarget | null {
+  const bar = candidates.tabBar()
+  if (bar) return bar
+  const dock = candidates.dock()
+  if (dock && dock.zone !== 'center') return dock
+  return candidates.emptyPane() ?? dock
 }
 
 /**
  * Re-resolves the drop target from scratch on every move, via the DOM under
  * the pointer — not a target computed once at drag start — because spring
- * loading can reveal new tab bars/panes mid-drag.
- *
- * Precedence: tab bars first, then edge dock zones, then empty panes, then
- * center docking. Edge zones must beat the empty-pane target because a blank
- * tab's empty content covers its whole pane — checked the other way round,
- * such panes could never be edge-docked onto.
+ * loading can reveal new tab bars/panes mid-drag. The order is
+ * `targetByPrecedence`'s.
  */
 function updateHoverTarget(x: number, y: number): void {
   if (!session) return
   const root = subjectRoot()
   const el = document.elementFromPoint(x, y)
-  const tabEl = (el?.closest(`[${PANE_ATTR.dropTab}]`) ?? null) as HTMLElement | null
-  const barEl = (el?.closest(`[${PANE_ATTR.dropGroup}]`) ?? null) as HTMLElement | null
+  const subject = session.subject
 
-  // A bar the drop couldn't land on — inside the dragged subtree, or one
-  // that would collapse the moment the pane detaches — isn't a target, so
-  // hovering it falls through to the (equally declined) dock resolution.
-  const barId = (barEl?.getAttribute(PANE_ATTR.dropGroup) ?? null) as NodeId | null
-  const barAccepts =
-    barId !== null &&
-    (session.subject.kind === 'pane'
-      ? canMovePaneToTabs(root, session.subject.paneId, barId)
-      : canMoveTabToTabs(root, session.subject.tabId, barId))
-  const validBarId = barAccepts ? barId : null
-
-  // Deliberately not gated on `validBarId`: revealing a tab is not a drop, so
-  // a bar that declines the drag can still be spring-loaded — see
-  // `maybeSpringLoad`, which owns that call and finds the group from the model
-  // rather than from the bar under the pointer.
-  const hoveredTabId = (tabEl?.getAttribute(PANE_ATTR.dropTab) ?? null) as NodeId | null
+  // Deliberately not gated on whether the bar accepts the drop: revealing a
+  // tab is not a drop, so a bar that declines the drag can still be
+  // spring-loaded — see `maybeSpringLoad`, which owns that call and finds the
+  // group from the model rather than from the bar under the pointer.
+  const hoveredTabId = closestNodeAttr(el, PANE_ATTR.dropTab)
   if (hoveredTabId !== null) maybeSpringLoad(root, hoveredTabId)
   else clearSpringLoad()
 
-  if (tabEl && validBarId) {
-    const rect = tabEl.getBoundingClientRect()
-    const side: 'before' | 'after' = x < rect.left + rect.width / 2 ? 'before' : 'after'
-    setTarget({
-      kind: 'tab-bar',
-      groupId: validBarId,
-      index: computeDropIndex(root, validBarId, hoveredTabId, side)
+  setTarget(
+    targetByPrecedence({
+      // A bar the drop couldn't land on — inside the dragged subtree, or one
+      // that would collapse the moment the pane detaches — isn't a target,
+      // so hovering it falls through to the (equally declined) dock resolution.
+      tabBar: () =>
+        tabBarTargetAt(
+          root,
+          el,
+          x,
+          (groupId) =>
+            subject.kind === 'pane'
+              ? canMovePaneToTabs(root, subject.paneId, groupId)
+              : canMoveTabToTabs(root, subject.tabId, groupId),
+          (groupId) => {
+            const home = homeBarTab(root)
+            return home?.groupId === groupId ? home.tabId : null
+          }
+        ),
+      dock: () => resolveDockTarget(root, el, x, y),
+      emptyPane: () =>
+        emptyPaneTargetAt(el, (paneId) => {
+          // Resolved only when reached, not at the top of the move handler:
+          // this is a full tree walk, and every pointer frame outside this
+          // rarely-reached branch was paying for it — the same reasoning
+          // subjectRoot() documents.
+          const subtree = draggedSubtree(root)
+          // An empty pane inside the dragged subtree is not a real target —
+          // the drop would no-op — so don't tease it with a highlight. Nor is
+          // one in another tree: unlike the dock and tab-bar candidates, whose
+          // `can*` predicates already refuse a target they can't find, this one
+          // has no model check of its own, so a hovered empty pane in a
+          // floating window would light up and then do nothing on release.
+          return findNode(root, paneId) !== null && (!subtree || !findNode(subtree, paneId))
+        })
     })
-    return
-  }
+  )
+}
 
-  if (validBarId) {
-    setTarget({
-      kind: 'tab-bar',
-      groupId: validBarId,
-      index: computeDropIndex(root, validBarId, null, 'after')
-    })
-    return
-  }
-
-  const dock = resolveDockTarget(root, el, x, y)
-  if (dock && dock.zone !== 'center') {
-    setTarget(dock)
-    return
-  }
-
-  const emptyEl = (el?.closest(`[${PANE_ATTR.dropEmptyPane}]`) ?? null) as HTMLElement | null
-  if (emptyEl) {
-    const paneId = emptyEl.getAttribute(PANE_ATTR.dropEmptyPane) as NodeId
-    // Resolved here, not at the top of the move handler: this is a full tree
-    // walk, and every pointer frame outside this rarely-reached branch was
-    // paying for it — the same reasoning subjectRoot() documents.
-    const subtree = draggedSubtree(root)
-    // An empty pane inside the dragged subtree is not a real target — the
-    // drop would no-op — so don't tease it with a highlight. Nor is one in
-    // another tree: unlike the dock and tab-bar branches above, whose
-    // `can*` predicates already refuse a target they can't find, this branch
-    // has no model check of its own, so a hovered empty pane in a floating
-    // window would light up and then do nothing on release.
-    if (findNode(root, paneId) && (!subtree || !findNode(subtree, paneId))) {
-      setTarget({ kind: 'empty-pane', paneId })
-      return
-    }
-  }
-
-  setTarget(dock)
+/**
+ * The in-window dock target under the pointer: `resolveDockTargetAt`, judged
+ * by the dragged subject's own can-dock rules, in the tree it lives in.
+ */
+function resolveDockTarget(
+  root: ContentNode,
+  el: Element | null,
+  x: number,
+  y: number
+): Extract<DropTarget, { kind: 'dock' }> | null {
+  const subject = session?.subject
+  if (!subject) return null
+  return resolveDockTargetAt(root, useLayoutStore.getState().root, el, x, y, (targetId, zone) =>
+    subject.kind === 'tab'
+      ? canDockTab(root, subject.tabId, targetId, zone)
+      : canDockPane(root, subject.paneId, targetId, zone)
+  )
 }
 
 /**
@@ -320,18 +376,23 @@ function updateHoverTarget(x: number, y: number): void {
  * which docks relative to the whole group instead (splitting it out as a
  * sibling). Pane nesting mirrors the tree, and splits are never wrapped in a
  * Pane, so the group is found by walking the DOM panes and the model upward
- * in lockstep, stopping at a split child or the root. Zones that the
- * subject's canDock check declines resolve to no target, so no preview is
- * shown and a drop there is a no-op.
+ * in lockstep, stopping at a split child or the root. Zones that `allowed`
+ * declines resolve to no target, so no preview is shown and a drop there is
+ * a no-op.
+ *
+ * Shared with content/crossWindowDrag.ts, so a pane dropped in from another
+ * window lands where the same point would land an in-window drag: only
+ * `allowed` differs, since a subject from another tree has no place in this
+ * one for the self-containment rules to check.
  */
-function resolveDockTarget(
+export function resolveDockTargetAt(
   root: ContentNode,
+  dockedRoot: TabsContent,
   el: Element | null,
   x: number,
-  y: number
+  y: number,
+  allowed: (targetId: NodeId, zone: DockZone) => boolean
 ): Extract<DropTarget, { kind: 'dock' }> | null {
-  const subject = session?.subject
-  if (!subject) return null
   const innerEl = (el?.closest(`[${PANE_ATTR.dock}]`) ?? null) as HTMLElement | null
   if (!innerEl) return null
 
@@ -342,7 +403,6 @@ function resolveDockTarget(
     groupEl = (groupEl.parentElement?.closest(`[${PANE_ATTR.dock}]`) ?? null) as HTMLElement | null
   }
 
-  const dockedRoot = useLayoutStore.getState().root
   const dockedRootId = dockedRoot.id
 
   const dock = (
@@ -357,11 +417,7 @@ function resolveDockTarget(
     // that would then do nothing. `center` is unaffected: there it means
     // "become a top-level tab".
     if (splitsDockedRootOutOfItself(dockedRoot, targetId, zone)) return null
-    const allowed =
-      subject.kind === 'tab'
-        ? canDockTab(root, subject.tabId, targetId, zone)
-        : canDockPane(root, subject.paneId, targetId, zone)
-    return allowed ? { kind: 'dock', targetId, zone } : null
+    return allowed(targetId, zone) ? { kind: 'dock', targetId, zone } : null
   }
 
   if (!groupEl) return null
@@ -418,17 +474,65 @@ function homeBarTab(root: ContentNode): { groupId: NodeId; tabId: NodeId } | nul
   return ref?.kind === 'tab' ? { groupId: ref.parent.id, tabId: ref.tab.id } : null
 }
 
-/** Index (in terms of the target group's tabs with the departing tab removed) to insert at. */
-function computeDropIndex(
+/**
+ * The tab-bar target under `el`, if that bar `accepts` the drop: an
+ * insertion index beside the hovered tab, before or after it by which half
+ * `x` falls in, or at the end over the bar's empty stretch. `departingTabId`
+ * names a tab leaving that bar with the drop (asked only once a bar
+ * accepts — it can be a tree walk), which the index math excludes.
+ *
+ * Shared with content/crossWindowDrag.ts, whose subject departs nothing, so
+ * a drop from another window lands in exactly the slot an in-window drop
+ * over the same point would.
+ */
+export function tabBarTargetAt(
+  root: ContentNode,
+  el: Element | null,
+  x: number,
+  accepts: (groupId: NodeId) => boolean,
+  departingTabId: (groupId: NodeId) => NodeId | null
+): Extract<DropTarget, { kind: 'tab-bar' }> | null {
+  const groupId = closestNodeAttr(el, PANE_ATTR.dropGroup)
+  if (groupId === null || !accepts(groupId)) return null
+  const tabEl = el?.closest(`[${PANE_ATTR.dropTab}]`)
+  const hoveredTabId = (tabEl?.getAttribute(PANE_ATTR.dropTab) ?? null) as NodeId | null
+  const rect = tabEl?.getBoundingClientRect()
+  const side: 'before' | 'after' = rect && x < rect.left + rect.width / 2 ? 'before' : 'after'
+  return {
+    kind: 'tab-bar',
+    groupId,
+    index: dropIndexWithin(root, groupId, hoveredTabId, side, departingTabId(groupId))
+  }
+}
+
+/**
+ * The empty-pane target under `el`, if `accepts` it — the third candidate,
+ * shared with content/crossWindowDrag.ts like the two above, each side
+ * supplying only its own predicate.
+ */
+export function emptyPaneTargetAt(
+  el: Element | null,
+  accepts: (paneId: NodeId) => boolean
+): Extract<DropTarget, { kind: 'empty-pane' }> | null {
+  const paneId = closestNodeAttr(el, PANE_ATTR.dropEmptyPane)
+  return paneId !== null && accepts(paneId) ? { kind: 'empty-pane', paneId } : null
+}
+
+/** The node id the nearest element at or above `el` carries in `attr`, or null. */
+function closestNodeAttr(el: Element | null, attr: string): NodeId | null {
+  return (el?.closest(`[${attr}]`)?.getAttribute(attr) ?? null) as NodeId | null
+}
+
+/** Where a drop beside `hoveredTabId` lands, with `departingTabId` (a tab leaving this group, or null) removed. */
+function dropIndexWithin(
   root: ContentNode,
   groupId: NodeId,
   hoveredTabId: NodeId | null,
-  side: 'before' | 'after'
+  side: 'before' | 'after',
+  departingTabId: NodeId | null
 ): number {
   const node = findNode(root, groupId)
   const ids = node && isTabs(node) ? node.tabs.map((tab) => tab.id) : []
-  const home = homeBarTab(root)
-  const departingTabId = home?.groupId === groupId ? home.tabId : null
   const withoutDragged = ids.filter((id) => id !== departingTabId)
   if (hoveredTabId === null) return withoutDragged.length
   const at = withoutDragged.indexOf(hoveredTabId)
@@ -489,33 +593,56 @@ function clearSpringLoad(): void {
 function onPointerUp(): void {
   if (!session) return
 
-  let flyBack = false
-  if (session.engaged) {
-    const target = useDragStore.getState().drag?.target ?? null
-    const subject = session.subject
-    const layout = useLayoutStore.getState()
-    if (target?.kind === 'tab-bar') {
-      if (subject.kind === 'tab') layout.moveTab(subject.tabId, target.groupId, target.index)
-      else layout.movePaneToTabs(subject.paneId, target.groupId, target.index)
-    } else if (target?.kind === 'empty-pane') {
-      // For a pane, landing on a placeholder is a center dock: take the slot.
-      if (subject.kind === 'tab') layout.moveTab(subject.tabId, target.paneId)
-      else layout.dockPane(subject.paneId, target.paneId, 'center')
-    } else if (target?.kind === 'dock') {
-      if (subject.kind === 'tab') layout.dockTab(subject.tabId, target.targetId, target.zone)
-      else layout.dockPane(subject.paneId, target.targetId, target.zone)
-    } else {
-      // Nothing was previewed, so nothing happens: the ghost flies home.
-      flyBack = true
-    }
-    // The click following this pointerup lands on whatever the drop released
-    // over — acting on it would activate something the user only dropped on.
-    armSettlingClickSwallow()
+  if (!session.engaged) {
+    teardownSession()
+    return
   }
 
-  teardownSession()
-  if (flyBack) startFlyBack()
-  else useDragStore.getState().endDrag()
+  const target = useDragStore.getState().drag?.target ?? null
+  const subject = session.subject
+  const layout = useLayoutStore.getState()
+  let resolvedLocally = true
+  if (target?.kind === 'tab-bar') {
+    if (subject.kind === 'tab') layout.moveTab(subject.tabId, target.groupId, target.index)
+    else layout.movePaneToTabs(subject.paneId, target.groupId, target.index)
+  } else if (target?.kind === 'empty-pane') {
+    // For a pane, landing on a placeholder is a center dock: take the slot.
+    if (subject.kind === 'tab') layout.moveTab(subject.tabId, target.paneId)
+    else layout.dockPane(subject.paneId, target.paneId, 'center')
+  } else if (target?.kind === 'dock') {
+    if (subject.kind === 'tab') layout.dockTab(subject.tabId, target.targetId, target.zone)
+    else layout.dockPane(subject.paneId, target.targetId, target.zone)
+  } else {
+    resolvedLocally = false
+  }
+  // The click following this pointerup lands on whatever the drop released
+  // over — acting on it would activate something the user only dropped on.
+  armSettlingClickSwallow()
+
+  if (resolvedLocally) {
+    teardownSession()
+    useDragStore.getState().endDrag()
+    return
+  }
+
+  // Nothing previewed here — but a real release only ever reaches the window
+  // the drag began in, so locally this is indistinguishable from a drop into
+  // another window. Ask main, which has been polling the cursor, and hold
+  // the ghost where it is (no cancel message yet) until it answers.
+  clearSessionState()
+  awaitingCrossWindowRelease = true
+  window.addEventListener('pointerdown', abandonDeferredRelease, { capture: true })
+  window.addEventListener('keydown', abandonDeferredRelease, { capture: true })
+  window.api.layout.sendCrossWindow({ type: 'release' })
+}
+
+/** Main's answer to the release above. Ignored if a fresh drag has started since; either way it only decides what this window's ghost does next. */
+export function resolveDeferredRelease(committed: boolean): void {
+  stopAwaitingRelease()
+  if (!awaitingCrossWindowRelease) return
+  awaitingCrossWindowRelease = false
+  if (committed) useDragStore.getState().endDrag()
+  else startFlyBack()
 }
 
 /**
@@ -550,17 +677,26 @@ function startFlyBack(): void {
  * the drag had engaged (ghost shown, store live), settle the store. endDrag
  * on a never-engaged session would be a no-op, but gating keeps the store
  * untouched for a press that never became a drag.
+ *
+ * Exported for content/crossWindowDrag.ts, whose cancel and detach handlers
+ * end any local session still armed.
  */
-function abortSession(): void {
+export function abortSession(): void {
   if (!session) return
   const wasEngaged = session.engaged
   teardownSession()
   if (wasEngaged) useDragStore.getState().endDrag()
 }
 
-/** Detaches the gesture's listeners and bookkeeping; the drag store is settled separately. */
-function teardownSession(): void {
+/** The purely local half of ending a session: listeners, springs, `session` itself. Sends no message. */
+function clearSessionState(): void {
   session?.release()
   clearSpringLoad()
   session = null
+}
+
+/** `clearSessionState` plus telling main this drag is over — every end except a release with no local target, which asks main instead (see `onPointerUp`). */
+function teardownSession(): void {
+  if (session?.engaged) window.api.layout.sendCrossWindow({ type: 'cancel' })
+  clearSessionState()
 }

@@ -1,12 +1,10 @@
 import type { ContentNode } from '@shared/model/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  installTemporaryContentTypes,
-  testLeaf as leaf
+  testLeaf as leaf,
+  registerTestContentType as registerContentType
 } from '../../testing/contentRegistryFixture'
 import { confirmClosingContent } from '../closeConfirmation'
-
-const registerContentType = installTemporaryContentTypes()
 
 /** This file's vocabulary — every case here is about whether a type can block a close. */
 function registerType(type: string, mayBlockClose?: boolean): void {

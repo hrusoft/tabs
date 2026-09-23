@@ -163,8 +163,8 @@ async function seamOverhangHolds(
   bar: import('@playwright/test').Locator
 ): Promise<{ seamY: number; probeX: number; pastX: number }> {
   const tab = bar.locator('.tab-active')
-  const barBox = (await bar.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
-  const tabBox = (await tab.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
+  const barBox = await requireBox(bar)
+  const tabBox = await requireBox(tab)
   expect(Math.round(tabBox.y + tabBox.height)).toBe(Math.round(barBox.y + barBox.height) + 1)
   return {
     seamY: Math.round(barBox.y + barBox.height),
@@ -259,8 +259,8 @@ test('a bar hover menu opens over every tab bar below it', async ({ page }) => {
   // of hit testing — see the note on openPaneMenuItem in e2e/helpers/pane.ts.
   await page.waitForTimeout(150)
 
-  const menuBox = (await menu.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
-  const barBox = (await bar.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
+  const menuBox = await requireBox(menu)
+  const barBox = await requireBox(bar)
   // Non-vacuous only if the menu really does reach past its own bar.
   expect(menuBox.y + menuBox.height).toBeGreaterThan(barBox.y + barBox.height)
 
@@ -329,7 +329,7 @@ test('activating a pane does not move or resize its content box', async ({ page 
   const pane = page.locator('.pane').nth(2)
   const body = pane.locator('> .pane-body')
   await expect(pane).not.toHaveClass(/pane-active/)
-  const before = await body.boundingBox()
+  const before = await requireBox(body)
 
   // Empty bar to the right of this group's tabs, left of its hover controls.
   await page
@@ -338,7 +338,7 @@ test('activating a pane does not move or resize its content box', async ({ page 
     .click({ position: { x: 380, y: 10 } })
 
   await expect(pane).toHaveClass(/pane-active/)
-  expect(await body.boundingBox()).toEqual(before)
+  expect(await requireBox(body)).toEqual(before)
 })
 
 /**
@@ -374,7 +374,7 @@ test.describe('two panes side by side', () => {
     await expect(panes).toHaveCount(3)
     await expect(panes.nth(2)).toHaveClass(/pane-active/)
 
-    const left = (await panes.nth(1).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
+    const left = await requireBox(panes.nth(1))
     // Well below both title bars, in content both panes paint identically.
     const y = Math.round(left.y + left.height - 20)
     const edge = Math.round(left.x + left.width)
@@ -463,8 +463,7 @@ test.describe('splitting a lone tab pane', () => {
     // lone, unsplit tab pane's content sits at (border-box, no padding
     // anywhere in the .tabs-view chain). The bug moved this to x: 2.
     const body = page.locator('.pane-body').nth(1)
-    const box = await body.boundingBox()
-    expect(box?.x).toBe(1)
+    expect((await requireBox(body)).x).toBe(1)
   })
 
   /**
@@ -569,7 +568,7 @@ test.describe('a shallow sibling beside a leaf three tabs-groups deep', () => {
     await expect(panes).toHaveCount(6)
     await expect(panes.last()).toHaveClass(/pane-active/)
 
-    const left = (await panes.nth(1).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
+    const left = await requireBox(panes.nth(1))
     // Computed from the shallow pane alone, same as the plain-siblings test —
     // it spans this split's full height regardless of how many header rows
     // stack on the other side.
@@ -649,7 +648,7 @@ test.describe('an active leaf nested one tabs-group deep beside a split', () => 
     const active = page.locator('.pane-active').last()
     await expect(active).toBeVisible()
 
-    const box = (await active.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
+    const box = await requireBox(active)
     const pixel = (x: number, y: number) => page.screenshot({ clip: { x, y, width: 1, height: 1 } })
 
     // The top edge is a positive inset (never bled past the box), so per the

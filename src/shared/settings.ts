@@ -93,7 +93,7 @@ export interface Settings {
    * Flat rather than a flag inside `contentTypes` below: whether a type is
    * offered at all is core's decision about its own UI, not a preference the
    * type owns — and a type must stay disable-able whether or not it
-   * contributes a settings blob (all three currently do; nothing requires it). See
+   * contributes a settings blob (nothing requires one). See
    * content/enablement.ts for exactly what disabling does, and for why the
    * gate honours this list for any type while `canDisable` governs only which
    * checkboxes the Settings window offers.

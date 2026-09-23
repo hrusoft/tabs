@@ -18,7 +18,7 @@ import { test } from './launch'
  * output at three levels including one that arrives late, and a sub-resource
  * plus a `fetch` so a request log has more than the document in it.
  */
-export interface TestServer {
+interface TestServer {
   /** Absolute URL for `path` (default `/page`). */
   url: (path?: string) => string
   close: () => Promise<void>
@@ -357,7 +357,7 @@ const STATIC_PAGES: Record<string, string> = {
  */
 const SLOW_RESPONSE_MS = 1000
 
-export function startTestServer(): Promise<TestServer> {
+function startTestServer(): Promise<TestServer> {
   // Which /bounce-once/<token> paths have already served their one redirect —
   // per-server state, so a fresh server (one per spec file) starts clean.
   const bouncedPaths = new Set<string>()

@@ -1,5 +1,6 @@
 import type { FloatingPane } from './model/floating'
-import type { ContentNode, NodeId } from './model/types'
+import { mapLeaves } from './model/tree'
+import type { ContentNode, LeafContent, NodeId } from './model/types'
 
 /**
  * The one snapshot version there is. Shared because both processes state it —
@@ -16,7 +17,7 @@ export const LAYOUT_VERSION = 1
  * Title of a top-level tab whose content has no name of its own to offer —
  * the docked root group's own placeholder title. Shared because both
  * processes mint such tabs (the renderer's layoutStore via
- * `rootTabTitleForContent`, main's loadLayout via its own fallback) and they
+ * `rootTabTitleForContent`, main's loadLayoutFile via its own fallback) and they
  * name the same persisted artifact: the root tab's title written into
  * layout.json and asserted by name in e2e. Diverging copies would title the
  * same layout differently depending on which process wrapped it.
@@ -41,11 +42,46 @@ export interface LayoutSnapshot {
    * paint order — index 0 furthest back, the last entry on top — so the stack
    * a user built survives a restart exactly as they left it.
    *
-   * Optional, and `version` deliberately stays 1: `loadLayout` discards the
+   * Optional, and `version` deliberately stays 1: `loadLayoutFile` discards the
    * *whole* layout on a version mismatch, with no migration path, so an
    * additive optional key is the strictly better failure mode. A file written
    * before floating panes existed loads with nothing lost; a file written
    * after one, read by an older build, loses only the floating panes.
    */
   floating?: FloatingPane[]
+}
+
+/**
+ * Every tree a layout holds: the docked root, then each floating window's
+ * content. A pane the user has unpinned is only in the latter, so anything
+ * looking for panes — or rewriting them — walks all of these, never `root`
+ * alone.
+ */
+export function layoutTrees(layout: {
+  root: ContentNode
+  floating?: readonly FloatingPane[] | undefined
+}): ContentNode[] {
+  return [layout.root, ...(layout.floating ?? []).map((entry) => entry.content)]
+}
+
+/**
+ * `mapLeaves` over every tree in `layout`, floating windows included. Keeps
+ * structural sharing the way `mapLeaves` does, up to the snapshot itself:
+ * `layout` comes back by reference when `fn` changed no leaf anywhere, which
+ * callers use to decide whether anything needs saving.
+ */
+export function mapLayoutLeaves(
+  layout: LayoutSnapshot,
+  fn: (leaf: LeafContent) => LeafContent
+): LayoutSnapshot {
+  const root = mapLeaves(layout.root, fn)
+  let floatingChanged = false
+  const floating = layout.floating?.map((entry) => {
+    const content = mapLeaves(entry.content, fn)
+    if (content === entry.content) return entry
+    floatingChanged = true
+    return { ...entry, content }
+  })
+  if (root === layout.root && !floatingChanged) return layout
+  return floating && floatingChanged ? { ...layout, root, floating } : { ...layout, root }
 }

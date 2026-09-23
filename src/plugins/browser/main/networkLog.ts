@@ -688,9 +688,7 @@ export function resourceTypeFilterError(resourceType: string): string | undefine
  * single place the verb handler needs to call, so a caller with several bad
  * flags at once gets one clear reason rather than the request half-running.
  * `pattern`'s check (patternFilterError) lives in ringLog.ts, shared with
- * read-console's identical check on the same flag — see its own comment for
- * why an unparsable pattern is refused here rather than silently searched
- * for as literal text the way compilePattern's own fallback would.
+ * read-console's identical check on the same flag.
  */
 export function networkFilterError(options: {
   method?: string | undefined

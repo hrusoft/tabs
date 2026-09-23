@@ -1,5 +1,9 @@
 import type { ControlRequest, ControlResponse } from './externalControl'
 import type { LayoutSnapshot } from './layout'
+import type {
+  CrossWindowMessageFromMain,
+  CrossWindowMessageFromRenderer
+} from './layoutCrossWindow'
 import type { ContentBridgeApi } from './plugin/bridge'
 import type { Settings } from './settings'
 import type { ShortcutActionId } from './shortcuts'
@@ -69,7 +73,7 @@ export interface AppWindowApi {
   /**
    * The OS-applied rounding of the window's own corners, in CSS px — 0 on
    * non-macOS. Read synchronously for the same reason getAppInfoSync is: it
-   * feeds the active-pane outline's `--pane-corner-radius` before the first
+   * feeds `--os-corner-radius` (the active-pane outline's corners) before the first
    * frame. See src/main/windowChrome.ts — there is no live query for this,
    * only a hand-measured table.
    */
@@ -104,10 +108,24 @@ export interface SettingsApi {
 }
 
 export interface LayoutApi {
-  /** The persisted layout, read synchronously so it's ready before first render. */
+  /**
+   * This window's persisted layout, read synchronously so it's ready before
+   * first render. Main answers per window (each pane-tree window has its own
+   * entry in layout.json); the renderer never names which.
+   */
   getSync: () => LayoutSnapshot
-  /** Replaces the persisted layout wholesale and saves it to disk. */
+  /** Replaces this window's persisted layout wholesale and saves it to disk. */
   set: (snapshot: LayoutSnapshot) => void
+
+  // The cross-window pane-drag protocol (shared/layoutCrossWindow.ts): one
+  // send and one subscription carrying its two unions. Fire-and-forget both
+  // ways, like externalControl's onRequest/respond — the two sides that need
+  // a reply are two renderer processes, and main matches them by requestId.
+
+  /** Sends main one message of the protocol. */
+  sendCrossWindow: (message: CrossWindowMessageFromRenderer) => void
+  /** Subscribes to main's side of the protocol; returns an unsubscribe function. */
+  onCrossWindow: (listener: (message: CrossWindowMessageFromMain) => void) => () => void
 }
 
 export interface ShortcutsApi {
@@ -159,6 +177,52 @@ export interface FontsApi {
 }
 
 /**
+ * The flags a managed `caffeinate` process is launched with — one boolean per
+ * `caffeinate(8)` assertion flag the dialog offers, plus an optional timer.
+ * See src/main/caffeinate.ts's `argsFor` for the flag → argv mapping.
+ */
+export interface CaffeinateFlags {
+  /** `-d`: prevent display sleep. */
+  preventDisplaySleep: boolean
+  /** `-i`: prevent idle system sleep. */
+  preventIdleSleep: boolean
+  /** `-m`: prevent disk idle sleep. */
+  preventDiskSleep: boolean
+  /** `-s`: prevent system sleep — only has an effect on AC power. */
+  preventSystemSleep: boolean
+  /** `-u`: declare the user active (wakes the display; caffeinate's own assertion lasts 5s unless a timer is also set). */
+  declareUserActive: boolean
+  /** `-t <seconds>`: stop automatically after this many seconds. Absent means "run until Decaf". */
+  timerSeconds?: number
+}
+
+/**
+ * Core, not a content type: caffeinate is an app-level singleton with a File
+ * menu item and a title-bar indicator, not scoped to any pane — see
+ * src/main/caffeinate.ts, which holds the one live process this whole
+ * namespace is a window onto.
+ */
+export interface CaffeinateApi {
+  /** Whether the managed process is currently running, read synchronously so the menu label and title-bar indicator don't flash "not running" for a frame after boot. */
+  isRunningSync: () => boolean
+  /** Starts the managed process with `flags`. A no-op if one is already running — the UI that reaches this should already be making that impossible. */
+  start: (flags: CaffeinateFlags) => void
+  /** Stops the managed process, if one is running. */
+  stop: () => void
+  /** Subscribes to running-state changes — from Start/Decaf, or the process exiting on its own (a timer, or something outside the app killing it); returns an unsubscribe function. */
+  onRunningChanged: (callback: (running: boolean) => void) => () => void
+  /**
+   * The native File → Caffeinate… item forwards here when no process is
+   * running yet, so the pane-tree renderer can open the dialog that collects
+   * the flags to start one. Nothing is forwarded when a process is already
+   * running — the menu's click handler answers Decaf itself, directly in
+   * main (see main/menu.ts), the same way Close Pane sometimes answers
+   * itself instead of forwarding.
+   */
+  onOpenDialog: (callback: () => void) => () => void
+}
+
+/**
  * The renderer side of the external control socket (see
  * src/main/externalControl.ts): the pane tree only exists in this process, so
  * a request that needs it mutated/read is relayed here, tagged with a
@@ -203,10 +267,13 @@ export interface SkillsApi {
 }
 
 /**
- * The namespaces that exist whatever content types are registered — everything
- * about panes, windows, settings, layout, shortcuts and the control socket.
+ * The whole `window.api` bridge — entirely core surface: everything about
+ * panes, windows, settings, layout, shortcuts and the control socket, plus the
+ * generic content bridge packages speak through. An object literal annotated
+ * `Api` must supply every namespace and may supply no extras, so preload and
+ * the fake bridge both stay compile-checked for completeness.
  */
-export interface CoreApi {
+export interface Api {
   pane: PaneApi
   appWindow: AppWindowApi
   settings: SettingsApi
@@ -214,15 +281,8 @@ export interface CoreApi {
   shortcuts: ShortcutsApi
   bell: BellApi
   fonts: FontsApi
+  caffeinate: CaffeinateApi
   externalControl: ExternalControlApi
   skills: SkillsApi
   content: ContentBridgeApi
 }
-
-/**
- * The whole bridge — entirely core surface: an
- * object literal annotated `Api` must supply every namespace and may supply
- * no extras, so preload and the fake bridge both stay compile-checked for
- * completeness.
- */
-export type Api = CoreApi

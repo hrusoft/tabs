@@ -58,7 +58,7 @@ const LEDGER_SPECS: Record<keyof Api, string[]> = {
   // getSync/set/onChange: persistence + cross-window broadcast
   settings: ['settings.spec.ts'],
   // getSync/set: relaunch persistence
-  layout: ['layout.spec.ts', 'titles.spec.ts'],
+  layout: ['layout.spec.ts', 'titles.spec.ts', 'multi-window.spec.ts', 'cross-window-drag.spec.ts'],
   shortcuts: [
     // onShortcut: real native menu items
     'pane-shortcuts.spec.ts',
@@ -68,6 +68,9 @@ const LEDGER_SPECS: Record<keyof Api, string[]> = {
   bell: ['bell.spec.ts'],
   // listFamilies
   fonts: ['ipc-smoke.spec.ts'],
+  // isRunningSync/start/stop/onRunningChanged/onOpenDialog, all against a
+  // real /usr/bin/caffeinate
+  caffeinate: ['caffeinate.spec.ts'],
   externalControl: ['external-control.spec.ts'],
   // status only — install/uninstall mutate the real ~/.claude etc. and stay
   // manual (a known gap)

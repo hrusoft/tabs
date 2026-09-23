@@ -4,7 +4,7 @@ import { clickMenuItem } from './menu'
 /**
  * Opens the About window from the given main-window `page` and returns a
  * handle to its own Page. About lives in a real third BrowserWindow (see
- * createAboutWindow in src/main/windows.ts), so callers need a distinct Page,
+ * `aboutWindow` in src/main/windows.ts), so callers need a distinct Page,
  * exactly as they do for Settings.
  *
  * Driven through the application menu because that is the *only* route to it

@@ -1,8 +1,11 @@
 import './gitTree.css'
+import { collectLeaves } from '@shared/model/tree'
 import type { LeafContent } from '@shared/model/types'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type ContentRendererProps, focusIsInPaneChrome } from '../../../renderer/src/plugin/api'
-import { assignLanes, type GraphRow } from '../shared/graph'
+import { type CheckoutTarget, checkoutTargetLabel, decideCheckout } from '../shared/checkoutTargets'
+import { assignLanes } from '../shared/graph'
+import { GIT_TREE_TYPE } from '../shared/manifest'
 import type {
   Commit,
   CommitDetail,
@@ -11,8 +14,12 @@ import type {
   GitLogResult
 } from '../shared/types'
 import { UNCOMMITTED_CHANGES_HASH } from '../shared/types'
+import { CommitDetailPanel } from './CommitDetailPanel'
+import { CommitRow } from './CommitRow'
+import { DetailDivider } from './DetailDivider'
+import { type DetailSplit, readDetailSplit } from './detailSplit'
 import { shortHash } from './format'
-import { GitGraph, LANE_COLORS, ROW_HEIGHT } from './GitGraph'
+import { LANE_COLORS, ROW_HEIGHT } from './GitGraph'
 import { gitTreeBridge } from './gitTreeBridge'
 import { gitTreeHeads } from './gitTreeRegistry'
 import { getGitTreeSettings, useGitTreeSetting } from './gitTreeSettingsAccess'
@@ -20,10 +27,11 @@ import { gitTreeCtx } from './pluginContext'
 
 /**
  * A repository's commit graph: a scrollable list of commits drawn with a lane
- * gutter, and a detail panel for whichever commit is selected. The path bar,
- * browse button, HEAD label and branch-scope select that used to render here
- * too now live in the pane header — see `GitTreeHeaderTitle`, this type's
- * `ContentRendererDef.HeaderTitle`.
+ * gutter (CommitRow), and a detail panel for whichever commit is selected
+ * (CommitDetailPanel), sized — or collapsed — by the divider between them
+ * (DetailDivider). The path bar, browse button, HEAD label and
+ * branch-scope select live in the pane header — see `GitTreeHeaderTitle`,
+ * this type's `ContentRendererDef.HeaderTitle`.
  *
  * `node.config.cwd` is the directory the pane is looking at, and it is the
  * pane's whole subject — written back through `setLeafConfig` (from the
@@ -44,14 +52,6 @@ const PAGE_SIZE = 500
 const LANE_VARS = Object.fromEntries(
   LANE_COLORS.map((color, index) => [`--git-lane-${index}`, color])
 ) as React.CSSProperties
-
-/** Author dates as `2026-08-05 14:32` in local time — sortable at a glance, and no relative-time ticking to keep alive. Anything that isn't a date (the working-tree row's empty one) passes through as-is. */
-function formatDate(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
 
 /** The trailing path segment, which is what a repository is called in conversation. */
 function baseName(path: string): string {
@@ -75,96 +75,39 @@ function failureMessage(reason: GitFailure): string {
 }
 
 /**
- * One row — a real commit, or (when `row.commit.hash === UNCOMMITTED_CHANGES_HASH`)
- * the working tree's own uncommitted state, rendered by the same component so
- * it gets everything a real row gets for free: a place in the lane graph (its
- * synthetic `Commit` carries the newest real commit as its one parent, so
- * `assignLanes` draws it connected into the tree rather than as a separate
- * decoration), selection, and keyboard navigation. The row itself is dimmed
- * via `.git-tree-row-phantom` (opacity on the whole row, gutter included, so
- * even its lane color reads as receded rather than needing a color of its
- * own); everything else it shows — the label as its subject, blank hash/
- * author/date, no refs — is simply what its synthetic `Commit` carries, so
- * nothing below special-cases it.
- *
- * Memoized so a selection change reconciles only the two rows whose
- * `selected` flipped instead of rebuilding every row's SVG — the row data is
- * already stable across selection changes (`graph` is memoized on the
- * commits), so without this each key-repeat of a held arrow re-rendered the
- * whole list.
+ * "abc1234 — the subject line", for naming the commit a checkout dialog is
+ * about. Module scope and takes `commits` explicitly rather than closing
+ * over component state, so `handleCheckout` below can call it
+ * through a stable ref (`commitsRef`) without giving its own `useCallback` a
+ * dependency that changes identity on every log refresh.
  */
-function CommitRowImpl({
-  row,
-  laneCount,
-  selected,
-  id,
-  showAuthor,
-  showDate,
-  onSelect
-}: {
-  row: GraphRow
-  laneCount: number
-  selected: boolean
-  id: string
-  showAuthor: boolean
-  showDate: boolean
-  onSelect: (hash: string) => void
-}) {
-  const isWorkingTree = row.commit.hash === UNCOMMITTED_CHANGES_HASH
-  // The commit HEAD currently points at — parseRefs (git.ts) splits `HEAD ->
-  // main` into separate ref strings for exactly this check.
-  const isHead = row.commit.refs.includes('HEAD')
-  const className = [
-    'git-tree-row',
-    selected && 'git-tree-row-selected',
-    isWorkingTree && 'git-tree-row-phantom'
-  ]
-    .filter(Boolean)
-    .join(' ')
-  return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: the keyboard equivalent is the list's own onKeyDown, which is the whole point of the activedescendant pattern — a per-row handler could only fire for a row that had focus, and no row ever does
-    <div
-      id={id}
-      className={className}
-      data-testid="git-tree-row"
-      data-hash={row.commit.hash}
-      role="option"
-      aria-selected={selected}
-      // Out of the tab sequence but programmatically focusable, which is what
-      // an option in an activedescendant listbox should be — the container is
-      // the tab stop, not the row.
-      tabIndex={-1}
-      onClick={() => onSelect(row.commit.hash)}
-    >
-      <GitGraph row={row} laneCount={laneCount} selected={selected} isHead={isHead} />
-      <span className="git-tree-hash">{shortHash(row.commit.hash)}</span>
-      <span className="git-tree-subject">
-        {row.commit.refs.map((ref) => (
-          <span
-            key={ref}
-            className={isHead ? 'git-tree-ref git-tree-ref-head' : 'git-tree-ref'}
-            data-testid="git-tree-ref"
-          >
-            {ref}
-          </span>
-        ))}
-        {row.commit.subject}
-      </span>
-      {showAuthor && (
-        <span className="git-tree-author" data-testid="git-tree-author">
-          {row.commit.author}
-        </span>
-      )}
-      {showDate && (
-        <span className="git-tree-date" data-testid="git-tree-date">
-          {formatDate(row.commit.date)}
-        </span>
-      )}
-    </div>
-  )
+function commitLabel(commits: Commit[], hash: string): string {
+  const subject = commits.find((commit) => commit.hash === hash)?.subject
+  return subject ? `${shortHash(hash)} — ${subject}` : shortHash(hash)
 }
 
-const CommitRow = memo(CommitRowImpl)
+/**
+ * Reports a checkout failure through the one-button alert dialog — module
+ * scope since it closes over nothing but the stable `gitTreeCtx` holder (see
+ * core/dialogs.tsx's own comment on why `alert` is a distinct shape from
+ * `confirm` rather than the latter with its Cancel button hidden).
+ */
+async function reportCheckoutFailure(message: string): Promise<void> {
+  await gitTreeCtx.get().dialogs.alert({
+    title: 'Checkout failed',
+    message,
+    testId: 'git-tree-checkout-failed-dialog'
+  })
+}
+
+/**
+ * A row's element id. Element ids have to be unique across the whole
+ * document, and several git tree panes can be open at once — so a row's id is
+ * scoped by its pane's.
+ */
+function rowId(paneId: string, hash: string): string {
+  return `git-row-${paneId}-${hash}`
+}
 
 export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
   const configuredDir = node.config.cwd as string | undefined
@@ -173,10 +116,6 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
   const { setLiveTitle } = gitTreeCtx.get().layout
 
   const listRef = useRef<HTMLDivElement>(null)
-
-  // Element ids have to be unique across the whole document, and several git
-  // tree panes can be open at once — so a row's id is scoped by its pane's.
-  const rowId = (hash: string): string => `git-row-${node.id}-${hash}`
 
   const [log, setLog] = useState<GitLogResult | undefined>(undefined)
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
@@ -192,6 +131,15 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
   const showAuthor = useGitTreeSetting((settings) => settings.showAuthorColumn)
   const showDate = useGitTreeSetting((settings) => settings.showDateColumn)
 
+  // How the body divides between list and details: saved in config (read
+  // straight from it, like `branchScope`), overridden by a local draft only
+  // while the divider is being dragged — a drag previews every frame, but
+  // only its release is worth a layout save.
+  const savedSplit = readDetailSplit(node.config)
+  const [draftSplit, setDraftSplit] = useState<DetailSplit | null>(null)
+  const split = draftSplit ?? savedSplit
+  const detailCollapsed = split.collapsed
+
   // Fetch generation counter: every first-page read (initial load, a
   // directory change, or an explicit refresh) claims a generation, and only
   // the read that is still current when it resolves is allowed to commit —
@@ -206,11 +154,15 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
       const generation = ++fetchGeneration.current
       fetchPending.current = true
       if (options?.showLoading) setLog(undefined)
-      void gitTreeBridge.log(dir, PAGE_SIZE, 0, scope).then((result) => {
+      const settle = (result: GitLogResult): void => {
         if (fetchGeneration.current !== generation) return
         fetchPending.current = false
         setLog(result)
-      })
+      }
+      // Never rejects (see gitTreeBridge) — an unsettled read would leave
+      // `fetchPending` set for good, silently switching auto-refresh off
+      // (see refreshIfAttended).
+      void gitTreeBridge.log(dir, PAGE_SIZE, 0, scope).then(settle)
     },
     []
   )
@@ -301,19 +253,31 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
       return
     }
     setSelectedHash((current) => {
-      if (current && commits.some((commit) => commit.hash === current)) return current
+      // `!== null`, not truthiness: the working-tree row's hash is the empty string.
+      if (current !== null && commits.some((commit) => commit.hash === current)) return current
       const firstReal = commits.find((commit) => commit.hash !== UNCOMMITTED_CHANGES_HASH)
       return (firstReal ?? commits[0]!).hash
     })
   }, [commits])
 
+  // A refresh re-reads the log but leaves the working-tree row's hash (always
+  // empty) where it was, so that row — the one whose detail actually changes
+  // between reads — is keyed on the log itself as well.
+  const detailKey = selectedHash === UNCOMMITTED_CHANGES_HASH ? log : selectedHash
+
   useEffect(() => {
-    if (configuredDir === undefined || selectedHash === null) {
+    // Collapsed, nothing shows the detail, so nothing reads it — a held arrow
+    // key through a hidden panel costs no git spawns. Kept rather than
+    // cleared, so reopening on the same row doesn't flash it empty while this
+    // re-runs and re-reads.
+    if (detailCollapsed) return
+    if (configuredDir === undefined || selectedHash === null || detailKey === undefined) {
       setDetail(undefined)
       return
     }
     let cancelled = false
-    setDetail(undefined)
+    // Kept while the same row is re-read, so a refresh doesn't flash it empty.
+    setDetail((current) => (current?.hash === selectedHash ? current : undefined))
     // Debounced: a held arrow key traverses many rows a second, and each read
     // is two git spawns in main that run to completion even once stale. Only
     // the row the selection settles on is worth asking about.
@@ -330,13 +294,16 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [configuredDir, selectedHash])
+  }, [configuredDir, selectedHash, detailKey, detailCollapsed])
 
   // The pane's tab reads as the repository rather than "Git tree", the way a
-  // browser pane's reads as its page title.
+  // browser pane's reads as its page title — or, when the directory isn't one,
+  // as that directory, rather than keeping the name of a repo no longer shown.
   useEffect(() => {
-    if (log?.ok) setLiveTitle(node.id, baseName(log.root))
-  }, [log, node.id, setLiveTitle])
+    if (log === undefined) return
+    if (log.ok) setLiveTitle(node.id, baseName(log.root))
+    else if (configuredDir !== undefined) setLiveTitle(node.id, baseName(configuredDir))
+  }, [log, configuredDir, node.id, setLiveTitle])
 
   // Publishes this pane's HEAD for GitTreeHeaderTitle's own label — the one
   // piece of this component's state the header needs and cannot derive from
@@ -413,8 +380,165 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
     return () => window.removeEventListener('focus', onWindowFocus)
   }, [onWindowFocus])
 
+  /**
+   * The divider's release. Clears the draft and saves in one batch, so the
+   * release frame shows the saved split rather than flicking back through
+   * the old one — and saves nothing at all for a press that moved nothing,
+   * which would otherwise be a layout write per stray click. A collapse keeps
+   * the saved fraction, the last open size.
+   */
+  const commitSplit = (next: DetailSplit): void => {
+    setDraftSplit(null)
+    const unchanged = next.collapsed
+      ? savedSplit.collapsed
+      : !savedSplit.collapsed && next.fraction === savedSplit.fraction
+    if (unchanged) return
+    gitTreeCtx
+      .get()
+      .layout.setLeafConfig(
+        node.id,
+        next.collapsed
+          ? { detailCollapsed: true }
+          : { detailFraction: next.fraction, detailCollapsed: false }
+      )
+  }
+
   // Stable across renders so it never breaks CommitRow's memoization.
   const selectRow = useCallback((hash: string) => setSelectedHash(hash), [])
+
+  // Checking out a commit or branch from the list.
+  //
+  // One checkout at a time per pane: the fresh `branchesAtCommit` read, the
+  // dialog round trip and the checkout itself are all async, so a second
+  // trigger landing while one is already running (a stray double-click on
+  // top of a context-menu pick, say) would start a second `git switch`
+  // racing the first over git's own `index.lock` rather than queue behind
+  // it — dropped outright instead, via this ref rather than state, since
+  // nothing about being "in flight" should cause a re-render.
+  const checkoutInFlightRef = useRef(false)
+
+  // A stable ref onto the latest commits, purely so handleCheckout can look a
+  // hash's subject up (module-scope commitLabel above) without *depending*
+  // on `commits` — depending on it would give handleCheckout/openCommitMenu
+  // a new identity on every refresh and defeat CommitRow's memoization
+  // exactly the way refreshRef above exists to avoid for `refresh` itself.
+  const commitsRef = useRef(commits)
+  commitsRef.current = commits
+
+  /**
+   * Refreshes this pane, plus every *other* mounted git tree pane pointed at
+   * the exact same directory — an exact string match on `config.cwd` only,
+   * not "same repo, different subdirectory" (that would need its own
+   * `git rev-parse --show-toplevel` per candidate pane on every checkout, for
+   * a setup few users have). Uses only capabilities already on the plugin
+   * context (`layout.allRoots` + `panes.getCapability('refresh')`) — no new
+   * core plumbing for this.
+   */
+  const refreshAfterCheckout = useCallback(
+    (dir: string) => {
+      refreshRef.current()
+      const ctx = gitTreeCtx.get()
+      for (const root of ctx.layout.allRoots()) {
+        for (const leaf of collectLeaves(root)) {
+          if (leaf.id === node.id) continue
+          if (leaf.type !== GIT_TREE_TYPE) continue
+          if ((leaf.config.cwd as string | undefined) !== dir) continue
+          ctx.panes.getCapability(leaf.id, 'refresh')?.()
+        }
+      }
+    },
+    [node.id]
+  )
+
+  const performCheckout = useCallback(
+    async (dir: string, target: CheckoutTarget) => {
+      const result = await gitTreeBridge.checkout(dir, target)
+      // `detail` is git's own full refusal text when there is one (a dirty
+      // file list, the "commit or stash" hint) — falling back to the
+      // one-line `reason` only for the rarer failures that never carry it
+      // (git missing, not a repo). Never silent either way.
+      if (!result.ok) await reportCheckoutFailure(result.detail ?? failureMessage(result.reason))
+      refreshAfterCheckout(dir)
+    },
+    [refreshAfterCheckout]
+  )
+
+  const handleCheckout = useCallback(
+    async (hash: string) => {
+      if (hash === UNCOMMITTED_CHANGES_HASH) return
+      if (configuredDir === undefined) return
+      if (checkoutInFlightRef.current) return
+      checkoutInFlightRef.current = true
+      try {
+        const dir = configuredDir
+        // Fresh, unambiguous, and never the log's own `%D` decorations — see
+        // git.ts's branchesAtCommit for why.
+        const refs = await gitTreeBridge.branchesAtCommit(dir, hash)
+        if (!refs.ok) {
+          await reportCheckoutFailure(failureMessage(refs.reason))
+          return
+        }
+        const decision = decideCheckout(refs.local, refs.remotes, refs.allLocalBranches)
+        if (decision.kind === 'single') {
+          await performCheckout(dir, decision.target)
+          return
+        }
+        if (decision.kind === 'none') {
+          const confirmed = await gitTreeCtx.get().dialogs.confirm({
+            title: 'Checkout',
+            message: `Checking out ${commitLabel(commitsRef.current, hash)} will leave HEAD detached — it won't be on any branch. Continue?`,
+            confirmLabel: 'Checkout',
+            testId: 'git-tree-checkout-detach-dialog'
+          })
+          if (!confirmed) return
+          await performCheckout(dir, { kind: 'commit', hash })
+          return
+        }
+        // decision.kind === 'choose'. Labels double as the select's values —
+        // decideCheckout never mixes local and remote-tracking targets in one
+        // list, and names are unique within either namespace, so this is
+        // never ambiguous. Order is whatever branchesAtCommit's own
+        // `--sort=refname` produced (deterministic, not "current branch
+        // first" or any other UI-side reordering).
+        const labels = decision.targets.map(checkoutTargetLabel)
+        const picked = await gitTreeCtx.get().dialogs.choose({
+          title: 'Checkout',
+          message: `Several branches point at ${commitLabel(commitsRef.current, hash)}. Which one?`,
+          options: labels,
+          confirmLabel: 'Checkout',
+          testId: 'git-tree-checkout-choose-dialog'
+        })
+        if (picked === null) return
+        const target = decision.targets[labels.indexOf(picked)]
+        if (target === undefined) return
+        await performCheckout(dir, target)
+      } catch (error) {
+        // The bridge's calls never reject (see gitTreeBridge), but this
+        // flow also awaits dialogs and runs its own logic between them. A
+        // checkout must not fail silently, so this is the backstop: the
+        // stack goes to the console, the user gets the alert every other
+        // failure in this flow already uses.
+        console.error('git tree checkout failed', error)
+        await reportCheckoutFailure(error instanceof Error ? error.message : String(error))
+      } finally {
+        checkoutInFlightRef.current = false
+      }
+    },
+    [configuredDir, performCheckout]
+  )
+
+  // Every item acts on the `hash` the row passed in — the row right-clicked —
+  // never on `selectedHash`, even though the right-click also selects it.
+  const openCommitMenu = useCallback(
+    (hash: string, x: number, y: number) => {
+      const ctx = gitTreeCtx.get()
+      ctx.contextMenu.open(x, y, [
+        { label: 'Checkout', onSelect: () => void handleCheckout(hash) },
+        { label: 'Copy SHA-1', onSelect: () => ctx.copyText(hash) }
+      ])
+    },
+    [handleCheckout]
+  )
 
   const moveSelection = (delta: number): void => {
     if (commits.length === 0) return
@@ -455,6 +579,28 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
     event.preventDefault()
   }
 
+  // Built apart from the rest of the render: a divider drag re-renders this
+  // component on every frame it moves, and rebuilding an element per loaded
+  // commit for a change that only moves the split was most of that frame.
+  const rowElements = useMemo(
+    () =>
+      graph.rows.map((row) => (
+        <CommitRow
+          key={row.commit.hash}
+          row={row}
+          laneCount={graph.laneCount}
+          selected={row.commit.hash === selectedHash}
+          id={rowId(node.id, row.commit.hash)}
+          showAuthor={showAuthor}
+          showDate={showDate}
+          onSelect={selectRow}
+          onCheckout={handleCheckout}
+          onCommitMenu={openCommitMenu}
+        />
+      )),
+    [graph, selectedHash, node.id, showAuthor, showDate, selectRow, handleCheckout, openCommitMenu]
+  )
+
   return (
     <div className="git-tree-container" data-testid="git-tree" style={LANE_VARS}>
       {log === undefined ? (
@@ -462,7 +608,10 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
           Reading history…
         </div>
       ) : log.ok ? (
-        <div className="git-tree-body">
+        <div
+          className="git-tree-body"
+          style={{ '--git-detail-basis': `${split.fraction * 100}%` } as React.CSSProperties}
+        >
           <div
             ref={listRef}
             className="git-tree-list"
@@ -474,22 +623,11 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
             // (so one keydown handler serves every row, and the pane handle
             // has a single thing to focus) while this names which row is
             // current for assistive technology.
-            aria-activedescendant={selectedHash ? rowId(selectedHash) : undefined}
+            aria-activedescendant={selectedHash ? rowId(node.id, selectedHash) : undefined}
             style={{ '--git-row-height': `${ROW_HEIGHT}px` } as React.CSSProperties}
             onKeyDown={onKeyDown}
           >
-            {graph.rows.map((row) => (
-              <CommitRow
-                key={row.commit.hash}
-                row={row}
-                laneCount={graph.laneCount}
-                selected={row.commit.hash === selectedHash}
-                id={rowId(row.commit.hash)}
-                showAuthor={showAuthor}
-                showDate={showDate}
-                onSelect={selectRow}
-              />
-            ))}
+            {rowElements}
             {log.hasMore && (
               <button
                 type="button"
@@ -502,71 +640,8 @@ export function GitTreeRenderer({ node }: ContentRendererProps<LeafContent>) {
             )}
           </div>
 
-          <div className="git-tree-detail" data-testid="git-tree-detail">
-            {detail ? (
-              <>
-                <pre className="git-tree-message" data-testid="git-tree-message">
-                  {detail.message}
-                </pre>
-                <dl className="git-tree-fields">
-                  {detail.hash !== UNCOMMITTED_CHANGES_HASH && (
-                    <>
-                      <dt>Commit</dt>
-                      <dd data-testid="git-tree-detail-hash">{detail.hash}</dd>
-                      <dt>Author</dt>
-                      <dd>{`${detail.author} <${detail.authorEmail}>`}</dd>
-                      <dt>Date</dt>
-                      {/* The same formatter the rows use. Showing the raw `%aI`
-                          here instead reads as a bug rather than as precision:
-                          the same commit displays two different-looking times,
-                          one local and one in the author's offset. */}
-                      <dd>{formatDate(detail.date)}</dd>
-                    </>
-                  )}
-                  {detail.parents.length > 0 && (
-                    <>
-                      <dt>{detail.parents.length > 1 ? 'Parents' : 'Parent'}</dt>
-                      <dd>{detail.parents.map(shortHash).join(', ')}</dd>
-                    </>
-                  )}
-                  {detail.refs.length > 0 && (
-                    <>
-                      <dt>Refs</dt>
-                      <dd>{detail.refs.join(', ')}</dd>
-                    </>
-                  )}
-                </dl>
-                <div className="git-tree-files" data-testid="git-tree-files">
-                  {detail.files.map((file) => (
-                    <div key={file.path} className="git-tree-file" data-testid="git-tree-file">
-                      <span className="git-tree-file-stat">
-                        {file.insertions === null || file.deletions === null ? (
-                          <span className="git-tree-binary">binary</span>
-                        ) : (
-                          <>
-                            <span className="git-tree-insertions">+{file.insertions}</span>
-                            <span className="git-tree-deletions">−{file.deletions}</span>
-                          </>
-                        )}
-                      </span>
-                      <span className="git-tree-file-path">{file.path}</span>
-                    </div>
-                  ))}
-                  {detail.files.length === 0 &&
-                    (detail.hash === UNCOMMITTED_CHANGES_HASH ? (
-                      <p className="git-tree-dim">No uncommitted changes.</p>
-                    ) : (
-                      <p className="git-tree-dim">No files changed against the first parent.</p>
-                    ))}
-                  {detail.filesTruncated && (
-                    <p className="git-tree-dim">Only the first files are listed.</p>
-                  )}
-                </div>
-              </>
-            ) : (
-              <p className="git-tree-dim">Select a commit.</p>
-            )}
-          </div>
+          <DetailDivider split={split} onPreview={setDraftSplit} onCommit={commitSplit} />
+          {!detailCollapsed && <CommitDetailPanel detail={detail} />}
         </div>
       ) : (
         <div className="git-tree-notice" data-testid="git-tree-empty">
