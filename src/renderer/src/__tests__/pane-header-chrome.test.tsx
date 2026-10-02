@@ -1,4 +1,4 @@
-import { PANE_BUTTON } from '@shared/paneDomAttrs'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test } from 'vitest'

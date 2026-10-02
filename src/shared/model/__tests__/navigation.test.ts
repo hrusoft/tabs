@@ -1,5 +1,11 @@
+import {
+  createLeaf,
+  createSplit,
+  createTab,
+  createTabs
+} from '@tabs/plugin-sdk/shared/model/factories'
+import type { SplitContent, TabsContent } from '@tabs/plugin-sdk/shared/model/types'
 import { describe, expect, it } from 'vitest'
-import { createLeaf, createSplit, createTab, createTabs } from '../factories'
 import {
   ancestorTabSteps,
   entryPaneId,
@@ -10,7 +16,6 @@ import {
   pickWrapTarget
 } from '../navigation'
 import { closePane } from '../tree'
-import type { SplitContent, TabsContent } from '../types'
 
 function rect(left: number, top: number, right: number, bottom: number): NavRect {
   return { left, top, right, bottom }

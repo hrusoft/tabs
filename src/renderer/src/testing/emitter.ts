@@ -1,7 +1,8 @@
 /**
- * The fake bridge's subscription primitive, shared by core's fake and each
- * content type's (see ./content/). Its own module only because those now live
- * in separate files.
+ * The fake bridges' subscription primitive, shared by core's fake bridge
+ * (./fakeApi.ts) and the fake content bridge (./content/). Test-harness
+ * surface only: a package's own fake never sees it, emitting through the
+ * `FakeContentHost` it is handed instead.
  */
 export class Emitter<T> {
   private listeners = new Set<(value: T) => void>()

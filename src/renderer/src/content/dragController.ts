@@ -9,9 +9,14 @@ import {
   findParent,
   findTab
 } from '@shared/model/tree'
-import type { ContentNode, DockZone, NodeId, TabsContent } from '@shared/model/types'
-import { isTabs } from '@shared/model/types'
-import { PANE_ATTR } from '@shared/paneDomAttrs'
+import type {
+  ContentNode,
+  DockZone,
+  NodeId,
+  TabsContent
+} from '@tabs/plugin-sdk/shared/model/types'
+import { isTabs } from '@tabs/plugin-sdk/shared/model/types'
+import { PANE_ATTR } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useDragStore } from '../core/store/dragStore'
 import {

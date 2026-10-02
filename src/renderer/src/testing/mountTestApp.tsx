@@ -1,5 +1,5 @@
-import type { LeafContent } from '@shared/model/types'
 import type { ExtraStubType } from '@shared/testing/fakeApiHandle'
+import type { LeafContent } from '@tabs/plugin-sdk/shared/model/types'
 import App from '../App'
 import type { ContentRendererDef } from '../core/registry/registry'
 import { contentRegistry } from '../core/registry/registry'

@@ -1,4 +1,4 @@
-import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { requireBox } from '../helpers/geometry'
 import { headerOf, initialPane, openNewTab } from '../helpers/pane'
 import { expect, test } from './helpers/harness'

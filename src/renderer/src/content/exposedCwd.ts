@@ -1,4 +1,4 @@
-import type { LeafContent } from '@shared/model/types'
+import type { LeafContent } from '@tabs/plugin-sdk/shared/model/types'
 import { contentRegistry } from '../core/registry/registry'
 
 /**

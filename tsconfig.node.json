@@ -1,26 +1,42 @@
 {
-  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  // Core's Node-side project: main, preload, the process-agnostic src/shared,
+  // e2e, the root configs, and every package's shared/ and main/ *tests*
+  // (package projects cover shipped code only — see
+  // packages/tsconfig.package.json). Package sources arrive through the
+  // references below, never through `include`: a composite project that
+  // globbed them in would own files another project already owns.
+  "extends": ["@electron-toolkit/tsconfig/tsconfig.node.json", "./tsconfig.base.json"],
   "include": [
-    "electron.vite.config.*",
-    "vite.harness.config.*",
-    "vitest.config.*",
-    "playwright.config.*",
+    "electron.vite.config.ts",
+    "vite.harness.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "alias.config.ts",
+    "externals.config.ts",
+    "app.config.ts",
     "src/shared/**/*",
     "src/main/**/*",
     "src/preload/**/*",
     "src/plugins/index.ts",
-    "src/plugins/*/shared/**/*",
-    "src/plugins/*/main/**/*",
+    "packages/*/shared/**/__tests__/**/*",
+    "packages/*/main/**/__tests__/**/*",
     "e2e/**/*"
   ],
   "compilerOptions": {
     "composite": true,
-    "types": ["electron-vite/node", "node"],
-    // The @electron-toolkit base sets strict but forces noImplicitAny back off.
-    "noImplicitAny": true,
-    "noImplicitOverride": true,
-    "noUncheckedSideEffectImports": true,
-    "exactOptionalPropertyTypes": true,
-    "noUncheckedIndexedAccess": true
-  }
+    "emitDeclarationOnly": true,
+    "outDir": ".tsbuildcache/core-node",
+    "rootDir": ".",
+    "types": ["electron-vite/node", "node"]
+  },
+  "references": [
+    { "path": "./packages/plugin-sdk/shared" },
+    { "path": "./packages/plugin-sdk/main" },
+    { "path": "./packages/plugin-terminal/shared" },
+    { "path": "./packages/plugin-terminal/main" },
+    { "path": "./packages/plugin-browser/shared" },
+    { "path": "./packages/plugin-browser/main" },
+    { "path": "./packages/plugin-gitTree/shared" },
+    { "path": "./packages/plugin-gitTree/main" }
+  ]
 }

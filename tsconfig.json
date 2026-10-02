@@ -1,4 +1,28 @@
 {
+  // The solution: `tsc -b` (npm run typecheck) builds every project below in
+  // dependency order and skips any whose inputs have not changed since the
+  // last build (.tsbuildcache/, gitignored). Each workspace package has three
+  // composite projects (shared, main, renderer); core has two (node, web),
+  // which reference the package projects rather than globbing their sources.
+  // tsconfig references cannot glob, so a new package is added here and in
+  // both core projects by hand — manifestReconciliation.test.ts fails, naming
+  // the project, if one is missing (its code would otherwise silently go
+  // untypechecked).
   "files": [],
-  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }]
+  "references": [
+    { "path": "./packages/plugin-sdk/shared" },
+    { "path": "./packages/plugin-sdk/main" },
+    { "path": "./packages/plugin-sdk/renderer" },
+    { "path": "./packages/plugin-terminal/shared" },
+    { "path": "./packages/plugin-terminal/main" },
+    { "path": "./packages/plugin-terminal/renderer" },
+    { "path": "./packages/plugin-browser/shared" },
+    { "path": "./packages/plugin-browser/main" },
+    { "path": "./packages/plugin-browser/renderer" },
+    { "path": "./packages/plugin-gitTree/shared" },
+    { "path": "./packages/plugin-gitTree/main" },
+    { "path": "./packages/plugin-gitTree/renderer" },
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.web.json" }
+  ]
 }

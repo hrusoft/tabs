@@ -38,7 +38,7 @@ test('a split with a terminal and a tab group survives a relaunch', async ({ use
     await expect(page2.getByTestId('terminal')).toHaveCount(1)
 
     // The restored terminal is a genuinely fresh, working shell — a new pid
-    // (the old process was killed on quit, see src/plugins/terminal/main/terminal.ts's
+    // (the old process was killed on quit, see packages/plugin-terminal/main/terminal.ts's
     // disposeAllTerminals), not a stale reference, and actually interactive.
     const term2 = page2.getByTestId('terminal')
     await expect(term2).toHaveAttribute('data-pty-pid', /^\d+$/)

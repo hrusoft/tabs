@@ -1,4 +1,4 @@
-import type { LeafContent } from '@shared/model/types'
+import type { LeafContent } from '@tabs/plugin-sdk/shared/model/types'
 import type { Dispatch, SetStateAction } from 'react'
 import { paneTitleForContent } from '../core/registry/titles'
 import { useLayoutStore } from '../core/store/layoutStore'

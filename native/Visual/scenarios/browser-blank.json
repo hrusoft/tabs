@@ -1,0 +1,38 @@
+{
+  "description": "A fresh pane: about:blank, no title, both nav buttons disabled, a white page.",
+  "size": {
+    "width": 900,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-web",
+            "type": "browser",
+            "config": {
+              "url": "about:blank"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-web",
+    "floating": []
+  },
+  "browser": {
+    "leaf-web": {
+      "page": "#ffffff"
+    }
+  }
+}

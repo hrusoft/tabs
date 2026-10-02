@@ -1,0 +1,87 @@
+{
+  "description": "Root group with two tabs: background \"A very long tab title that the maximum width cuts short\" (leaf A, truncated at the max width) and active \"Tabs\" holding a horizontal split [B | G], G a tab group with two \"New Tab\" tabs X and Y (Y active); B is the active pane. Bells on A and X, Y controlled. The bell icon shows before the title on the root tabs \"A very long…\" and \"Tabs\" (it holds X) and on G's tab X; Y's header has the robot and the agent outline; no tab shows a robot. X and A are hidden, so no header or outline for them.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "signals": {
+    "leaf-a": [
+      "bell"
+    ],
+    "leaf-x": [
+      "bell"
+    ],
+    "leaf-y": [
+      "controlled"
+    ]
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "A very long tab title that the maximum width cuts short",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "group-g",
+                "type": "tabs",
+                "tabs": [
+                  {
+                    "id": "tab-x",
+                    "title": "New Tab",
+                    "content": {
+                      "id": "leaf-x",
+                      "type": "empty",
+                      "config": {}
+                    }
+                  },
+                  {
+                    "id": "tab-y",
+                    "title": "New Tab",
+                    "content": {
+                      "id": "leaf-y",
+                      "type": "empty",
+                      "config": {}
+                    }
+                  }
+                ],
+                "activeTabId": "tab-y"
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-b",
+    "floating": []
+  }
+}

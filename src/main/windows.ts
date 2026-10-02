@@ -1,5 +1,7 @@
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
+import { e2eHidden } from '@tabs/plugin-sdk/main/e2eHidden'
+import { createId } from '@tabs/plugin-sdk/shared/model/ids'
 import {
   BrowserWindow,
   type BrowserWindowConstructorOptions,
@@ -9,9 +11,7 @@ import {
 } from 'electron'
 import icon from '../../resources/icon.png?asset'
 import { IpcChannel } from '../shared/ipc'
-import { createId } from '../shared/model/ids'
 import { contentModuleWindowPreferences, wireContentModulesInto } from './contentTypes'
-import { e2eHidden } from './e2eHidden'
 import { openExternalUrl } from './openExternal'
 import { themeWindowBackground } from './theme'
 

@@ -1,0 +1,54 @@
+{
+  "description": "signal-both held at the pulse's trough (0s into the cycle): B carries both cues: the bell icon then the robot after its grip, before the title; its content outline and inner glow take the agent (controlled) color, which wins over the bell's, with every icon (the root tab's bell too) and the outline and glow at opacity 0.3, visibly dimmer than signal-both.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "signals": {
+    "leaf-b": [
+      "bell",
+      "controlled"
+    ]
+  },
+  "pulse": 0,
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

@@ -1,8 +1,8 @@
 import type { FloatRect } from '@shared/model/floating'
 import { DEFAULT_FLOAT_RECT } from '@shared/model/floating'
-import type { NodeId } from '@shared/model/types'
+import { paneDomRect } from '@tabs/plugin-sdk/renderer/paneDom'
+import type { NodeId } from '@tabs/plugin-sdk/shared/model/types'
 import { useLayoutStore } from '../../core/store/layoutStore'
-import { paneDomRect } from '../paneDom'
 
 /**
  * Where each node's window sat the last time it was pinned back, so unpinning

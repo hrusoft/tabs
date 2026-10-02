@@ -1,0 +1,13 @@
+{
+  "name": "@tabs/plugin-gitTree",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tabs/plugin-sdk": "*"
+  },
+  "peerDependencies": {
+    "electron": "*",
+    "react": "*"
+  }
+}

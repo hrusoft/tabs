@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
+import { e2eHidden } from '@tabs/plugin-sdk/main/e2eHidden'
 import { app, BrowserWindow, clipboard, ipcMain } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import { registerBellIpc } from './bell'
@@ -13,7 +14,6 @@ import {
   runContentModuleWindowDiscardHooks
 } from './contentTypes'
 import { registerE2eHooks } from './e2e'
-import { e2eHidden } from './e2eHidden'
 import { registerExternalControlServer } from './externalControl'
 import { registerFontsIpc } from './fonts'
 import { onRendererMessage, registerSyncGetter } from './ipcListeners'
@@ -71,12 +71,9 @@ app
   .then(() => {
     electronApp.setAppUserModelId('com.hrusoft.tabs')
 
-    // e2e only: an accessory-policy app can show windows without becoming the
-    // frontmost app, so launching/closing it across many tests doesn't steal
-    // focus or flash the Dock/Cmd-Tab switcher.
-    if (e2eHidden && process.platform === 'darwin') {
-      app.dock?.hide()
-    }
+    // Never switch the activation policy here, least of all under e2e: macOS 27
+    // force-quits a never-shown app ~30s after it leaves the Dock. e2e keeps
+    // the Dock clear by launching a UIElement clone instead (CLAUDE.md).
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
@@ -131,7 +128,7 @@ app
       (event) => BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false
     )
     onRendererMessage(IpcChannel.windowOpenSettings, () => openSettingsWindow())
-    // Clicking a link in a terminal pane (see src/plugins/terminal/renderer/links.ts). Only
+    // Clicking a link in a terminal pane (see packages/plugin-terminal/renderer/links.ts). Only
     // the main process can reach the OS browser, and only it should be trusted
     // to vet the URL — openExternalUrl drops anything that isn't http(s)/mailto.
     onRendererMessage(IpcChannel.windowOpenExternal, (_event, url: string) => openExternalUrl(url))

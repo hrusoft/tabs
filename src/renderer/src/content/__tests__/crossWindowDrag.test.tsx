@@ -3,9 +3,20 @@ import type {
   CrossWindowInsertResponse
 } from '@shared/layoutCrossWindow'
 import { CROSS_WINDOW_TRANSFER_STATE_KEY } from '@shared/layoutCrossWindow'
-import { createLeaf, createSplit, createTab, createTabs } from '@shared/model/factories'
-import { collectLeaves, findNode } from '@shared/model/tree'
-import type { ContentNode, LeafContent, SplitContent, TabsContent } from '@shared/model/types'
+import { findNode } from '@shared/model/tree'
+import {
+  createLeaf,
+  createSplit,
+  createTab,
+  createTabs
+} from '@tabs/plugin-sdk/shared/model/factories'
+import type {
+  ContentNode,
+  LeafContent,
+  SplitContent,
+  TabsContent
+} from '@tabs/plugin-sdk/shared/model/types'
+import { collectLeaves } from '@tabs/plugin-sdk/shared/model/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerPaneHandle } from '../../core/registry/paneHandles'
 import { layoutSnapshotOf, useLayoutStore } from '../../core/store/layoutStore'

@@ -4,19 +4,15 @@
 # builds each public snapshot. Nothing here changes this repository, a checkout,
 # a build or a test run.
 
-# A separate experimental program with its own build and gates; CLAUDE.md says
-# it is not part of this app.
-tui/                            export-ignore
-
 # Internal agent config and architecture notes.
 .claude/                        export-ignore
 CLAUDE.md                       export-ignore
 
-# .github/workflows/release.yml is deliberately NOT excluded: the dmg is built
-# on the mirror, from a release cut there, so the workflow has to reach it. It
-# guards itself with `if: github.repository` so it never runs here. Note that a
-# file cannot be added to the mirror directly — a snapshot replaces its whole
-# tree — so anything that must exist there has to be published from here.
+# scripts/build-dmgs.sh is deliberately NOT excluded: it builds a release's dmgs
+# from the same tree the mirror receives, so anyone can rebuild them from there.
+# Note that a file cannot be added to the mirror directly — a snapshot replaces
+# its whole tree — so anything that must exist there has to be published from
+# here.
 
 # The mirror machinery itself — release.sh drives sync-public.sh, so neither
 # can run anywhere but here.

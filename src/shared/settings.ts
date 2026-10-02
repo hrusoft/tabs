@@ -1,8 +1,14 @@
+import {
+  asRecord,
+  type ContentTypeSettingsDescriptor
+} from '@tabs/plugin-sdk/shared/content/settingsDescriptor'
+import {
+  type ShortcutOverrides,
+  sanitizeShortcutOverrides
+} from '@tabs/plugin-sdk/shared/shortcuts'
 import { sanitizeDisabledContentTypes } from './content/enablement'
 import { CONTENT_TYPE_MANIFESTS } from './content/registry'
-import { asRecord, type ContentTypeSettingsDescriptor } from './content/settingsDescriptor'
 import { DEFAULT_NEW_PANE_SPAWN_POSITION, type NewPaneSpawnPosition } from './model/floating'
-import { type ShortcutOverrides, sanitizeShortcutOverrides } from './shortcuts'
 import type { ThemeSetting } from './theme'
 
 export interface Settings {

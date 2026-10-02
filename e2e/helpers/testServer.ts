@@ -262,7 +262,8 @@ const BLOB_PAGE = `<!doctype html>
  *
  * The images are here for the other half of the same ticket: `<img>` is not in
  * read-page's default candidate set, so these are invisible to a bare read and
- * reachable only through `--selector`.
+ * reachable only through `--selector`, or a `--role` only an image has (`img`,
+ * and `presentation` for the decorative one).
  */
 const LISTING_PAGE = `<!doctype html>
 <html>
@@ -280,6 +281,7 @@ const LISTING_PAGE = `<!doctype html>
   </select>
   <img id="hero" src="/asset.png" alt="Hero image">
   <img id="thumb" src="/asset.png" alt="Thumb image">
+  <img id="divider" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='4'/%3E" alt="" width="40" height="4">
 </body>
 </html>`
 
@@ -331,6 +333,60 @@ const HOVERY_PAGE = `<!doctype html>
 </html>`
 
 /**
+ * A plain form, the case `type --submit` and `key --key Enter` exist for: a
+ * text field inside a `<form>` with a submit button and an `onsubmit`
+ * handler, which Chromium submits implicitly from Enter's *keypress*. Every
+ * keyboard event the page sees is logged in order (`window.__keys`, one
+ * `[type, key, code, shiftKey]` tuple each) and every submit counted
+ * (`window.__submits`), so a test can assert exactly what a keystroke
+ * produced rather than only its end state. The submit handler prevents the
+ * navigation, so the counts survive it.
+ */
+const FORM_PAGE = `<!doctype html>
+<html>
+<head><title>Form</title></head>
+<body>
+  <form id="form" onsubmit="event.preventDefault(); window.__submits++">
+    <input id="query" aria-label="Query">
+    <button>Go</button>
+  </form>
+  <textarea id="notes" aria-label="Notes"></textarea>
+  <script>
+    window.__submits = 0
+    window.__keys = []
+    for (const type of ['keydown', 'keypress', 'keyup']) {
+      document.addEventListener(type, (event) => {
+        window.__keys.push([event.type, event.key, event.code, event.shiftKey])
+      }, true)
+    }
+  </script>
+</body>
+</html>`
+
+/**
+ * Labelled and checkable controls, for how read-page names and describes
+ * them: a select wrapped in its label (whose text used to be every option
+ * run together), an unlabelled select, a label holding two controls, and
+ * checkboxes/radios/a switch in every state `checked` reports. The
+ * indeterminate checkbox can only be set from script, so the page does it.
+ */
+const CONTROLS_PAGE = `<!doctype html>
+<html>
+<head><title>Controls</title></head>
+<body>
+  <label>Colour <select id="colour"><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option></select></label>
+  <select id="bare"><option>Alpha</option><option selected>Beta</option></select>
+  <label>Qty <input id="qty" value="3"> of <select id="unit"><option>kg</option></select></label>
+  <label><input type="checkbox" id="agree"> Agree</label>
+  <label><input type="checkbox" id="subscribed" checked> Subscribed</label>
+  <label><input type="checkbox" id="some"> Some</label>
+  <label><input type="radio" name="size" id="small" value="s" checked> Small</label>
+  <div role="switch" id="wifi" aria-checked="true" aria-label="Wi-Fi" tabindex="0">on</div>
+  <script>document.getElementById('some').indeterminate = true</script>
+</body>
+</html>`
+
+/**
  * Every fixture that is just "200, text/html, this string" — a table rather
  * than a branch each, so adding a page is one entry instead of four lines of
  * identical plumbing in a route chain where the path→constant pair is the only
@@ -345,6 +401,8 @@ const STATIC_PAGES: Record<string, string> = {
   '/listing': LISTING_PAGE,
   '/smooth': SMOOTH_PAGE,
   '/hovery': HOVERY_PAGE,
+  '/form': FORM_PAGE,
+  '/controls': CONTROLS_PAGE,
   '/waity': WAITY_PAGE,
   '/nested': NESTED_PAGE,
   [NESTED_FRAME_PATH]: NESTED_FRAME_PAGE

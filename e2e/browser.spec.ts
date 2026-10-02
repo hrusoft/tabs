@@ -43,7 +43,7 @@ test('a new browser pane starts blank', async ({ page }) => {
 
 /**
  * The browser pane's stylesheet lives with its renderer
- * (src/plugins/browser/renderer/browser.css), not in global.css, so only a window that
+ * (packages/plugin-browser/renderer/browser.css), not in global.css, so only a window that
  * renders browser panes loads it. `display` is the assertion worth making:
  * Electron's <webview> defaults to inline-flex, and the rule exists precisely
  * to override that, so `flex` cannot pass unless the stylesheet really
@@ -259,7 +259,7 @@ async function browserPaneInBackground(
  * event at all, so `Pane`'s own onClick is unreachable from a guest and the
  * only way in used to be the pane header or the arrow keys. The press is
  * observed on the guest's input pipeline in main instead — see
- * src/plugins/browser/main/guestActivation.ts.
+ * packages/plugin-browser/main/guestActivation.ts.
  *
  * Electron tier because the guest *is* the subject: no other tier has one, and
  * Playwright cannot reach into it (a guest is never a frame of the host page).

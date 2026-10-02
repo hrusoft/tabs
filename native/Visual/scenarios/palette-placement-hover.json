@@ -1,0 +1,38 @@
+{
+  "description": "palette-placement with the pointer over row 3 (Unpinned Pane): that row is highlighted and Tab is not. Type list as in palette-types (Browser, Stub).",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "creationActions": [
+    "browser"
+  ],
+  "palette": {
+    "step": "placement",
+    "hover": 3
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-a"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

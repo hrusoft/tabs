@@ -1,6 +1,6 @@
 import { resolvePluginEntries } from '@shared/plugin/entries'
+import type { SettingsPluginContext } from '@tabs/plugin-sdk/settings/api'
 import { KeyboardIcon, SettingsIcon, SkillIcon, SplitHorizontalIcon } from '../content/icons'
-import type { SettingsPluginContext } from '../plugin/settingsApi'
 import { createSettingsPluginContext } from '../plugin/settingsContext'
 import { AiSettings } from './AiSettings'
 import { GeneralSettings } from './GeneralSettings'
@@ -31,7 +31,7 @@ import { hasSettingsPage, registerSettingsPage } from './settingsPageRegistry'
  * arrived at differently).
  */
 const settingsEntries = import.meta.glob<{ activate: (ctx: SettingsPluginContext) => void }>(
-  '../../../plugins/*/settings/index.ts',
+  '../../../../packages/plugin-*/settings/index.ts',
   { eager: true }
 )
 

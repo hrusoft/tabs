@@ -1,0 +1,63 @@
+{
+  "description": "L-shape: A on the left (40%), right column (60%) split vertically into B over C; C (bottom right) is active.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "split-right",
+                "type": "split",
+                "direction": "vertical",
+                "children": [
+                  {
+                    "id": "leaf-b",
+                    "type": "empty",
+                    "config": {}
+                  },
+                  {
+                    "id": "leaf-c",
+                    "type": "empty",
+                    "config": {}
+                  }
+                ],
+                "sizes": [
+                  0.5,
+                  0.5
+                ]
+              }
+            ],
+            "sizes": [
+              0.4,
+              0.6
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-c",
+    "floating": []
+  }
+}

@@ -1,5 +1,5 @@
+import type { ContentNode, DockZone, NodeId } from '@tabs/plugin-sdk/shared/model/types'
 import { findNode, findTab } from './tree'
-import type { ContentNode, DockZone, NodeId } from './types'
 
 /** What is being dragged: a tab out of its bar, or a whole pane by its header. Shared with main, which relays it between windows. */
 export type DragSubject =

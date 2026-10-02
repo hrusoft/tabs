@@ -1,10 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  createLeaf,
+  createSplit,
+  createTab,
+  createTabs
+} from '@tabs/plugin-sdk/shared/model/factories'
+import type { LeafContent, TabsContent } from '@tabs/plugin-sdk/shared/model/types'
 import { describe, expect, it, vi } from 'vitest'
 import { LAYOUT_VERSION } from '../../shared/layout'
-import { createLeaf, createSplit, createTab, createTabs } from '../../shared/model/factories'
-import type { LeafContent, TabsContent } from '../../shared/model/types'
 import { loadLayoutFile, saveLayoutFile, withPatchedLeafConfigs } from '../layout'
 
 /** `loadLayoutFile` over literal file content, no filesystem. */

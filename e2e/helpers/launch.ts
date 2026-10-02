@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test as base, expect } from '@playwright/test'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
+import { CLONE_EXECUTABLE_ENV } from './electronClone'
 
 const projectRoot = path.resolve(import.meta.dirname, '..', '..')
 
@@ -98,6 +99,25 @@ async function releaseUserDataDir(dir: string): Promise<void> {
 }
 
 /**
+ * The Electron executable e2e launches: the clone global setup made on macOS,
+ * Playwright's default (the stock binary) elsewhere. Throws rather than
+ * falling back to the stock bundle on macOS, where that would bring back
+ * either the Dock clutter or the force-quits.
+ */
+function e2eElectronExecutable(): string | undefined {
+  if (process.platform !== 'darwin') return undefined
+  const executablePath = process.env[CLONE_EXECUTABLE_ENV]
+  if (!executablePath) {
+    throw new Error(
+      `${CLONE_EXECUTABLE_ENV} is unset, so e2e global setup never made its Electron clone. ` +
+        'Run through `playwright test` (playwright.config.ts runs global setup), or call ' +
+        'ensureElectronClone() from e2e/helpers/electronClone.ts first in an ad hoc driver.'
+    )
+  }
+  return executablePath
+}
+
+/**
  * Launches the built app (run `npm run build` first; `npm run test:e2e`
  * does) against an isolated `--user-data-dir` — Electron honors this
  * Chromium switch for `app.getPath('userData')` with no app-side code
@@ -116,14 +136,21 @@ async function releaseUserDataDir(dir: string): Promise<void> {
  * focus. Playwright drives the page over CDP regardless, so this doesn't
  * affect what's testable. It also gates the reset hook `resetApp` needs.
  *
+ * On macOS it runs the `LSUIElement` clone of Electron.app that global setup
+ * makes (electronClone.ts), so no e2e app gets a Dock tile or a Cmd-Tab entry.
+ * The app itself must never hide its Dock icon to get the same effect: macOS
+ * 27 force-quits it 30s later (see CLAUDE.md).
+ *
  * Every launch is registered here (see `launched`), so an app still running
  * when its `userDataDir` fixture tears down gets closed rather than having
  * its user-data directory deleted from under it.
  */
 async function launchApp(userDataDir: string): Promise<ElectronApplication> {
+  const executablePath = e2eElectronExecutable()
   const app = await electron.launch({
     args: [projectRoot, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, E2E_HIDDEN: '1' }
+    env: { ...process.env, E2E_HIDDEN: '1' },
+    ...(executablePath ? { executablePath } : {})
   })
   const record: LaunchedApp = { app, userDataDir, exited: false }
   launched.push(record)

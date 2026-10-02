@@ -1,5 +1,5 @@
+import { createReattachRegistry } from '@tabs/plugin-sdk/renderer/reattachRegistry'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createReattachRegistry } from '../reattachRegistry'
 
 describe('createReattachRegistry', () => {
   beforeEach(() => {

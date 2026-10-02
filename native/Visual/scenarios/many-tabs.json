@@ -1,0 +1,103 @@
+{
+  "description": "Root group with 9 tabs of mixed title lengths at 1000x600; the 4th (a 58-character title, truncated by the 220px tab max-width) is active. The strip overflows and scrolls horizontally (no visible scrollbar).",
+  "size": {
+    "width": 1000,
+    "height": 600
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-1",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-1",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-2",
+          "title": "api server",
+          "content": {
+            "id": "leaf-2",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-3",
+          "title": "~/work/tabs",
+          "content": {
+            "id": "leaf-3",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-4",
+          "title": "Build and deploy pipeline logs for the staging environment",
+          "content": {
+            "id": "leaf-4",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-5",
+          "title": "notes",
+          "content": {
+            "id": "leaf-5",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-6",
+          "title": "Very long title that the tab should truncate",
+          "content": {
+            "id": "leaf-6",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-7",
+          "title": "db",
+          "content": {
+            "id": "leaf-7",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-8",
+          "title": "htop",
+          "content": {
+            "id": "leaf-8",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-9",
+          "title": "Documentation",
+          "content": {
+            "id": "leaf-9",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-4"
+    },
+    "activePaneId": "leaf-4",
+    "floating": []
+  }
+}

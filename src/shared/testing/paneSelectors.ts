@@ -1,4 +1,4 @@
-import { PANE_ATTR } from '../paneDomAttrs'
+import { PANE_ATTR } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 /**
  * DOM selectors describing the app's own markup contract, shared by the test
  * tiers that query it from opposite sides of the preload boundary — the jsdom

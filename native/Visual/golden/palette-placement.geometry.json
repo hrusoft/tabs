@@ -1,0 +1,151 @@
+{
+  "scenario": "palette-placement",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "panes": {
+    "root": {
+      "rect": [0, 0, 1200, 800],
+      "body": [1, 1, 1198, 798],
+      "header": null,
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null,
+      "grip": null,
+      "depth": 0,
+      "active": false,
+      "dimmed": false,
+      "dragging": false
+    },
+    "leaf-a": {
+      "rect": [1, 31, 1198, 768],
+      "body": [1, 57, 1198, 742],
+      "header": [1, 32, 1198, 25],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane",
+      "grip": [15, 39, 6.84, 10],
+      "depth": 1,
+      "active": true,
+      "dimmed": false,
+      "dragging": false
+    }
+  },
+  "tabBars": {
+    "root": {
+      "rect": [1, 1, 1198, 30],
+      "root": true,
+      "strip": [90, 8, 1005, 24],
+      "grip": null,
+      "newTab": [147.7, 13, 20, 14],
+      "settings": [1166, 4.5, 23, 23],
+      "tabs": {
+        "tab-a": {
+          "rect": [90, 10, 55.7, 22],
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "baseline": 25,
+          "text": "Tabs",
+          "truncated": false,
+          "close": [127.69, 14.5, 15.02, 14],
+          "active": true,
+          "dragging": false
+        }
+      }
+    }
+  },
+  "controls": {
+    "root": {
+      "rect": [1103, 7.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-new-tab-button": [1103, 7.5, 23, 17],
+        "pane-close-button": [1135, 7.5, 23, 17]
+      },
+      "separator": [1130, 10.5, 1, 11],
+      "dropdown": null
+    },
+    "leaf-a": {
+      "rect": [1140, 35.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-split-horizontal-button": [1140, 35.5, 23, 17],
+        "pane-close-button": [1172, 35.5, 23, 17]
+      },
+      "separator": [1167, 38.5, 1, 11],
+      "dropdown": null
+    }
+  },
+  "separators": {},
+  "floating": {},
+  "emptyToolbars": {
+    "leaf-a": {
+      "rect": [568.5, 412, 63, 32],
+      "buttons": [
+        [568.5, 412, 32, 32],
+        [599.5, 412, 32, 32]
+      ]
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "emptyDropTarget": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "tooltip": null,
+  "contextMenu": null,
+  "palette": {
+    "step": "placement",
+    "backdrop": [0, 0, 1200, 800],
+    "panel": [440, 335, 320, 130],
+    "rows": [
+      {
+        "rect": [445, 340, 310, 30],
+        "highlighted": true,
+        "badge": [455, 347, 16, 16],
+        "badgeText": [459.78, 349, 6.42, 12],
+        "badgeBaseline": 359,
+        "icon": [479, 347, 16, 16],
+        "label": [503, 347, 21.84, 16],
+        "labelBaseline": 360,
+        "text": "Tab"
+      },
+      {
+        "rect": [445, 370, 310, 30],
+        "highlighted": false,
+        "badge": [455, 377, 16, 16],
+        "badgeText": [459.78, 379, 6.42, 12],
+        "badgeBaseline": 389,
+        "icon": [479, 377, 16, 16],
+        "label": [503, 377, 92.64, 16],
+        "labelBaseline": 390,
+        "text": "Horizontal Split"
+      },
+      {
+        "rect": [445, 400, 310, 30],
+        "highlighted": false,
+        "badge": [455, 407, 16, 16],
+        "badgeText": [459.78, 409, 6.42, 12],
+        "badgeBaseline": 419,
+        "icon": [479, 407, 16, 16],
+        "label": [503, 407, 76.34, 16],
+        "labelBaseline": 420,
+        "text": "Vertical Split"
+      },
+      {
+        "rect": [445, 430, 310, 30],
+        "highlighted": false,
+        "badge": [455, 437, 16, 16],
+        "badgeText": [459.78, 439, 6.42, 12],
+        "badgeBaseline": 449,
+        "icon": [479, 437, 16, 16],
+        "label": [503, 437, 91.77, 16],
+        "labelBaseline": 450,
+        "text": "Unpinned Pane"
+      }
+    ],
+    "empty": null
+  }
+}

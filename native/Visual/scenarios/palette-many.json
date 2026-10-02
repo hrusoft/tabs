@@ -1,0 +1,35 @@
+{
+  "description": "palette on step 1, dark, with ten types so the tenth row has no badge. The list holds, in order: Stub (icon: the text glyph U+25A3 in a span), then Sample 2, Sample 3, Sample 4, Sample 5, Sample 6, Sample 7, Sample 8, Sample 9, Sample 10 (each with the same U+25A3 glyph icon; no browser). Badges 1-9 on the first nine rows, none on Sample 10; row 0 highlighted.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "paletteTypes": 9,
+  "palette": {
+    "step": "type"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-a"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

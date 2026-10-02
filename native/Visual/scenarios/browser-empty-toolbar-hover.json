@@ -1,0 +1,38 @@
+{
+  "description": "browser-empty-toolbar with the pointer over the browser's button: its hover state.",
+  "size": {
+    "width": 600,
+    "height": 400
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "pointer": {
+    "x": 316,
+    "y": 228
+  },
+  "creationActions": [
+    "browser"
+  ],
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

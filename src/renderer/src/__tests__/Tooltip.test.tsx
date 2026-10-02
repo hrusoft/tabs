@@ -1,6 +1,6 @@
+import { Tooltip } from '@tabs/plugin-sdk/renderer/Tooltip'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { Tooltip } from '../Tooltip'
 
 /**
  * The component's own show/hide *timing* — wiring this tier can honestly

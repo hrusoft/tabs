@@ -1,4 +1,4 @@
-import type { ContentNode } from '@shared/model/types'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
 import { describe, expect, it, vi } from 'vitest'
 import type { ContentRendererDef, PaneCreationAction } from '../../core/registry/registry'
 import {

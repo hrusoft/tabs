@@ -1,9 +1,7 @@
+import type { ContextMenuItem } from '@tabs/plugin-sdk/renderer/contextMenu'
 import { create } from 'zustand'
 
-export interface ContextMenuItem {
-  label: string
-  onSelect: () => void
-}
+export type { ContextMenuItem } from '@tabs/plugin-sdk/renderer/contextMenu'
 
 export interface ContextMenuState {
   menu: { x: number; y: number; items: ContextMenuItem[] } | null

@@ -1,0 +1,25 @@
+# The Browser plugin: its bundle, its unit tests, and its place in the app.
+# `make project` includes this file; nothing else in the build names it.
+targets:
+  BrowserPlugin:
+    templates: [Plugin]
+    templateAttributes: { pluginID: browser, pluginDir: Plugins/Browser }
+  BrowserPluginTests:
+    templates: [PluginTests]
+    templateAttributes: { pluginDir: Plugins/Browser }
+  Tabs:
+    dependencies:
+      - target: BrowserPlugin
+        link: false
+        embed: true
+        copy: { destination: plugins }
+    settings:
+      base:
+        TABS_BUNDLED_PLUGIN_BROWSER: browser
+schemes:
+  Tabs:
+    test:
+      targets: [BrowserPluginTests]
+  Plugins:
+    test:
+      targets: [BrowserPluginTests]

@@ -11,7 +11,7 @@ import {
 } from './helpers/agentSession'
 import { guestText } from './helpers/guest'
 import { expect, test } from './helpers/launch'
-import { paneById } from './helpers/pane'
+import { closeInactiveRootTab, paneById, wrapInTabGroup } from './helpers/pane'
 import { testServerForSpec } from './helpers/testServer'
 
 // Scripting and flow: execute-js, batch, wait-for, assert, and the
@@ -470,7 +470,7 @@ test('assert checks a condition right now: pass with a usable ref, fail naming t
   // there, then click it" needs no separate read-page.
   const matched = await runTabsCtl(['assert', '--pane', paneId, '--selector', '#spinner'], env)
   expect(matched.ok).toBe(true)
-  expect(matched.result?.ref).toMatch(/^e\d+$/)
+  expect(matched.result?.ref).toMatch(/^e\d+-[0-9a-z]+$/)
   expect(matched.result?.tag).toBe('div')
 
   // #panel exists but is hidden, so asserting it fails — quickly (the fixed
@@ -632,6 +632,75 @@ test('reload and history verbs settle on the page they land on', async ({ page, 
   expect(tooFar.error).toContain('no later page')
 
   await closeAgentSession(page, env, paneId)
+})
+
+/**
+ * Chromium's error page for a failed load is a new document, but Electron
+ * commits it without `did-navigate`/`did-frame-navigate` — only
+ * `did-fail-load` fires (BrowserRenderer.tsx's onDidFailLoad). Everything
+ * the commit events record used to stay on the *previous* page: its HTTP
+ * status rode into go-back's and reload's results beside the loadError (the
+ * guide tells agents `status` is the "is this page real" check, so it said
+ * yes), its console buffer survived, and `config.url` kept the last page
+ * that loaded — which is where a re-created pane then came back.
+ */
+test('landing on a failed page reports the failure, whichever verb got there', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  const paneId = await createAgentPane(env, '--url', server.url())
+  const dead = await deadOrigin()
+  const info = async () => (await runTabsCtl(['pane-info', '--pane', paneId], env)).result
+  const fixtureConsole = async () =>
+    (await runTabsCtl(['read-console', '--pane', paneId, '--pattern', '^fixture ready$'], env))
+      .result?.messages?.length
+  const listedUrl = async () =>
+    (await runTabsCtl(['list-panes'], env)).result?.panes?.find((p) => p.paneId === paneId)?.url
+  expect(await fixtureConsole()).toBe(1)
+
+  expect((await runTabsCtl(['navigate', '--pane', paneId, '--url', dead], env)).ok).toBe(false)
+  expect(await info()).toMatchObject({ url: dead, showingErrorPage: true })
+  // The fixture page's console belonged to the fixture page.
+  expect(await fixtureConsole()).toBe(0)
+  // What a re-created pane would come back on (list-panes reads config.url).
+  await expect.poll(listedUrl).toBe(dead)
+
+  // The ticket's repro: back onto the failed entry from a 200 page.
+  const other = await runTabsCtl(['navigate', '--pane', paneId, '--url', server.url('/other')], env)
+  expect(other.result?.status).toBe(200)
+  const back = await runTabsCtl(['go-back', '--pane', paneId], env)
+  expect(back.result).toMatchObject({ loaded: false, url: dead })
+  expect(back.result?.loadError).toContain('ERR_CONNECTION_REFUSED')
+  expect(back.result?.status).toBeUndefined()
+  expect(back.result?.statusText).toBeUndefined()
+  const reloaded = await runTabsCtl(['reload', '--pane', paneId], env)
+  expect(reloaded.result?.loaded).toBe(false)
+  expect(reloaded.result?.status).toBeUndefined()
+
+  // The other variant seen: the stale status was a 404's.
+  const missing = await runTabsCtl(
+    ['navigate', '--pane', paneId, '--url', server.url('/missing')],
+    env
+  )
+  expect(missing.result?.status).toBe(404)
+  expect((await runTabsCtl(['navigate', '--pane', paneId, '--url', dead], env)).ok).toBe(false)
+  const reloadedAgain = await runTabsCtl(['reload', '--pane', paneId], env)
+  expect(reloadedAgain.result?.loadError).toContain('ERR_CONNECTION_REFUSED')
+  expect(reloadedAgain.result?.status).toBeUndefined()
+
+  // A pane re-created while on the error page comes back on the page it was
+  // showing, not the last one that loaded.
+  const instance = (await info())?.pageInstance
+  await wrapInTabGroup(paneById(page, paneId))
+  await expect.poll(async () => (await info())?.pageInstance).not.toBe(instance)
+  await expect.poll(async () => (await info())?.showingErrorPage).toBe(true)
+  expect((await info())?.url).toBe(dead)
+
+  // The wrap left the pane alone in a group of its own, so closing it leaves
+  // a placeholder in its root tab with the terminal's tab behind it.
+  await runTabsCtl(['close-pane', '--pane', paneId], env)
+  await closeInactiveRootTab(page)
 })
 
 test('navigation verbs report where the pane actually ended up', async ({ page, electronApp }) => {

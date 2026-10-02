@@ -1,4 +1,4 @@
-import type { Platform } from '@shared/shortcuts'
+import type { Platform } from '@tabs/plugin-sdk/shared/shortcuts'
 
 /**
  * Which platform's modifier conventions this renderer follows — one const for

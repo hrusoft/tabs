@@ -1,0 +1,108 @@
+{
+  "description": "the floating.json layout (a docked split and two floating windows) with the palette open on step 1 above the floating panes and their shadows, dark. The list holds two rows in order: Browser (globe icon, the browser's own 16x16 SVG), then Stub (the harness stub type, icon the text glyph U+25A3 in a span); row 0 highlighted.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "creationActions": [
+    "browser"
+  ],
+  "palette": {
+    "step": "type"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-f2b",
+    "floating": [
+      {
+        "id": "float-1",
+        "content": {
+          "id": "leaf-f1",
+          "type": "empty",
+          "config": {}
+        },
+        "rect": {
+          "x": 600,
+          "y": 120,
+          "width": 420,
+          "height": 260
+        },
+        "anchor": {
+          "kind": "root"
+        }
+      },
+      {
+        "id": "float-2",
+        "content": {
+          "id": "group-f2",
+          "type": "tabs",
+          "tabs": [
+            {
+              "id": "tab-f2a",
+              "title": "New Tab",
+              "content": {
+                "id": "leaf-f2a",
+                "type": "empty",
+                "config": {}
+              }
+            },
+            {
+              "id": "tab-f2b",
+              "title": "New Tab",
+              "content": {
+                "id": "leaf-f2b",
+                "type": "empty",
+                "config": {}
+              }
+            }
+          ],
+          "activeTabId": "tab-f2b"
+        },
+        "rect": {
+          "x": 150,
+          "y": 420,
+          "width": 480,
+          "height": 280
+        },
+        "anchor": {
+          "kind": "root"
+        }
+      }
+    ]
+  }
+}

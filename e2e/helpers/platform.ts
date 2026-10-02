@@ -1,4 +1,4 @@
-import type { Platform } from '../../src/shared/shortcuts'
+import type { Platform } from '@tabs/plugin-sdk/shared/shortcuts'
 
 /**
  * The platform's primary modifier, in each dialect the suite speaks — stated

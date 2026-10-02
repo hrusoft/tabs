@@ -1,0 +1,89 @@
+{
+  "description": "Four levels of tab groups: root > G1 (one tab) > vertical split at depth 2 [G2 (one tab) > G3 (two tabs), empty pane P] (60/40). The deepest leaf (G3's second tab, depth 4) is active; bars alternate surface shades by depth.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "group-1",
+            "type": "tabs",
+            "tabs": [
+              {
+                "id": "tab-1",
+                "title": "New Tab",
+                "content": {
+                  "id": "split-1",
+                  "type": "split",
+                  "direction": "vertical",
+                  "children": [
+                    {
+                      "id": "group-2",
+                      "type": "tabs",
+                      "tabs": [
+                        {
+                          "id": "tab-2",
+                          "title": "New Tab",
+                          "content": {
+                            "id": "group-3",
+                            "type": "tabs",
+                            "tabs": [
+                              {
+                                "id": "tab-3a",
+                                "title": "New Tab",
+                                "content": {
+                                  "id": "leaf-3a",
+                                  "type": "empty",
+                                  "config": {}
+                                }
+                              },
+                              {
+                                "id": "tab-3b",
+                                "title": "New Tab",
+                                "content": {
+                                  "id": "leaf-3b",
+                                  "type": "empty",
+                                  "config": {}
+                                }
+                              }
+                            ],
+                            "activeTabId": "tab-3b"
+                          }
+                        }
+                      ],
+                      "activeTabId": "tab-2"
+                    },
+                    {
+                      "id": "leaf-p",
+                      "type": "empty",
+                      "config": {}
+                    }
+                  ],
+                  "sizes": [
+                    0.6,
+                    0.4
+                  ]
+                }
+              }
+            ],
+            "activeTabId": "tab-1"
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-3b",
+    "floating": []
+  }
+}

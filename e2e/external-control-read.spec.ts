@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { PageElement } from '../packages/plugin-browser/shared/externalControl'
 import {
   closeAgentSession,
   createAgentPane,
@@ -9,6 +10,7 @@ import {
   openAgentSession,
   runTabsCtl
 } from './helpers/agentSession'
+import { guestEval } from './helpers/guest'
 import { expect, test } from './helpers/launch'
 import { paneById } from './helpers/pane'
 import { FIXTURE_ASSET_BYTES, testServerForSpec } from './helpers/testServer'
@@ -58,16 +60,67 @@ test('an agent can read back a pane it owns: info, text, and a real PNG on disk'
 
   // The two coordinate spaces must stay honestly distinct: `width`/`height`
   // describe the actual PNG (device pixels), `viewport` describes the space
-  // an {x,y} input target lives in (CSS pixels), and `scaleFactor` is exactly
-  // the ratio between them. Asserted rather than assumed — on a 1x machine
-  // these numbers coincide, so a conflation would pass unnoticed there and
-  // put every coordinate-based click off by 2x on a real HiDPI screen.
+  // an {x,y} input target lives in (CSS pixels), and `scaleFactor` converts
+  // between them. Asserted rather than assumed — on a 1x machine these
+  // numbers coincide, so a conflation would pass unnoticed there and put
+  // every coordinate-based click off by 2x on a real HiDPI screen.
   expect(shot.result?.width).toBe(png.readUInt32BE(16))
   expect(shot.result?.height).toBe(png.readUInt32BE(20))
   expect(shot.result?.viewport).toEqual(info.result?.viewport)
-  expect(shot.result?.scaleFactor).toBe(
-    (shot.result?.width ?? 0) / (shot.result?.viewport?.width ?? 1)
+  // Both are the page's own numbers: the space its script and a coordinate
+  // click share, and the display's real ratio — read independently here,
+  // through main rather than the verb's own path.
+  const pageSays = await guestEval<[number, number, number]>(
+    electronApp,
+    '[innerWidth, innerHeight, devicePixelRatio]'
   )
+  expect(shot.result?.viewport).toEqual({ width: pageSays[0], height: pageSays[1] })
+  expect(shot.result?.scaleFactor).toBe(pageSays[2])
+  expect(Math.abs((shot.result?.width ?? 0) - pageSays[0] * pageSays[2])).toBeLessThanOrEqual(
+    pageSays[2]
+  )
+
+  await closeAgentSession(page, env, paneId)
+})
+
+/**
+ * A pane whose width is not a whole number of CSS pixels — what a split or a
+ * dragged separator makes of it most of the time. Chromium gives the page a
+ * viewport rounded *up* (345.4px → innerWidth 346), and the capture a width
+ * rounded to device pixels (691 at 2x), so any ratio computed from those two
+ * is off: `scaleFactor` used to be image width over the host's *rounded-down*
+ * width, 691 / 345 = 2.0029, and `viewport` said 345 where a click lives in a
+ * 346px space. Both now come from the page.
+ */
+test('screenshot and pane-info report the exact scale factor and the page viewport at a fractional width', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  const paneId = await createAgentPane(env, '--url', server.url())
+  await expect(paneById(page, paneId).getByTestId('browser')).toBeVisible()
+  const pageSays = () =>
+    guestEval<[number, number, number]>(electronApp, '[innerWidth, innerHeight, devicePixelRatio]')
+  const ratio = (await pageSays())[2]
+
+  for (const width of ['345.4px', '693.5px', '600.25px']) {
+    await paneById(page, paneId)
+      .getByTestId('browser')
+      .evaluate((el, value) => {
+        const host = el as HTMLElement
+        host.style.flex = 'none'
+        host.style.width = value
+      }, width)
+    await expect.poll(async () => (await pageSays())[0]).toBe(Math.ceil(Number.parseFloat(width)))
+    const [innerWidth, innerHeight] = await pageSays()
+
+    const shot = await runTabsCtl(['screenshot', '--pane', paneId], env)
+    expect(shot.ok, shot.error).toBe(true)
+    expect(shot.result?.scaleFactor, width).toBe(ratio)
+    expect(shot.result?.viewport, width).toEqual({ width: innerWidth, height: innerHeight })
+    const info = await runTabsCtl(['pane-info', '--pane', paneId], env)
+    expect(info.result?.viewport, width).toEqual({ width: innerWidth, height: innerHeight })
+  }
 
   await closeAgentSession(page, env, paneId)
 })
@@ -416,12 +469,36 @@ test('read-page narrows by role and selector, and pages by offset', async ({
   expect(byRole.result?.total).toBe(1)
 
   // --selector reaches elements the default candidate set never lists at all.
-  const images = await runTabsCtl(['read-page', '--pane', paneId, '--selector', 'img[alt]'], env)
+  const images = await runTabsCtl(
+    ['read-page', '--pane', paneId, '--selector', 'img[alt]:not([alt=""])'],
+    env
+  )
   expect(images.ok).toBe(true)
   expect(images.result?.elements?.map((element) => element.name)).toEqual([
     'Hero image',
     'Thumb image'
   ])
+  // So does a role only an image has: an image is `img`, a decorative one
+  // (alt="") `presentation`.
+  const byImageRole = await runTabsCtl(['read-page', '--pane', paneId, '--role', 'img'], env)
+  expect(byImageRole.result?.elements?.map((element) => [element.role, element.name])).toEqual([
+    ['img', 'Hero image'],
+    ['img', 'Thumb image']
+  ])
+  const decorative = await runTabsCtl(
+    ['read-page', '--pane', paneId, '--role', 'presentation'],
+    env
+  )
+  expect(decorative.result?.elements?.map((element) => element.tag)).toEqual(['img'])
+  // `none` is presentation's other name.
+  const none = await runTabsCtl(['read-page', '--pane', paneId, '--role', 'none'], env)
+  expect(none.result?.elements?.map((element) => element.tag)).toEqual(['img'])
+  // And a semantic click finds an image by its role and name.
+  const clicked = await runTabsCtl(
+    ['click', '--pane', paneId, '--role', 'img', '--name', 'Thumb image'],
+    env
+  )
+  expect(clicked.result?.element).toEqual({ role: 'img', name: 'Thumb image', tag: 'img' })
 
   // Paging: offset walks past the cap and reports where it is.
   const paged = await runTabsCtl(['read-page', '--pane', paneId, '--offset', '200'], env)
@@ -429,6 +506,8 @@ test('read-page narrows by role and selector, and pages by offset', async ({
   expect(paged.result?.offset).toBe(200)
   expect(paged.result?.truncated).toBe(false)
   expect(paged.result?.elements?.some((element) => element.tag === 'select')).toBe(true)
+  // Images stay out of a read that didn't ask for them.
+  expect(paged.result?.elements?.some((element) => element.tag === 'img')).toBe(false)
   // Refs are minted for the returned page only, so a paged read hands back
   // usable refs rather than ones evicted by the elements it skipped.
   const sort = paged.result?.elements?.find((element) => element.tag === 'select')
@@ -451,10 +530,132 @@ test('read-page narrows by role and selector, and pages by offset', async ({
   expect(bad.ok).toBe(false)
   expect(bad.error).toContain('invalid selector')
 
+  // A role that is no role is refused with the vocabulary, like read-network's
+  // filters — it used to answer total: 0, which reads as "none on this page".
+  // The same holds for a semantic target's --role.
+  const unknownRole = await runTabsCtl(['read-page', '--pane', paneId, '--role', 'nonsense'], env)
+  expect(unknownRole.ok).toBe(false)
+  expect(unknownRole.error).toContain('unknown role "nonsense"')
+  expect(unknownRole.error).toContain('combobox')
+  const unknownTarget = await runTabsCtl(
+    ['click', '--pane', paneId, '--role', 'select', '--name', 'Sort by'],
+    env
+  )
+  expect(unknownTarget.ok).toBe(false)
+  expect(unknownTarget.error).toContain('unknown role "select"')
+
   // Wire-shape validation is host-side, since the socket carries untyped input.
   const negative = await runTabsCtl(['read-page', '--pane', paneId, '--offset=-3'], env)
   expect(negative.ok).toBe(false)
   expect(negative.error).toContain('at least 0')
+
+  await closeAgentSession(page, env, paneId)
+})
+
+/**
+ * How read-page names and describes form controls. A select wrapped in its
+ * label was named by the label's textContent — the label text plus every
+ * option run together ("Colour RedGreenBlue") — and a checkbox reported
+ * its HTML value attribute ("on") with no word on whether it was checked.
+ * The names asserted are what Chromium's own accessibility tree computes for
+ * this markup (measured over CDP): the control being named contributes
+ * nothing to its own name, another control inside the label contributes its
+ * value, and an unlabelled select has no name.
+ */
+test('read-page names labelled controls as the browser does and reports checked state', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  const paneId = await createAgentPane(env, '--url', server.url('/controls'))
+  // One element per read, by selector: read-page describes a selector's
+  // matches exactly as it describes its default set.
+  const control = async (id: string): Promise<PageElement | undefined> => {
+    const response = await runTabsCtl(['read-page', '--pane', paneId, '--selector', `#${id}`], env)
+    expect(response.ok, response.error).toBe(true)
+    return response.result?.elements?.[0]
+  }
+
+  expect(await control('colour')).toMatchObject({ role: 'combobox', name: 'Colour', value: 'r' })
+  expect(await control('bare')).toMatchObject({ role: 'combobox', name: '', value: 'Beta' })
+  expect(await control('qty')).toMatchObject({ role: 'textbox', name: 'Qty of kg', value: '3' })
+  const agree = await control('agree')
+  expect(agree).toMatchObject({ role: 'checkbox', name: 'Agree', checked: false })
+  expect(agree?.value).toBeUndefined()
+  expect(await control('subscribed')).toMatchObject({ checked: true })
+  expect(await control('some')).toMatchObject({ checked: 'mixed' })
+  const small = await control('small')
+  expect(small).toMatchObject({ role: 'radio', checked: true })
+  expect(small?.value).toBeUndefined()
+  expect(await control('wifi')).toMatchObject({ role: 'switch', name: 'Wi-Fi', checked: true })
+
+  // The name targets it: role+name reaches the select that used to be
+  // "Colour RedGreenBlue", and the name stays put as its value changes.
+  const filled = await runTabsCtl(
+    [
+      'form-input',
+      '--pane',
+      paneId,
+      '--fields',
+      JSON.stringify([{ target: { role: 'combobox', name: 'Colour' }, value: 'Blue' }])
+    ],
+    env
+  )
+  expect(filled.result?.filled, JSON.stringify(filled)).toBe(1)
+  expect(await control('colour')).toMatchObject({ name: 'Colour', value: 'b' })
+
+  // checked is live state, not markup.
+  await runTabsCtl(['click', '--pane', paneId, '--selector', '#agree'], env)
+  expect(await control('agree')).toMatchObject({ checked: true })
+
+  await closeAgentSession(page, env, paneId)
+})
+
+/**
+ * find ranks the same 200 candidates a bare read-page lists, but used to get
+ * them from read-page's own extraction — which mints a ref for every element
+ * it describes, so a find returning two matches spent 200 of the page's
+ * bounded refs and evicted ones the caller still held. The ref counter is the
+ * guest's own (pageRefs.ts), read straight out of the page.
+ */
+test('find mints refs only for the matches it returns', async ({ page, electronApp }) => {
+  const { env } = await openAgentSession(page, electronApp)
+  const paneId = await createAgentPane(env, '--url', server.url('/listing'))
+  const refsMinted = async () =>
+    Number(
+      (
+        await runTabsCtl(
+          ['execute-js', '--pane', paneId, '--code', 'window.__tabsPageRefSeq ?? 0'],
+          env
+        )
+      ).result?.value
+    )
+  const before = await refsMinted()
+
+  const found = await runTabsCtl(
+    ['find', '--pane', paneId, '--description', 'Brand 7', '--max-results', '2'],
+    env
+  )
+  expect(found.ok, found.error).toBe(true)
+  expect(found.result?.matches?.map((match) => match.name)).toEqual(['Brand 7', 'Brand 70'])
+  expect(await refsMinted()).toBe(before + 2)
+
+  // The refs it did mint are real: the best match is the checkbox by that name.
+  const best = found.result?.matches?.[0]?.ref
+  expect((await runTabsCtl(['click', '--pane', paneId, '--ref', String(best)], env)).ok).toBe(true)
+  expect(
+    (
+      await runTabsCtl(
+        ['execute-js', '--pane', paneId, '--code', "document.getElementById('brand7').checked"],
+        env
+      )
+    ).result?.value
+  ).toBe(true)
+
+  // A find with nothing to return mints nothing at all.
+  const none = await runTabsCtl(['find', '--pane', paneId, '--description', 'checkout basket'], env)
+  expect(none.result?.matches).toEqual([])
+  expect(await refsMinted()).toBe(before + 2)
 
   await closeAgentSession(page, env, paneId)
 })
@@ -721,6 +922,42 @@ test('read-network can answer briefly, to a file, and hand back one body whole',
   expect(onDisk.requests).toHaveLength(written.result?.count ?? -1)
   expect(written.result?.requests).toBeUndefined()
 
+  // At the default cap, --body-out can only write the excerpt capture kept —
+  // and must say so, since the file alone looks whole until it fails to
+  // parse (it used to answer just {path, bytes, seq}).
+  expect((await runTabsCtl(['capture-bodies', '--pane', paneId], env)).ok).toBe(true)
+  await runTabsCtl(
+    ['execute-js', '--pane', paneId, '--code', "fetch('/api/big').then((r) => r.text())"],
+    env
+  )
+  await expect
+    .poll(
+      async () =>
+        (
+          await runTabsCtl(
+            ['read-network', '--pane', paneId, '--with-bodies', '--pattern', 'api/big'],
+            env
+          )
+        ).result?.requests?.[0]?.responseBody?.truncated
+    )
+    .toBe(true)
+  const cutEntry = (
+    await runTabsCtl(
+      ['read-network', '--pane', paneId, '--with-bodies', '--pattern', 'api/big'],
+      env
+    )
+  ).result?.requests?.[0]
+  const cutPath = path.join(dir, 'cut.json')
+  const cut = await runTabsCtl(
+    ['read-network', '--pane', paneId, '--body-seq', String(cutEntry?.seq), '--body-out', cutPath],
+    env
+  )
+  expect(cut.ok, cut.error).toBe(true)
+  expect(cut.result).toMatchObject({ truncated: true, bytes: 16384 })
+  expect(cut.result?.size).toBe(cutEntry?.responseBody?.size)
+  expect(cut.result?.size).toBeGreaterThan(16384)
+  expect(readFileSync(cutPath, 'utf-8')).toHaveLength(16384)
+
   // The body path. Raise the cap first — /api/big is ~20k, past the 16,384
   // default — then make the request, then read it back whole.
   const raised = await runTabsCtl(['capture-bodies', '--pane', paneId, '--max-body', '200000'], env)
@@ -770,6 +1007,8 @@ test('read-network can answer briefly, to a file, and hand back one body whole',
   expect(savedBody.ok, savedBody.error).toBe(true)
   expect(savedBody.result?.path).toBe(bodyPath)
   expect(savedBody.result?.seq).toBe(entry?.seq)
+  expect(savedBody.result?.truncated).toBe(false)
+  expect(savedBody.result?.size).toBe(savedBody.result?.bytes)
   // The file holds the real response, in full — the point of the whole path.
   const body = JSON.parse(readFileSync(bodyPath, 'utf-8')) as { filler: string }
   expect(body.filler).toHaveLength(20000)

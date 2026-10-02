@@ -1,0 +1,99 @@
+{
+  "scenario": "browser-empty-toolbar",
+  "size": {
+    "width": 600,
+    "height": 400
+  },
+  "panes": {
+    "root": {
+      "rect": [0, 0, 600, 400],
+      "body": [1, 1, 598, 398],
+      "header": null,
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null,
+      "grip": null,
+      "depth": 0,
+      "active": false,
+      "dimmed": false,
+      "dragging": false
+    },
+    "leaf-a": {
+      "rect": [1, 31, 598, 368],
+      "body": [1, 57, 598, 342],
+      "header": [1, 32, 598, 25],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane",
+      "grip": [15, 39, 6.84, 10],
+      "depth": 1,
+      "active": true,
+      "dimmed": false,
+      "dragging": false
+    }
+  },
+  "tabBars": {
+    "root": {
+      "rect": [1, 1, 598, 30],
+      "root": true,
+      "strip": [90, 8, 405, 24],
+      "grip": null,
+      "newTab": [147.7, 13, 20, 14],
+      "settings": [566, 4.5, 23, 23],
+      "tabs": {
+        "tab-main": {
+          "rect": [90, 10, 55.7, 22],
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "baseline": 25,
+          "text": "Tabs",
+          "truncated": false,
+          "close": [127.69, 14.5, 15.02, 14],
+          "active": true,
+          "dragging": false
+        }
+      }
+    }
+  },
+  "controls": {
+    "root": {
+      "rect": [503, 7.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-new-tab-button": [503, 7.5, 23, 17],
+        "pane-close-button": [535, 7.5, 23, 17]
+      },
+      "separator": [530, 10.5, 1, 11],
+      "dropdown": null
+    },
+    "leaf-a": {
+      "rect": [540, 35.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-split-horizontal-button": [540, 35.5, 23, 17],
+        "pane-close-button": [572, 35.5, 23, 17]
+      },
+      "separator": [567, 38.5, 1, 11],
+      "dropdown": null
+    }
+  },
+  "separators": {},
+  "floating": {},
+  "emptyToolbars": {
+    "leaf-a": {
+      "rect": [268.5, 212, 63, 32],
+      "buttons": [
+        [268.5, 212, 32, 32],
+        [299.5, 212, 32, 32]
+      ]
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "emptyDropTarget": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "tooltip": null,
+  "contextMenu": null
+}

@@ -1,0 +1,225 @@
+{
+  "scenario": "palette-many",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "panes": {
+    "root": {
+      "rect": [0, 0, 1200, 800],
+      "body": [1, 1, 1198, 798],
+      "header": null,
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null,
+      "grip": null,
+      "depth": 0,
+      "active": false,
+      "dimmed": false,
+      "dragging": false
+    },
+    "leaf-a": {
+      "rect": [1, 31, 1198, 768],
+      "body": [1, 57, 1198, 742],
+      "header": [1, 32, 1198, 25],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane",
+      "grip": [15, 39, 6.84, 10],
+      "depth": 1,
+      "active": true,
+      "dimmed": false,
+      "dragging": false
+    }
+  },
+  "tabBars": {
+    "root": {
+      "rect": [1, 1, 1198, 30],
+      "root": true,
+      "strip": [90, 8, 1005, 24],
+      "grip": null,
+      "newTab": [147.7, 13, 20, 14],
+      "settings": [1166, 4.5, 23, 23],
+      "tabs": {
+        "tab-a": {
+          "rect": [90, 10, 55.7, 22],
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "baseline": 25,
+          "text": "Tabs",
+          "truncated": false,
+          "close": [127.69, 14.5, 15.02, 14],
+          "active": true,
+          "dragging": false
+        }
+      }
+    }
+  },
+  "controls": {
+    "root": {
+      "rect": [1103, 7.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-new-tab-button": [1103, 7.5, 23, 17],
+        "pane-close-button": [1135, 7.5, 23, 17]
+      },
+      "separator": [1130, 10.5, 1, 11],
+      "dropdown": null
+    },
+    "leaf-a": {
+      "rect": [1140, 35.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-split-horizontal-button": [1140, 35.5, 23, 17],
+        "pane-close-button": [1172, 35.5, 23, 17]
+      },
+      "separator": [1167, 38.5, 1, 11],
+      "dropdown": null
+    }
+  },
+  "separators": {},
+  "floating": {},
+  "emptyToolbars": {
+    "leaf-a": {
+      "rect": [444.5, 412, 311, 32],
+      "buttons": [
+        [444.5, 412, 32, 32],
+        [475.5, 412, 32, 32],
+        [506.5, 412, 32, 32],
+        [537.5, 412, 32, 32],
+        [568.5, 412, 32, 32],
+        [599.5, 412, 32, 32],
+        [630.5, 412, 32, 32],
+        [661.5, 412, 32, 32],
+        [692.5, 412, 32, 32],
+        [723.5, 412, 32, 32]
+      ]
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "emptyDropTarget": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "tooltip": null,
+  "contextMenu": null,
+  "palette": {
+    "step": "type",
+    "backdrop": [0, 0, 1200, 800],
+    "panel": [440, 245, 320, 310],
+    "rows": [
+      {
+        "rect": [445, 250, 310, 30],
+        "highlighted": true,
+        "badge": [455, 257, 16, 16],
+        "badgeText": [459.78, 259, 6.42, 12],
+        "badgeBaseline": 269,
+        "icon": [479, 257, 11.25, 16],
+        "label": [498.25, 257, 28.28, 16],
+        "labelBaseline": 270,
+        "text": "Stub"
+      },
+      {
+        "rect": [445, 280, 310, 30],
+        "highlighted": false,
+        "badge": [455, 287, 16, 16],
+        "badgeText": [459.78, 289, 6.42, 12],
+        "badgeBaseline": 299,
+        "icon": [479, 287, 11.25, 16],
+        "label": [498.25, 287, 56.31, 16],
+        "labelBaseline": 300,
+        "text": "Sample 2"
+      },
+      {
+        "rect": [445, 310, 310, 30],
+        "highlighted": false,
+        "badge": [455, 317, 16, 16],
+        "badgeText": [459.78, 319, 6.42, 12],
+        "badgeBaseline": 329,
+        "icon": [479, 317, 11.25, 16],
+        "label": [498.25, 317, 56.63, 16],
+        "labelBaseline": 330,
+        "text": "Sample 3"
+      },
+      {
+        "rect": [445, 340, 310, 30],
+        "highlighted": false,
+        "badge": [455, 347, 16, 16],
+        "badgeText": [459.78, 349, 6.42, 12],
+        "badgeBaseline": 359,
+        "icon": [479, 347, 11.25, 16],
+        "label": [498.25, 347, 56.84, 16],
+        "labelBaseline": 360,
+        "text": "Sample 4"
+      },
+      {
+        "rect": [445, 370, 310, 30],
+        "highlighted": false,
+        "badge": [455, 377, 16, 16],
+        "badgeText": [459.78, 379, 6.42, 12],
+        "badgeBaseline": 389,
+        "icon": [479, 377, 11.25, 16],
+        "label": [498.25, 377, 56.52, 16],
+        "labelBaseline": 390,
+        "text": "Sample 5"
+      },
+      {
+        "rect": [445, 400, 310, 30],
+        "highlighted": false,
+        "badge": [455, 407, 16, 16],
+        "badgeText": [459.78, 409, 6.42, 12],
+        "badgeBaseline": 419,
+        "icon": [479, 407, 11.25, 16],
+        "label": [498.25, 407, 56.75, 16],
+        "labelBaseline": 420,
+        "text": "Sample 6"
+      },
+      {
+        "rect": [445, 430, 310, 30],
+        "highlighted": false,
+        "badge": [455, 437, 16, 16],
+        "badgeText": [459.78, 439, 6.42, 12],
+        "badgeBaseline": 449,
+        "icon": [479, 437, 11.25, 16],
+        "label": [498.25, 437, 55.88, 16],
+        "labelBaseline": 450,
+        "text": "Sample 7"
+      },
+      {
+        "rect": [445, 460, 310, 30],
+        "highlighted": false,
+        "badge": [455, 467, 16, 16],
+        "badgeText": [459.78, 469, 6.42, 12],
+        "badgeBaseline": 479,
+        "icon": [479, 467, 11.25, 16],
+        "label": [498.25, 467, 56.78, 16],
+        "labelBaseline": 480,
+        "text": "Sample 8"
+      },
+      {
+        "rect": [445, 490, 310, 30],
+        "highlighted": false,
+        "badge": [455, 497, 16, 16],
+        "badgeText": [459.78, 499, 6.42, 12],
+        "badgeBaseline": 509,
+        "icon": [479, 497, 11.25, 16],
+        "label": [498.25, 497, 56.75, 16],
+        "labelBaseline": 510,
+        "text": "Sample 9"
+      },
+      {
+        "rect": [445, 520, 310, 30],
+        "highlighted": false,
+        "badge": null,
+        "badgeText": null,
+        "badgeBaseline": null,
+        "icon": [455, 527, 11.25, 16],
+        "label": [474.25, 527, 62.61, 16],
+        "labelBaseline": 540,
+        "text": "Sample 10"
+      }
+    ],
+    "empty": null
+  }
+}

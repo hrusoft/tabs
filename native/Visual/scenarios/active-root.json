@@ -1,0 +1,40 @@
+{
+  "description": "two-tabs with the docked root group itself active: the outline runs under the root bar, broken by its active tab.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-b",
+          "title": "New Tab",
+          "content": {
+            "id": "leaf-b",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-b"
+    },
+    "activePaneId": "root",
+    "floating": []
+  }
+}

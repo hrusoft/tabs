@@ -1,5 +1,25 @@
+import type {
+  ControlVerbHandler,
+  RendererControlVerbTable
+} from '@tabs/plugin-sdk/renderer/controlVerbTable'
+
+export type {
+  ControlVerbHandler,
+  RendererControlVerbTable
+} from '@tabs/plugin-sdk/renderer/controlVerbTable'
+
 import type { ControlRequest, ControlResponse } from '@shared/externalControl'
-import { CONTROL_REQUEST_TYPES } from '@shared/externalControl'
+import { CONTROL_REQUEST_TYPES, PANE_GONE_ERROR } from '@shared/externalControl'
+import {
+  type ContentNode,
+  collectLeaves,
+  isLeaf,
+  type LeafContent
+} from '@tabs/plugin-sdk/shared/model/types'
+import { getPaneHandle } from '../core/registry/paneHandles'
+import { contentRegistry } from '../core/registry/registry'
+import { allRoots, findNodeAnywhere, useLayoutStore } from '../core/store/layoutStore'
+import { revealPane } from './placement'
 
 /**
  * The renderer's half of the external control socket: transport, a registry of
@@ -7,7 +27,7 @@ import { CONTROL_REQUEST_TYPES } from '@shared/externalControl'
  *
  * Deliberately knows nothing about what any verb does. Almost the whole
  * protocol drives `<webview>` guests, and every one of those verbs lives with
- * the browser content type (src/plugins/browser/renderer/browserExternalControl.ts), which
+ * the browser content type (packages/plugin-browser/renderer/browserExternalControl.ts), which
  * claims them at registration time; core keeps only the two verbs that are
  * about no content type at all.
  *
@@ -18,17 +38,6 @@ import { CONTROL_REQUEST_TYPES } from '@shared/externalControl'
  */
 
 type ControlVerb = ControlRequest['type']
-
-/**
- * What a verb handler is. It receives its own narrowed request and *returns*
- * the answer — it is never handed the transport, so it cannot reply twice,
- * reply late, or fail to reply. That invariant lives in exactly one place
- * (installExternalControl below), which is also what lets a handler throw
- * freely: the throw becomes the error response.
- */
-export type ControlVerbHandler<V extends ControlVerb = ControlVerb> = (
-  request: Extract<ControlRequest, { type: V }>
-) => ControlResponse | Promise<ControlResponse>
 
 /**
  * How a handler is held once stored. Not `ControlVerbHandler` itself: handlers
@@ -61,12 +70,31 @@ const handlers = new Map<ControlVerb, StoredHandler>()
  */
 export function registerControlVerb<V extends ControlVerb>(
   verb: V,
-  handler: ControlVerbHandler<V>
+  handler: ControlVerbHandler<V, ControlRequest>
 ): void {
   if (handlers.has(verb)) {
     throw new Error(`Control verb handler already registered for "${verb}"`)
   }
   handlers.set(verb, handler as unknown as StoredHandler)
+}
+
+/**
+ * Claims every verb in `table` for this window. Called once per content type,
+ * from its renderer `activate` — core's own six stay on the single-verb
+ * `registerControlVerb` above, registered at module scope in this file.
+ *
+ * A duplicate throws, same rule as the single-verb form and as main's
+ * registry: a verb name has exactly one owner.
+ */
+export function registerControlVerbs<R extends { type: string }>(
+  table: RendererControlVerbTable<R>
+): void {
+  for (const [verb, handler] of Object.entries(table) as [string, StoredHandler][]) {
+    if (handlers.has(verb)) {
+      throw new Error(`Control verb handler already registered for "${verb}"`)
+    }
+    handlers.set(verb, handler)
+  }
 }
 
 /**
@@ -99,6 +127,81 @@ registerControlVerb('batch', () => ({
   ok: false,
   error: 'batch is handled in the main process'
 }))
+// Answered entirely in main from the census plus Settings.disabledContentTypes
+// (src/main/externalControl.ts) — never relayed, but every verb still owes
+// this window a handler (the coverage gate is over the whole protocol, not
+// over what gets relayed), the same stub shape the browser package uses for
+// its own main-only verbs (readNetworkRequests, etc.).
+registerControlVerb('capabilities', () => ({
+  ok: false,
+  error: 'capabilities is handled in the main process'
+}))
+registerControlVerb('describe', () => ({
+  ok: false,
+  error: 'describe is handled in the main process'
+}))
+
+/**
+ * The four pane-tree verbs that name only a pane id and so belong to core's
+ * protocol even though, until a second content type declares
+ * `listSummaryForControl`/`describeForControl`, the browser is the only thing
+ * they can ever resolve in practice (main only grants a `targetPaneId` for a
+ * pane some create verb actually made — see `ownerOf` in
+ * src/main/externalControl.ts). `activatePane`/`closePane` are genuinely
+ * type-agnostic pane-tree operations and check nothing beyond "does the node
+ * still exist" — the old browser-only implementation's "is this a browser
+ * pane" check added no real restriction (ownership already implied it) and
+ * would only have been wrong once a second type existed.
+ */
+registerControlVerb('activatePane', (request) => {
+  const node = findNodeAnywhere(useLayoutStore.getState(), request.targetPaneId)
+  if (!node) return { ok: false, error: PANE_GONE_ERROR }
+  revealPane(node.id)
+  return { ok: true }
+})
+
+registerControlVerb('closePane', (request) => {
+  const node = findNodeAnywhere(useLayoutStore.getState(), request.targetPaneId)
+  if (!node) return { ok: false, error: PANE_GONE_ERROR }
+  useLayoutStore.getState().closePane(node.id)
+  return { ok: true }
+})
+
+/** Every leaf whose type opts into being listed, across every tree (docked root plus each floating window). */
+function collectControllablePanes(node: ContentNode): Record<string, unknown>[] {
+  return collectLeaves(node).flatMap((leaf: LeafContent) => {
+    const summary = contentRegistry.get(leaf.type)?.listSummaryForControl?.(leaf)
+    if (!summary) return []
+    return [{ paneId: leaf.id, type: leaf.type, title: leaf.title ?? '', ...summary }]
+  })
+}
+
+registerControlVerb('listOwnedPanes', () => {
+  const panes = allRoots(useLayoutStore.getState()).flatMap(collectControllablePanes)
+  return { ok: true, result: { panes } }
+})
+
+registerControlVerb('getPaneInfo', async (request) => {
+  const node = findNodeAnywhere(useLayoutStore.getState(), request.targetPaneId)
+  if (!node) return { ok: false, error: PANE_GONE_ERROR }
+  // Structural nodes (tabs/split) are never reachable here in practice —
+  // ownership is only ever granted for a pane a create verb actually made,
+  // and every create verb makes a leaf — but this is the boundary that keeps
+  // it true rather than assumed.
+  if (!isLeaf(node)) {
+    return { ok: false, error: 'target is not a pane that can be inspected' }
+  }
+  const def = contentRegistry.get(node.type)
+  const described = await def?.describeForControl?.(node, getPaneHandle(node.id))
+  if (!described) {
+    return { ok: false, error: `${node.type} panes cannot be inspected with getPaneInfo` }
+  }
+  if ('error' in described) return { ok: false, error: described.error }
+  return {
+    ok: true,
+    result: { paneId: node.id, type: node.type, title: node.title ?? '', ...described.fields }
+  }
+})
 
 function handleRequest(request: ControlRequest): ControlResponse | Promise<ControlResponse> {
   const handler = handlers.get(request.type)

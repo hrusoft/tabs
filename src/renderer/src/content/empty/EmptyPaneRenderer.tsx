@@ -1,10 +1,10 @@
-import { paneAttr } from '@shared/paneDomAttrs'
+import { fireAndReport } from '@tabs/plugin-sdk/renderer/fireAndReport'
+import { paneAttr } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import type { ContentRendererProps } from '../../core/registry/registry'
 import { useDragStore } from '../../core/store/dragStore'
 import { useLayoutStore } from '../../core/store/layoutStore'
 import { createContentFor } from '../createFrom'
 import { NO_CONTENT_TYPES_MESSAGE, useCreationActions } from '../creationActions'
-import { fireAndReport } from '../fireAndReport'
 
 /**
  * A content-less pane: a row of "fill me with this" buttons, one per enabled

@@ -1,7 +1,7 @@
 import { CONTENT_TYPE_MANIFESTS, type ContentTypeId } from '@shared/content/registry'
+import type { SettingsPluginContext } from '@tabs/plugin-sdk/settings/api'
 import { registerSettingsPage } from '../settings/settingsPageRegistry'
 import { createPluginSettingsAccess } from './settingsAccess'
-import type { SettingsPluginContext } from './settingsApi'
 
 /**
  * Core's side of the Settings-window plugin API — the settings-side sibling

@@ -1,0 +1,57 @@
+{
+  "description": "The browser in a floating window (500x300 at 120,90) over an empty docked pane, active: the same chrome in a floating frame.",
+  "size": {
+    "width": 900,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-web",
+    "floating": [
+      {
+        "id": "float-1",
+        "content": {
+          "id": "leaf-web",
+          "type": "browser",
+          "title": "Example Domain",
+          "config": {
+            "url": "https://example.com/docs/getting-started"
+          }
+        },
+        "rect": {
+          "x": 120,
+          "y": 90,
+          "width": 500,
+          "height": 300
+        },
+        "anchor": {
+          "kind": "root"
+        }
+      }
+    ]
+  },
+  "browser": {
+    "leaf-web": {
+      "page": "#2b3a55"
+    }
+  }
+}

@@ -1,5 +1,5 @@
+import { isSafeExternalUrl } from '@tabs/plugin-sdk/shared/url'
 import { shell } from 'electron'
-import { isSafeExternalUrl } from '../shared/url'
 
 /**
  * The single funnel from anywhere in the app to the OS's default handler.
@@ -17,7 +17,7 @@ import { isSafeExternalUrl } from '../shared/url'
  *
  * Its own module rather than a private helper in index.ts because content
  * modules need it too: the browser's guest popup policy routes through here
- * (see src/plugins/browser/main/index.ts), as do the host window's own
+ * (see packages/plugin-browser/main/index.ts), as do the host window's own
  * popups and the terminal's link-click IPC. A content module reaching into
  * index.ts would be the wrong direction entirely.
  */

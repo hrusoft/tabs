@@ -1,4 +1,4 @@
-import { PANE_BUTTON } from '../src/shared/paneDomAttrs'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { expect, test, withApp } from './helpers/launch'
 import { clickMenuItem } from './helpers/menu'
 import { closeInactiveRootTab, headerOf, initialPane } from './helpers/pane'

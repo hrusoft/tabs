@@ -1,7 +1,7 @@
 import { isContentTypeEnabled } from '@shared/content/enablement'
-import { createLeaf } from '@shared/model/factories'
-import type { ContentNode } from '@shared/model/types'
-import { EMPTY_TYPE } from '@shared/model/types'
+import { createLeaf } from '@tabs/plugin-sdk/shared/model/factories'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
+import { EMPTY_TYPE } from '@tabs/plugin-sdk/shared/model/types'
 import { useSettingsStore } from '../core/store/settingsStore'
 import { applyDerivedConfig, resolveOriginLeaf } from './createFrom'
 

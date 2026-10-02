@@ -1,0 +1,79 @@
+{
+  "description": "The browser two tab groups deep (root > G > H > pane): the header and the bars alternate their depth shade, with the group bars above it and the page inside their border.",
+  "size": {
+    "width": 900,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "group-g",
+            "type": "tabs",
+            "tabs": [
+              {
+                "id": "tab-h",
+                "title": "Tabs",
+                "content": {
+                  "id": "group-h",
+                  "type": "tabs",
+                  "tabs": [
+                    {
+                      "id": "tab-web",
+                      "title": "New Tab",
+                      "content": {
+                        "id": "leaf-web",
+                        "type": "browser",
+                        "title": "Example Domain",
+                        "config": {
+                          "url": "https://example.com/docs/getting-started"
+                        }
+                      }
+                    },
+                    {
+                      "id": "tab-other",
+                      "title": "New Tab",
+                      "content": {
+                        "id": "leaf-other",
+                        "type": "empty",
+                        "config": {}
+                      }
+                    }
+                  ],
+                  "activeTabId": "tab-web"
+                }
+              },
+              {
+                "id": "tab-side",
+                "title": "Tabs",
+                "content": {
+                  "id": "leaf-side",
+                  "type": "empty",
+                  "config": {}
+                }
+              }
+            ],
+            "activeTabId": "tab-h"
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-web",
+    "floating": []
+  },
+  "browser": {
+    "leaf-web": {
+      "page": "#2b3a55"
+    }
+  }
+}

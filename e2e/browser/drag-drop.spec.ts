@@ -1,4 +1,4 @@
-import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { grabAndHover, holdPastSpringLoad } from '../helpers/drag'
 import { requireBox } from '../helpers/geometry'
 import { clickPaneRoot, initialPane, openNewTab, splitHorizontal } from '../helpers/pane'
@@ -140,6 +140,64 @@ test('reordering a tab within its own tab bar via drag', async ({ page }) => {
   )
   expect(idsAfter).toEqual([idsBefore[1], idsBefore[2], idsBefore[0]])
   await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true')
+})
+
+/**
+ * A reorder moves tabs in the strip and nothing else: no tab's content is
+ * taken out of the document and put back. TabsRenderer used to render panels
+ * in strip order, so a reorder made React move sibling panels — for a
+ * `<webview>`, a reparent that reloads the page (CLAUDE.md's webview-reparent
+ * entry). It moved the *other* tabs' panels here, not the dragged one's,
+ * which is why every content pane is checked.
+ *
+ * A move keeps the element's identity, so "is it the same element" passes
+ * against the old code; what a move does leave behind is a childList
+ * removal, which is what a MutationObserver records here.
+ */
+test('reordering tabs leaves every tab content mounted in place', async ({ page }) => {
+  await openNewTab(initialPane(page))
+  const panes = page.getByTestId('pane')
+  await openNewTab(panes.nth(2))
+  const tabs = page.getByRole('tablist').getByRole('tab')
+  await expect(tabs).toHaveCount(3)
+
+  // Root's own wrapper is pane 0; the three tabs' content panes follow.
+  const contentIds = await panes.evaluateAll((els) =>
+    els.slice(1).map((el) => el.getAttribute('data-dock-id') ?? '')
+  )
+  expect(contentIds).toHaveLength(3)
+  await page.evaluate(() => {
+    const removed: Node[] = []
+    new MutationObserver((records) => {
+      for (const record of records) removed.push(...record.removedNodes)
+    }).observe(document.body, { childList: true, subtree: true })
+    ;(window as unknown as { __removed: Node[] }).__removed = removed
+  })
+  const idsBefore = await tabs.evaluateAll((els) =>
+    els.map((el) => el.getAttribute('data-drop-tab-id'))
+  )
+
+  // The last tab to the front: the drag whose diff moved the other two.
+  const to = await requireBox(tabs.nth(0))
+  await grabAndHover(tabs.nth(2), to.x + to.width * 0.1, to.y + to.height / 2)
+  await page.mouse.up()
+
+  await expect
+    .poll(() => tabs.evaluateAll((els) => els.map((el) => el.getAttribute('data-drop-tab-id'))))
+    .toEqual([idsBefore[2], idsBefore[0], idsBefore[1]])
+  // Which content panes were detached along the way (a removal that was put
+  // straight back is exactly the move this is about).
+  const detached = await page.evaluate((ids) => {
+    const removed = (window as unknown as { __removed: Node[] }).__removed
+    return ids.filter((id) => {
+      const pane = document.querySelector(`[data-dock-id="${id}"]`)
+      return removed.some((node) => node === pane || (pane !== null && node.contains(pane)))
+    })
+  }, contentIds)
+  expect(detached).toEqual([])
+  // The strip still decides what shows: the dragged tab stays the active one.
+  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator(`[data-dock-id="${contentIds[2]}"]`)).toBeVisible()
 })
 
 test('releasing a drag over an invalid target is a no-op', async ({ page }) => {

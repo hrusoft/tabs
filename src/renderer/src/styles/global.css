@@ -1125,8 +1125,8 @@ body {
 }
 
 /* Each content type's own pane styles live with its renderer —
-   src/plugins/terminal/renderer/terminal.css and
-   src/plugins/browser/renderer/browser.css, side-effect
+   packages/plugin-terminal/renderer/terminal.css and
+   packages/plugin-browser/renderer/browser.css, side-effect
    imported there so a window loads them only if it renders that type. */
 
 /* --- Tab drag and drop --- */
@@ -1676,5 +1676,5 @@ body {
    and a pane/tab drag (dragController.ts) alike, through pointerGesture.ts.
    Core only raises the flag; what has to react to it is a per-type concern (a
    <webview> guest swallows the pointer events the gesture needs, pointerup
-   included), so that rule lives in src/plugins/browser/renderer/browser.css.
+   included), so that rule lives in packages/plugin-browser/renderer/browser.css.
    Nothing in this stylesheet keys off it. */

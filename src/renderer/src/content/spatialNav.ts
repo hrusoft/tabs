@@ -1,22 +1,21 @@
 import {
   entryPaneId,
-  type NavDirection,
   type NavTarget,
   navTarget,
   pickSpatialTarget,
   pickWrapTarget
 } from '@shared/model/navigation'
 import { findNode } from '@shared/model/tree'
-import type { ContentNode, NodeId } from '@shared/model/types'
-import { PANE_ATTR } from '@shared/paneDomAttrs'
-import { navDirectionForChord } from '@shared/shortcuts'
+import { paneDomRect } from '@tabs/plugin-sdk/renderer/paneDom'
+import type { ContentNode, NavDirection, NodeId } from '@tabs/plugin-sdk/shared/model/types'
+import { PANE_ATTR } from '@tabs/plugin-sdk/shared/paneDomAttrs'
+import { navDirectionForChord } from '@tabs/plugin-sdk/shared/shortcuts'
 import { platform } from '../core/platform'
 import { useDragStore } from '../core/store/dragStore'
 import { ownerRootOf, useLayoutStore } from '../core/store/layoutStore'
 import { useModalStore } from '../core/store/modalStore'
 import { useNavFlashStore } from '../core/store/navFlashStore'
 import { useSettingsStore } from '../core/store/settingsStore'
-import { paneDomRect } from './paneDom'
 
 /**
  * Cmd+arrow (ctrl+arrow off mac, or whatever the user has rebound it to — see
@@ -94,7 +93,7 @@ function onKeyDown(event: KeyboardEvent): void {
  * `<webview>` guest swallows every keydown before this window sees it, so its
  * presses arrive over a browser-specific bridge channel that only the browser
  * content type should know about. It forwards them here instead (see
- * src/plugins/browser/renderer/guestNavKeys.ts) — already matched against the bindings by
+ * packages/plugin-browser/renderer/guestNavKeys.ts) — already matched against the bindings by
  * main, since the guest's keydown never reaches this process at all.
  *
  * The chord → direction decision itself is never duplicated: both enforcers

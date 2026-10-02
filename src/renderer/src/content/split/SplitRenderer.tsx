@@ -5,8 +5,8 @@ import {
   SEPARATOR_ALIGNMENT_THRESHOLD_PX
 } from '@shared/model/separatorSnap'
 import { MIN_PANE_SIZE } from '@shared/model/tree'
-import type { NodeId, SplitContent } from '@shared/model/types'
-import { type CSSProperties, Fragment, useEffect, useRef } from 'react'
+import type { NodeId, SplitContent } from '@tabs/plugin-sdk/shared/model/types'
+import { type CSSProperties, Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import {
   Group,
   type GroupImperativeHandle,
@@ -118,9 +118,10 @@ export function SplitRenderer({
   suppressBorderBottom
 }: ContentRendererProps<SplitContent>) {
   const resizeSplit = useLayoutStore((state) => state.resizeSplit)
-  // Remount the group when the pane set changes so defaultLayout reseeds;
-  // plain drag-resizes keep the same key and stay uncontrolled.
-  const paneKey = node.children.map((child) => child.id).join('|')
+  // Which pane set the mounted group last had its sizes seeded for — see
+  // reseedFromModel. The group itself is never remounted when that set
+  // changes (no `key` on it), because a remount takes every child with it.
+  const seededPaneSetRef = useRef<string | null>(null)
 
   const groupRef = useRef<GroupImperativeHandle | null>(null)
   const groupElRef = useRef<HTMLDivElement | null>(null)
@@ -179,6 +180,95 @@ export function SplitRenderer({
     registerSplitGroup(node.id, { groupRef, elRef: groupElRef, childIdsRef })
     return () => unregisterSplitGroup(node.id)
   }, [node.id])
+
+  /**
+   * Seeds the mounted group's sizes from the model the first time the library
+   * reports a layout for a new pane set, so a split whose children change
+   * shows the sizes the model computed rather than whatever the library
+   * remembers.
+   *
+   * The group used to be keyed by its children's ids, remounting whenever a
+   * child came or went so `defaultLayout` was read afresh. That remount took
+   * every child's DOM with it, and a `<webview>` guest does not survive
+   * being reparented: adding or closing one pane of a split reloaded every
+   * browser page beside it — history, form state, console and refs gone (see
+   * CLAUDE.md's webview-reparent entry). Now the group stays mounted and
+   * React inserts or removes only the child that changed.
+   *
+   * Without the remount the library seeds a new pane set from
+   * `defaultLayout` itself, *except* a set it has seen before: it caches a
+   * layout per id set and prefers that cache, so a pane closed again after
+   * it was added came back at the proportions the set had before rather than
+   * the ones the model now holds (measured: a 50/50 cache over a 34/66
+   * model). Hence this, run from the library's own non-user
+   * `onLayoutChanged` — the report it makes once the new panels have
+   * registered — never from a layout effect: a prototype that called
+   * `setLayout` from one, before the new panel had registered, blanked the
+   * window (the React tree unmounted).
+   *
+   * Once per pane set, not on every report: `setLayout` clamps to the panels'
+   * constraints, so a model the clamp disagrees with would otherwise answer
+   * each reseed with another report and loop. Sizes-only model changes on an
+   * unchanged set are not reseeded, exactly as with the old remount.
+   */
+  function reseedFromModel(layout: Layout): void {
+    const ids = childIdsRef.current
+    const paneSet = ids.join('|')
+    if (seededPaneSetRef.current === paneSet) return
+    // A report taken mid-transition, before every panel of the new set has
+    // registered (or after a departing one unregistered), describes no set
+    // this split has — wait for the one that does.
+    const reported = Object.keys(layout)
+    if (reported.length !== ids.length || !ids.every((id) => id in layout)) return
+    seededPaneSetRef.current = paneSet
+    const wanted = layoutFromSizes(ids, node.sizes)
+    const drifted = ids.some((id) => Math.abs((layout[id] ?? 0) - (wanted[id] ?? 0)) > 0.01)
+    if (drifted) groupRef.current?.setLayout(wanted)
+  }
+
+  /**
+   * Each panel's outer element, by child id — for the first-commit sizing
+   * below. Filled from the Panel's `elementRef`, whose merged ref the library
+   * keeps stable, so this runs once per panel mount and unmount.
+   */
+  const panelElsRef = useRef(new Map<NodeId, HTMLElement>())
+  const laidOutPaneSetRef = useRef<string | null>(null)
+  const paneSet = node.children.map((child) => child.id).join('|')
+
+  /**
+   * Gives every panel its model size in the very commit that changes the pane
+   * set, before any child's passive effects measure it.
+   *
+   * A panel added to a group that is already mounted renders at `flexGrow: 1`
+   * — the library's fallback for an id its layout doesn't know yet — beside
+   * its siblings' percentages, i.e. roughly 1% of the split. The library
+   * corrects that once the panel has registered, in a synchronous re-render;
+   * but a click-driven commit flushes its passive effects *before* that
+   * re-render, so a child mounting there measures the sliver. A terminal did:
+   * TerminalRenderer's mount fit resized its pty to 2 columns and back on
+   * every split change around it (measured over the resize IPC), and the
+   * reflow through 2 columns cost the scrollback it was showing. The keyed
+   * remount this group used to have never hit it, since a fresh group sizes
+   * panels from `defaultLayout` on its first render — which is also why the
+   * first mount is skipped here.
+   *
+   * Written straight to the elements the library styles: its next render
+   * overwrites them with its own layout, which for a new pane set is this
+   * same model layout (and for one it has seen before, is what
+   * reseedFromModel then corrects).
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the pane set alone — see above
+  useLayoutEffect(() => {
+    if (laidOutPaneSetRef.current === null || laidOutPaneSetRef.current === paneSet) {
+      laidOutPaneSetRef.current = paneSet
+      return
+    }
+    laidOutPaneSetRef.current = paneSet
+    node.children.forEach((child, index) => {
+      const el = panelElsRef.current.get(child.id)
+      if (el) el.style.flexGrow = String((node.sizes[index] ?? 0) * 100)
+    })
+  }, [paneSet])
 
   // Cleared whenever no drag is in progress (see onLayoutChange), so a new
   // gesture always rediscovers its cluster fresh rather than reusing stale
@@ -393,7 +483,6 @@ export function SplitRenderer({
 
   return (
     <Group
-      key={paneKey}
       className="split-view"
       style={SPLIT_CLIP_STYLE}
       orientation={node.direction}
@@ -456,7 +545,10 @@ export function SplitRenderer({
         hadPriorTickRef.current = true
       }}
       onLayoutChanged={(layout, meta) => {
-        if (!meta.isUserInteraction) return
+        if (!meta.isUserInteraction) {
+          reseedFromModel(layout)
+          return
+        }
         resizeSplit(node.id, sizesFromLayout(layout, childIdsRef.current))
         commitClusterMembers()
         markSplitResizeReleased()
@@ -488,18 +580,22 @@ export function SplitRenderer({
               // invisible either way. It has to come off the element rather
               // than through a prop — SeparatorProps omits tabIndex, and the
               // library hard-codes it after spreading the props it was given.
-              //
-              // The dataset tags are for snapping and cluster mirroring (see
-              // maybeSnap/discoverCluster): they let a *different* split's
-              // drag find this separator by id/orientation/index, to compare
-              // positions against and — via separatorRegistry — move.
+              // (The library's merged ref is stable, so this runs once per
+              // separator element, which is all the removal needs.)
               elementRef={(el) => {
-                if (!el) return
-                el.removeAttribute('tabindex')
-                el.dataset.splitId = node.id
-                el.dataset.splitDirection = node.direction
-                el.dataset.separatorIndex = String(index)
+                el?.removeAttribute('tabindex')
               }}
+              // For snapping and cluster mirroring (see maybeSnap/
+              // discoverCluster): they let a *different* split's drag find
+              // this separator by id/orientation/index, to compare positions
+              // against and — via separatorRegistry — move. Props rather than
+              // writes from elementRef: the group is no longer remounted when
+              // its children change, so a separator outlives an insertion
+              // before it, and only a prop follows its index to the new value
+              // (the library spreads unknown props onto its element).
+              data-split-id={node.id}
+              data-split-direction={node.direction}
+              data-separator-index={index}
             />
           )}
           <Panel
@@ -507,6 +603,10 @@ export function SplitRenderer({
             className="split-pane"
             minSize={MIN_PANE_SIZE_PERCENT}
             style={SPLIT_CLIP_STYLE}
+            elementRef={(el) => {
+              if (el) panelElsRef.current.set(child.id, el)
+              else panelElsRef.current.delete(child.id)
+            }}
           >
             <ContentView node={child} {...childEdgeProps(index)} />
           </Panel>

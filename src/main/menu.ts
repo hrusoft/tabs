@@ -1,13 +1,13 @@
-import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
-import { IpcChannel } from '../shared/ipc'
+import { platform } from '@tabs/plugin-sdk/main/platform'
 import {
   resolveBinding,
   type ShortcutActionId,
   shortcutAction,
   toAccelerator
-} from '../shared/shortcuts'
+} from '@tabs/plugin-sdk/shared/shortcuts'
+import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
+import { IpcChannel } from '../shared/ipc'
 import { isCaffeinateRunning, stopCaffeinate } from './caffeinateProcess'
-import { platform } from './platform'
 import { openNewWindow, openPaneTreeWindows } from './restoreWindows'
 import { getSettings } from './settings'
 import { isShortcutCaptureActive } from './shortcutCapture'
@@ -146,7 +146,7 @@ function caffeinateMenuItem(): MenuItemConstructorOptions {
  * items for the same reason New Tab does, not just to appear in the menu: a
  * `layer: 'renderer'` binding would stop working the instant a `<webview>`
  * pane has focus (a focused guest swallows every keydown before the host
- * window sees it — see src/plugins/browser/main/guestNavKeys.ts), while a menu
+ * window sees it — see packages/plugin-browser/main/guestNavKeys.ts), while a menu
  * accelerator fires regardless of which pane is focused. Each of these is
  * exactly as available from inside a browser pane as New Tab is, and giving
  * that up would be a regression.

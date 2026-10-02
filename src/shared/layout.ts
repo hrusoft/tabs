@@ -1,6 +1,6 @@
+import type { ContentNode, LeafContent, NodeId } from '@tabs/plugin-sdk/shared/model/types'
 import type { FloatingPane } from './model/floating'
 import { mapLeaves } from './model/tree'
-import type { ContentNode, LeafContent, NodeId } from './model/types'
 
 /**
  * The one snapshot version there is. Shared because both processes state it —

@@ -1,4 +1,4 @@
-import type { NodeId } from '@shared/model/types'
+import type { NodeId } from '@tabs/plugin-sdk/shared/model/types'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { ContextMenuItem } from '../../core/store/contextMenuStore'
 import { startPaneDrag } from '../dragController'

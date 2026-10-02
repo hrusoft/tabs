@@ -1,5 +1,5 @@
-import { createLeaf } from '@shared/model/factories'
-import type { LeafContent } from '@shared/model/types'
+import { createLeaf } from '@tabs/plugin-sdk/shared/model/factories'
+import type { LeafContent } from '@tabs/plugin-sdk/shared/model/types'
 import { useEffect, useRef, useState } from 'react'
 import { getPaneCapability, registerPaneHandle } from '../core/registry/paneHandles'
 import type { ContentRendererDef, ContentRendererProps } from '../core/registry/registry'
@@ -35,6 +35,15 @@ function StubRenderer({ node }: ContentRendererProps<LeafContent>) {
       }),
     [node.id]
   )
+  // The width this content saw in its first passive effect — the moment a
+  // terminal measures itself to size its pty (TerminalRenderer's mount fit).
+  // Published for e2e/browser/split-identity.spec.ts, which checks that a
+  // pane added to a mounted split is its real size by then, not the ~1% sliver
+  // react-resizable-panels gives an id it hasn't registered yet.
+  useEffect(() => {
+    const content = contentRef.current
+    if (content) content.dataset.mountWidth = String(content.clientWidth)
+  }, [])
   // tabIndex -1: programmatically focusable the way a terminal's helper
   // textarea is, without joining the page's tab order. `outline: none` with
   // it, because the UA focus ring is an artifact of the stand-in and not of

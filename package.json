@@ -1,24 +1,27 @@
 {
   "name": "tabs",
-  "version": "2026.09.23",
+  "version": "2026.10.01",
   "description": "Tabs — a recursive tab manager for arbitrary content",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "main": "./out/main/index.js",
   "author": "Hrusoft",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "scripts": {
     "postinstall": "npm run rebuild",
-    "rebuild": "electron-rebuild -o node-pty",
+    "rebuild": "electron-rebuild -o node-pty --module-dir packages/plugin-terminal",
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",
-    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
-    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "typecheck:node": "tsc -b tsconfig.node.json",
+    "typecheck:web": "tsc -b tsconfig.web.json",
+    "typecheck": "tsc -b",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "lint:cycles": "npx -y madge@8.0.0 --circular --extensions ts,tsx --ts-config tsconfig.web.json src",
+    "lint:cycles": "npx -y madge@8.0.0 --circular --extensions ts,tsx --ts-config tsconfig.web.json src packages",
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -26,10 +29,10 @@
     "test:e2e:electron": "npm run build && playwright test --project=electron",
     "test:e2e:browser": "playwright test --project=browser",
     "check": "npm run typecheck && npm run lint && npm run lint:cycles && npm run test && npm run test:e2e",
-    "pack": "npm run build && electron-builder --dir",
+    "pack": "npm run build && electron-builder --dir -c.mac.bundleShortVersion=$npm_package_version -c.mac.bundleVersion=$npm_package_version",
     "release": "bash ./scripts/release.sh",
-    "dist:mac": "npm run build && electron-builder --mac --publish never",
-    "dist:mac:universal": "npm run build && electron-builder --mac --universal --publish never"
+    "dist:mac": "npm run build && electron-builder --mac --publish never -c.mac.bundleShortVersion=$npm_package_version -c.mac.bundleVersion=$npm_package_version",
+    "dist:mac:universal": "npm run build && electron-builder --mac --universal --publish never -c.mac.bundleShortVersion=$npm_package_version -c.mac.bundleVersion=$npm_package_version"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
@@ -63,13 +66,5 @@
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,
     "node-pty@1.1.0": true
-  },
-  "dependencies": {
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/addon-serialize": "0.14.0",
-    "@xterm/addon-web-links": "0.12.0",
-    "@xterm/addon-webgl": "0.19.0",
-    "@xterm/xterm": "6.0.0",
-    "node-pty": "1.1.0"
   }
 }

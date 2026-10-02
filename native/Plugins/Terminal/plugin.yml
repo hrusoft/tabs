@@ -1,0 +1,39 @@
+# The Terminal plugin: its bundle, its unit tests, and its place in the app.
+# `make project` includes this file; nothing else in the build names it.
+#
+# SwiftTerm (the emulator view, docs/TERMINAL.md) is linked statically into
+# this plugin and nothing else: one image holds its classes. Pinned to the
+# commit of its v1.20.0 tag (a tag can move; Package.resolved lives in the
+# generated project, which isn't committed). Its package runs a build-tool
+# plugin on every build, hence the Makefile's -skipPackagePluginValidation.
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    revision: 5d14406844143538cd8f8851d2d8a67c1fe443e5
+targets:
+  TerminalPlugin:
+    templates: [Plugin]
+    templateAttributes: { pluginID: terminal, pluginDir: Plugins/Terminal }
+    dependencies:
+      - package: SwiftTerm
+  TerminalPluginTests:
+    templates: [PluginTests]
+    templateAttributes: { pluginDir: Plugins/Terminal }
+    dependencies:
+      - package: SwiftTerm
+  Tabs:
+    dependencies:
+      - target: TerminalPlugin
+        link: false
+        embed: true
+        copy: { destination: plugins }
+    settings:
+      base:
+        TABS_BUNDLED_PLUGIN_TERMINAL: terminal
+schemes:
+  Tabs:
+    test:
+      targets: [TerminalPluginTests]
+  Plugins:
+    test:
+      targets: [TerminalPluginTests]

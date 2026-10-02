@@ -1,5 +1,5 @@
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { MIN_FLOAT_SIZE, NEW_PANE_SPAWN_SPACING } from '../../src/shared/model/floating'
-import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
 import { dragTo, grabAndHover } from '../helpers/drag'
 import {
   dockedPanes,

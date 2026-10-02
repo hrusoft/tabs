@@ -6,3 +6,8 @@ out
 test-results
 playwright-report
 *.tsbuildinfo
+# Centralized tsc -b composite-project output (every SDK sub-project and
+# plugin package's outDir/declarationDir points here, never co-located with
+# its own sources) — see CLAUDE.md's plugin-SDK entry for why a composite
+# project's emit must never be left to a computed/relative path alone.
+.tsbuildcache

@@ -158,7 +158,7 @@ test('typing follows cmd+arrow into a browser pane, and cmd+arrow escapes it aga
   // And out again. The press is injected into the guest itself: a focused
   // guest swallows every keydown before the host window's own handler can
   // see it, so escaping relies on main's before-input-event forwarding (see
-  // src/plugins/browser/main/guestNavKeys.ts) — this asserts that path specifically,
+  // packages/plugin-browser/main/guestNavKeys.ts) — this asserts that path specifically,
   // not the window keydown listener.
   await electronApp.evaluate(({ webContents }, navModifier: 'meta' | 'control') => {
     const guest = webContents.getAllWebContents().find((wc) => wc.getType() === 'webview')

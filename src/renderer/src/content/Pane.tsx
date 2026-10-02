@@ -1,6 +1,6 @@
-import type { ContentNode, DockZone } from '@shared/model/types'
-import { isLeaf } from '@shared/model/types'
-import { paneAttr } from '@shared/paneDomAttrs'
+import type { ContentNode, DockZone } from '@tabs/plugin-sdk/shared/model/types'
+import { isLeaf } from '@tabs/plugin-sdk/shared/model/types'
+import { paneAttr } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import {
   type CSSProperties,
   type ReactNode,

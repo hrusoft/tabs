@@ -1,0 +1,40 @@
+{
+  "description": "Back enabled (full strength), Forward and Refresh as in browser-default: the page has history behind it.",
+  "size": {
+    "width": 900,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-web",
+            "type": "browser",
+            "title": "Example Domain",
+            "config": {
+              "url": "https://example.com/docs/getting-started"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-web",
+    "floating": []
+  },
+  "browser": {
+    "leaf-web": {
+      "page": "#2b3a55",
+      "canGoBack": true
+    }
+  }
+}

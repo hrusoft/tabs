@@ -1,4 +1,4 @@
-import { fireAndReport } from '../content/fireAndReport'
+import { fireAndReport } from '@tabs/plugin-sdk/renderer/fireAndReport'
 import { openCaffeinateDialog } from './CaffeinateDialog'
 import { useCaffeinateStore } from './caffeinateStore'
 

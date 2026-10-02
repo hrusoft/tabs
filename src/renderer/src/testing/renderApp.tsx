@@ -1,6 +1,6 @@
-import { createLeaf } from '@shared/model/factories'
-import { type ContentNode, EMPTY_TYPE } from '@shared/model/types'
 import { DEFAULT_SETTINGS, type Settings } from '@shared/settings'
+import { createLeaf } from '@tabs/plugin-sdk/shared/model/factories'
+import { type ContentNode, EMPTY_TYPE } from '@tabs/plugin-sdk/shared/model/types'
 import { type RenderResult, render } from '@testing-library/react'
 import { StrictMode } from 'react'
 import App from '../App'

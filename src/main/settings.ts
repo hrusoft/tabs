@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { e2eHidden } from '@tabs/plugin-sdk/main/e2eHidden'
 import { IpcChannel } from '../shared/ipc'
 import {
   CONTENT_TYPE_SETTINGS,
@@ -6,7 +7,6 @@ import {
   migrateSettings,
   type Settings
 } from '../shared/settings'
-import { e2eHidden } from './e2eHidden'
 import { onRendererMessage, registerSyncGetter } from './ipcListeners'
 import { forEachLiveWindow } from './liveWindows'
 import type { JsonReadDeps, JsonWriteDeps } from './persist'

@@ -1,0 +1,44 @@
+{
+  "description": "two-tabs with the pointer over the inactive first tab \"Tabs\": it gets the hover wash and its close button appears; the root bar's controls and New Tab button fade in because the bar is hovered.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "pointer": {
+    "x": 112,
+    "y": 21
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-b",
+          "title": "New Tab",
+          "content": {
+            "id": "leaf-b",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-b"
+    },
+    "activePaneId": "leaf-b",
+    "floating": []
+  }
+}

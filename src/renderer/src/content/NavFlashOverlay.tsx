@@ -1,4 +1,4 @@
-import type { NavDirection } from '@shared/model/navigation'
+import type { NavDirection } from '@tabs/plugin-sdk/shared/model/types'
 import { useNavFlashStore } from '../core/store/navFlashStore'
 
 const ROTATION: Record<NavDirection, number> = { right: 0, down: 90, left: 180, up: 270 }

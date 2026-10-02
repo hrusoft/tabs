@@ -1,6 +1,6 @@
+import { REATTACH_GRACE_MS } from '@tabs/plugin-sdk/shared/reattach'
 import type { Api } from '../src/shared/api'
 import { IpcChannel } from '../src/shared/ipc'
-import { REATTACH_GRACE_MS } from '../src/shared/reattach'
 import { expect, test } from './helpers/launch'
 import { initialPane, wrapInTabGroup } from './helpers/pane'
 import { openSettingsWindow } from './helpers/settings'

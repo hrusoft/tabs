@@ -35,7 +35,7 @@ export function resolvePluginEntries<T>(
     if (!name) throw new Error(`unexpected plugin entry glob path: ${path}`)
     if (!(PLUGIN_PACKAGES as readonly string[]).includes(name)) {
       throw new Error(
-        `src/plugins/${name} ships a ${kind} entry but is not named in PLUGIN_PACKAGES (src/plugins/index.ts)`
+        `content-type package "${name}" ships a ${kind} entry but is not named in PLUGIN_PACKAGES (src/plugins/index.ts)`
       )
     }
     byName.set(name, module)

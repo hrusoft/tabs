@@ -1,0 +1,54 @@
+{
+  "description": "Docked root tab holding the active empty pane A, under one floating window float-1 at (600,120) 420x260 holding the empty pane F, which has a bell: the bell icon after F's header grip, before its title, and F's content outlined in the bell color with an inner glow. The root tab shows nothing (F isn't in it).",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "signals": {
+    "leaf-f": [
+      "bell"
+    ]
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": [
+      {
+        "id": "float-1",
+        "content": {
+          "id": "leaf-f",
+          "type": "empty",
+          "config": {}
+        },
+        "rect": {
+          "x": 600,
+          "y": 120,
+          "width": 420,
+          "height": 260
+        },
+        "anchor": {
+          "kind": "root"
+        }
+      }
+    ]
+  }
+}

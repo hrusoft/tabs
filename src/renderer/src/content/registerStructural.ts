@@ -1,5 +1,5 @@
-import type { SplitContent, TabsContent } from '@shared/model/types'
-import { EMPTY_TYPE } from '@shared/model/types'
+import type { SplitContent, TabsContent } from '@tabs/plugin-sdk/shared/model/types'
+import { EMPTY_TYPE } from '@tabs/plugin-sdk/shared/model/types'
 import { contentRegistry } from '../core/registry/registry'
 import { EmptyPaneRenderer } from './empty/EmptyPaneRenderer'
 import { SplitRenderer } from './split/SplitRenderer'

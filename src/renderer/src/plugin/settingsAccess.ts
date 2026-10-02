@@ -1,5 +1,5 @@
+import type { PluginSettingsAccess } from '@tabs/plugin-sdk/renderer/api'
 import { useSettingsStore } from '../core/store/settingsStore'
-import type { PluginSettingsAccess } from './api'
 
 /**
  * The one implementation of a package's scoped settings surface, shared by

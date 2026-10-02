@@ -1,6 +1,9 @@
 import { isContentTypeEnabled } from '@shared/content/enablement'
+import { PANE_GONE_ERROR } from '@shared/externalControl'
+import type { RendererPluginContext } from '@tabs/plugin-sdk/renderer/api'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
 import { exposedCwdOf } from '../content/exposedCwd'
-import { registerControlVerb } from '../content/externalControl'
+import { registerControlVerb, registerControlVerbs } from '../content/externalControl'
 import { placeNewPane, placeNewUnpinnedPane, revealPane } from '../content/placement'
 import { dispatchNavChord } from '../content/spatialNav'
 import { alertDialog, chooseDialog, confirmDialog } from '../core/dialogs'
@@ -10,7 +13,6 @@ import { useBellStore } from '../core/store/bellStore'
 import { useContextMenuStore } from '../core/store/contextMenuStore'
 import { allRoots, findNodeAnywhere, useLayoutStore } from '../core/store/layoutStore'
 import { useSettingsStore } from '../core/store/settingsStore'
-import type { RendererPluginContext } from './api'
 import { createPluginSettingsAccess } from './settingsAccess'
 
 /**
@@ -31,6 +33,22 @@ import { createPluginSettingsAccess } from './settingsAccess'
  * `useLayoutStore.getState()` per call rather than capturing a snapshot, so a
  * context created at boot stays correct for the window's lifetime.
  */
+/**
+ * Shared body of `RendererPluginContext.resolveControlTarget` — see its doc
+ * on `plugin/api.ts` for what each outcome means. Module-scope rather than
+ * closed over a single package's `type`, since every package's context calls
+ * it with its own `ownType` argument.
+ */
+function resolveControlTarget(
+  targetPaneId: string,
+  ownType: string
+): { node: ContentNode } | { error: string } {
+  const node = findNodeAnywhere(useLayoutStore.getState(), targetPaneId)
+  if (!node) return { error: PANE_GONE_ERROR }
+  if (node.type !== ownType) return { error: `target is not a ${ownType} pane` }
+  return { node }
+}
+
 export function createRendererPluginContext(type: string): RendererPluginContext {
   return {
     registerContent: (def) => {
@@ -42,6 +60,8 @@ export function createRendererPluginContext(type: string): RendererPluginContext
       contentRegistry.register(def)
     },
     registerControlVerb,
+    registerControlVerbs,
+    resolveControlTarget: (targetPaneId, ownType) => resolveControlTarget(targetPaneId, ownType),
     exposedCwdOf,
     dispatchNavChord,
     openExternal: (url) => window.api.appWindow.openExternal(url),

@@ -1,0 +1,79 @@
+{
+  "description": "A vertical split of two horizontal splits at uneven sizes (0.3/0.7 rows; 0.62/0.38 and 0.25/0.75 columns): every seam at a fractional position; bottom-right active.",
+  "size": {
+    "width": 1100,
+    "height": 740
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "v",
+            "type": "split",
+            "direction": "vertical",
+            "children": [
+              {
+                "id": "h1",
+                "type": "split",
+                "direction": "horizontal",
+                "children": [
+                  {
+                    "id": "a",
+                    "type": "empty",
+                    "config": {}
+                  },
+                  {
+                    "id": "b",
+                    "type": "empty",
+                    "config": {}
+                  }
+                ],
+                "sizes": [
+                  0.62,
+                  0.38
+                ]
+              },
+              {
+                "id": "h2",
+                "type": "split",
+                "direction": "horizontal",
+                "children": [
+                  {
+                    "id": "c",
+                    "type": "empty",
+                    "config": {}
+                  },
+                  {
+                    "id": "d",
+                    "type": "empty",
+                    "config": {}
+                  }
+                ],
+                "sizes": [
+                  0.25,
+                  0.75
+                ]
+              }
+            ],
+            "sizes": [
+              0.3,
+              0.7
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "d",
+    "floating": []
+  }
+}

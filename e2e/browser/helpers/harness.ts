@@ -1,5 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test'
-import type { ShortcutActionId } from '../../../src/shared/shortcuts'
+import type { ShortcutActionId } from '@tabs/plugin-sdk/shared/shortcuts'
 import type {
   ExtraStubType,
   FakeApiHandle,

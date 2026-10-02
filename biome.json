@@ -5,7 +5,15 @@
     "clientKind": "git",
     "useIgnoreFile": true
   },
-  "files": { "includes": ["**", "!tui"] },
+  "files": {
+    "includes": [
+      "**",
+      "!.claude/skills/port-to-native/scripts/parity_page.html",
+      "!native/Visual/golden",
+      "!native/Visual/scenarios",
+      "!native/Sources/Tabs/Assets.xcassets"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -44,9 +52,9 @@
     {
       "includes": [
         "src/renderer/**",
-        "src/plugins/*/renderer/**",
-        "src/plugins/*/settings/**",
-        "src/plugins/*/testing/**"
+        "packages/plugin-*/renderer/**",
+        "packages/plugin-*/settings/**",
+        "packages/plugin-*/testing/**"
       ],
       "linter": {
         "rules": {

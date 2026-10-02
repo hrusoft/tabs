@@ -45,7 +45,7 @@ test('opens via the gear icon onto the General tab, and switches tabs', async ({
 
 /**
  * The appearance editor's stylesheet lives with its page def
- * (src/plugins/terminal/settings/terminalSettingsPage.css), not in global.css, so this
+ * (packages/plugin-terminal/settings/terminalSettingsPage.css), not in global.css, so this
  * window is the only one that loads it. A co-located side-effect import is
  * invisible to typecheck and lint: drop it, or let the bundler chunk it behind
  * a module this entry never imports, and the page still renders — just
