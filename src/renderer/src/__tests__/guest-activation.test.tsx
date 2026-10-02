@@ -1,7 +1,8 @@
 import { act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test } from 'vitest'
-import { suppressGuestActivation } from '../../../plugins/browser/renderer/guestActivation'
+import { suppressGuestActivation } from '../../../../packages/plugin-browser/renderer/guestActivation'
+import { browserGuestFake } from '../../../../packages/plugin-browser/shared/testing'
 import { headerOf, initialPane, panes } from '../testing/domQueries'
 import { splitHorizontal } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
@@ -34,10 +35,10 @@ test('a press forwarded out of a guest activates that pane', async () => {
   // Wrapped in act() for the same reason emitNavKey is: this arrives from
   // outside React entirely, so the re-render it schedules hasn't happened when
   // the class is read.
-  act(() => window.__fakeApi?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
+  act(() => browserGuestFake()?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
   expect(panes()[2]).toHaveClass('pane-active')
 
-  act(() => window.__fakeApi?.emitGuestPointerDown(paneIdOf(panes()[1]!)))
+  act(() => browserGuestFake()?.emitGuestPointerDown(paneIdOf(panes()[1]!)))
   expect(panes()[1]).toHaveClass('pane-active')
 })
 
@@ -55,11 +56,11 @@ test('a press is ignored while this app is the one injecting input', async () =>
   expect(panes()[1]).toHaveClass('pane-active')
 
   const allowActivationAgain = suppressGuestActivation()
-  act(() => window.__fakeApi?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
+  act(() => browserGuestFake()?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
   expect(panes()[1]).toHaveClass('pane-active')
 
   allowActivationAgain()
-  act(() => window.__fakeApi?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
+  act(() => browserGuestFake()?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
   expect(panes()[2]).toHaveClass('pane-active')
 })
 
@@ -75,10 +76,10 @@ test('overlapping injections each hold the suppression until the last releases',
   const releaseOuter = suppressGuestActivation()
   const releaseInner = suppressGuestActivation()
   releaseInner()
-  act(() => window.__fakeApi?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
+  act(() => browserGuestFake()?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
   expect(panes()[1]).toHaveClass('pane-active')
 
   releaseOuter()
-  act(() => window.__fakeApi?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
+  act(() => browserGuestFake()?.emitGuestPointerDown(paneIdOf(panes()[2]!)))
   expect(panes()[2]).toHaveClass('pane-active')
 })

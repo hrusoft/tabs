@@ -1,0 +1,79 @@
+{
+  "description": "grid-2x2 in the light theme: [A over B] | [C over D], D active.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "light"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "split-left",
+                "type": "split",
+                "direction": "vertical",
+                "children": [
+                  {
+                    "id": "leaf-a",
+                    "type": "empty",
+                    "config": {}
+                  },
+                  {
+                    "id": "leaf-b",
+                    "type": "empty",
+                    "config": {}
+                  }
+                ],
+                "sizes": [
+                  0.5,
+                  0.5
+                ]
+              },
+              {
+                "id": "split-right",
+                "type": "split",
+                "direction": "vertical",
+                "children": [
+                  {
+                    "id": "leaf-c",
+                    "type": "empty",
+                    "config": {}
+                  },
+                  {
+                    "id": "leaf-d",
+                    "type": "empty",
+                    "config": {}
+                  }
+                ],
+                "sizes": [
+                  0.5,
+                  0.5
+                ]
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-d",
+    "floating": []
+  }
+}

@@ -1,6 +1,6 @@
 import { NEW_TAB_TITLE, ROOT_TAB_TITLE } from '@shared/layout'
-import type { ContentNode } from '@shared/model/types'
-import { isEmpty, isLeaf } from '@shared/model/types'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
+import { isEmpty, isLeaf } from '@tabs/plugin-sdk/shared/model/types'
 import { contentRegistry } from './registry'
 
 /** The registry-derived tab title, with `fallback` covering a content-less pane and an unregistered type alike. */

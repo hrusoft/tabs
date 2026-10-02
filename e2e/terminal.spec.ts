@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
+import { REATTACH_GRACE_MS } from '@tabs/plugin-sdk/shared/reattach'
 import type { ElectronApplication } from 'playwright'
-import { REATTACH_GRACE_MS } from '../src/shared/reattach'
 import { grabAndHover } from './helpers/drag'
 import { type Box, centerOf, requireBox } from './helpers/geometry'
 import { expect, test, withApp } from './helpers/launch'
@@ -34,7 +34,7 @@ test('opening a terminal drops into a real, interactive login shell', async ({ p
 
 /**
  * The terminal pane's stylesheet lives with its renderer
- * (src/plugins/terminal/renderer/terminal.css), not in global.css, so only a window that
+ * (packages/plugin-terminal/renderer/terminal.css), not in global.css, so only a window that
  * renders terminals loads it.
  *
  * The .xterm-viewport assertion is the one that earns its keep. xterm.css

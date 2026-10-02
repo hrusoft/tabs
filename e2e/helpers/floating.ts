@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test'
-import { PANE_ATTR } from '../../src/shared/paneDomAttrs'
+import { PANE_ATTR } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { DOCKED_ROOT_SELECTOR } from '../../src/shared/testing/paneSelectors'
 import { dragTo } from './drag'
 import { centerOf, requireBox } from './geometry'

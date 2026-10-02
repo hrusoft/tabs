@@ -1,3 +1,4 @@
+import type { ShortcutActionId } from '@tabs/plugin-sdk/shared/shortcuts'
 import type { ControlRequest, ControlResponse } from './externalControl'
 import type { LayoutSnapshot } from './layout'
 import type {
@@ -6,7 +7,6 @@ import type {
 } from './layoutCrossWindow'
 import type { ContentBridgeApi } from './plugin/bridge'
 import type { Settings } from './settings'
-import type { ShortcutActionId } from './shortcuts'
 
 /**
  * The renderer-facing `window.api` surface, declared once here so the two
@@ -87,7 +87,7 @@ export interface AppWindowApi {
    * Deliberately *not* reachable from external control — an agent driving a
    * pane must not silently overwrite the user's clipboard, which is why the
    * browser package excludes the copy/cut/paste commands (see
-   * src/plugins/browser/shared/externalControl.ts). This is the app's own UI
+   * packages/plugin-browser/shared/externalControl.ts). This is the app's own UI
    * acting on the user's own click.
    */
   copyText: (text: string) => void

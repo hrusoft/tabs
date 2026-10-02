@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { PROBE_TIMEOUT_MS } from '@tabs/plugin-sdk/main/processProbe'
 import { ipcMain } from 'electron'
 import { IpcChannel } from '../shared/ipc'
-import { PROBE_TIMEOUT_MS } from './processProbe'
 
 const execFileAsync = promisify(execFile)
 

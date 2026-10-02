@@ -6,12 +6,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { Locator, Page } from '@playwright/test'
+import { PANE_ATTR } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import type { ElectronApplication } from 'playwright'
 import type {
   ElementDescription,
   PageElement
-} from '../../src/plugins/browser/shared/externalControl'
-import { PANE_ATTR } from '../../src/shared/paneDomAttrs'
+} from '../../packages/plugin-browser/shared/externalControl'
 import { expect } from './launch'
 import { closeInactiveRootTab, closePane, createViaPalette, initialPane, paneById } from './pane'
 import { mergeSettings, openSettingsTab } from './settings'
@@ -96,6 +96,7 @@ export function runTabsCtl(
     element?: ElementDescription
     path?: string
     bytes?: number
+    size?: number
     contentType?: string
     format?: string
     serializedResult?: unknown
@@ -125,6 +126,9 @@ export function runTabsCtl(
     note?: string
     command?: string
     showingErrorPage?: boolean
+    canGoBack?: boolean
+    canGoForward?: boolean
+    pageInstance?: string
     hidden?: boolean
     stoppedAt?: number
     elapsedMs?: number
@@ -160,6 +164,18 @@ export function runTabsCtl(
     maxBodyChars?: number
     seq?: number
     count?: number
+    // capabilities / describe (src/main/externalControl.ts)
+    capabilities?: { id: string; displayName: string; enabled: boolean; commands: string[] }[]
+    capability?: string
+    guide?: string
+    commands?: {
+      command: string
+      summary: string
+      usage: string
+      flags: Record<string, unknown>
+      wire: Record<string, unknown>
+      result?: Record<string, unknown>
+    }[]
   }
   /** tabs-ctl's process exit code — the shell contract (`&&`) the skill documents. */
   exitCode?: number
@@ -241,7 +257,7 @@ export async function createAgentPane(env: PaneEnv, ...args: string[]): Promise<
 
 /**
  * Switches Settings → Browser → "New pane placement", the setting
- * handleCreateBrowserPane (src/plugins/browser/renderer/navigationVerbs.ts)
+ * handleCreateBrowserPane (packages/plugin-browser/renderer/navigationVerbs.ts)
  * reads to decide where create-browser-pane places its new pane. Applies live
  * — no save button, no window close needed — the same as every other
  * settings-window test in this suite.

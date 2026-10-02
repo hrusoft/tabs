@@ -1,6 +1,7 @@
-import type { ContentNode, SplitDirection } from '@shared/model/types'
-import { isEmpty, isLeaf } from '@shared/model/types'
-import { PANE_BUTTON } from '@shared/paneDomAttrs'
+import { PaneHeaderMenuGroup } from '@tabs/plugin-sdk/renderer/PaneHeaderMenuGroup'
+import type { ContentNode, SplitDirection } from '@tabs/plugin-sdk/shared/model/types'
+import { isEmpty, isLeaf } from '@tabs/plugin-sdk/shared/model/types'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { contentRegistry } from '../core/registry/registry'
 import { closeTargetNode, useLayoutStore } from '../core/store/layoutStore'
 import { confirmClosingContent } from './closeConfirmation'
@@ -14,7 +15,6 @@ import {
   SplitVerticalIcon,
   WrapWindowIcon
 } from './icons'
-import { PaneHeaderMenuGroup } from './PaneHeaderMenuGroup'
 import { placeNewPaneLike, placeNewUnpinnedPane } from './placement'
 
 /**

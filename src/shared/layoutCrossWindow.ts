@@ -1,7 +1,7 @@
+import type { ContentNode, Tab } from '@tabs/plugin-sdk/shared/model/types'
 import type { LayoutSnapshot } from './layout'
 import type { DragSubject, DropTarget } from './model/drag'
 import type { FloatAnchor } from './model/floating'
-import type { ContentNode, Tab } from './model/types'
 
 /**
  * Wire shapes for the cross-window pane-drag protocol; the design is in
@@ -25,12 +25,11 @@ export function dragContentNode(content: CrossWindowDragContent): ContentNode {
 }
 
 /**
- * The `config` key a leaf's captured visual state travels under while it
- * crosses windows (see `PaneCapabilities.captureTransferState`). Transient:
- * written on detach, consumed at the destination's mount, never persisted —
- * it can hold a terminal's scrollback (see layoutStore's `layoutSnapshotOf`).
+ * The `config` key a leaf's captured visual state travels under — now defined
+ * in packages/plugin-sdk/shared/crossWindowTransferKey.ts (the one plugin-facing piece
+ * of this module), re-exported here for every existing importer.
  */
-export const CROSS_WINDOW_TRANSFER_STATE_KEY = 'crossWindowTransferState'
+export { CROSS_WINDOW_TRANSFER_STATE_KEY } from '@tabs/plugin-sdk/shared/crossWindowTransferKey'
 
 // ---------------------------------------------------------------------------
 // Renderer → main

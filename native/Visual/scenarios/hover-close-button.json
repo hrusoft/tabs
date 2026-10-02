@@ -1,0 +1,51 @@
+{
+  "description": "split-horizontal with the pointer on A's Close pane button: its menu (Close pane, and Clear pane disabled on an empty pane) open over it.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  },
+  "pointer": {
+    "x": 583.5,
+    "y": 44
+  }
+}

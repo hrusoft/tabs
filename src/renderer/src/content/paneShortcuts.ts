@@ -1,12 +1,12 @@
 import { entryPaneId } from '@shared/model/navigation'
-import type { ContentNode, NodeId, SplitDirection } from '@shared/model/types'
-import { SHORTCUT_ACTIONS, type ShortcutActionId } from '@shared/shortcuts'
+import { fireAndReport, type UiAction } from '@tabs/plugin-sdk/renderer/fireAndReport'
+import type { ContentNode, NodeId, SplitDirection } from '@tabs/plugin-sdk/shared/model/types'
+import { SHORTCUT_ACTIONS, type ShortcutActionId } from '@tabs/plugin-sdk/shared/shortcuts'
 import { getPaneCapability, type PaneCapabilities } from '../core/registry/paneHandles'
 import { useCommandPaletteStore } from '../core/store/commandPaletteStore'
 import { closeTargetNode, findNodeAnywhere, useLayoutStore } from '../core/store/layoutStore'
 import { confirmClosingContent } from './closeConfirmation'
 import { createContentLike } from './contentLike'
-import { fireAndReport, type UiAction } from './fireAndReport'
 import { placeNewPane, placeNewUnpinnedPane } from './placement'
 
 /**

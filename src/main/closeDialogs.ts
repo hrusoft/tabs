@@ -1,7 +1,7 @@
+import { e2eHidden } from '@tabs/plugin-sdk/main/e2eHidden'
 import { BrowserWindow, dialog, type WebContents } from 'electron'
 import type { CloseBlocker } from './closeBlockers'
 import { collectCloseBlockers, listQuitBlockersSync } from './closeBlockers'
-import { e2eHidden } from './e2eHidden'
 
 /**
  * The two "you would be destroying live work" confirmations — closing a

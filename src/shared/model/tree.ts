@@ -1,4 +1,10 @@
-import { createLeaf, createSplit, createTab, createTabs, evenSizes } from './factories'
+import {
+  createLeaf,
+  createSplit,
+  createTab,
+  createTabs,
+  evenSizes
+} from '@tabs/plugin-sdk/shared/model/factories'
 import type {
   ContentNode,
   DockZone,
@@ -8,8 +14,14 @@ import type {
   SplitDirection,
   Tab,
   TabsContent
-} from './types'
-import { EMPTY_TYPE, isEmpty, isPlausibleNode, isSplit, isTabs } from './types'
+} from '@tabs/plugin-sdk/shared/model/types'
+import {
+  EMPTY_TYPE,
+  isEmpty,
+  isPlausibleNode,
+  isSplit,
+  isTabs
+} from '@tabs/plugin-sdk/shared/model/types'
 
 /** Panes are never resized below this fraction of their split. */
 export const MIN_PANE_SIZE = 0.05
@@ -126,12 +138,6 @@ export function mapLeaves(root: ContentNode, fn: (leaf: LeafContent) => LeafCont
     return changed ? { ...root, children } : root
   }
   return fn(root)
-}
-
-/** Every leaf under `node`, depth-first — the flat view content-type sweeps filter over. */
-export function collectLeaves(node: ContentNode): LeafContent[] {
-  if (isTabs(node) || isSplit(node)) return childrenOf(node).flatMap(collectLeaves)
-  return [node]
 }
 
 // ---------------------------------------------------------------------------

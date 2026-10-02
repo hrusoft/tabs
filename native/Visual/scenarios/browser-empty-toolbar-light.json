@@ -1,0 +1,34 @@
+{
+  "description": "browser-empty-toolbar in the light theme.",
+  "size": {
+    "width": 600,
+    "height": 400
+  },
+  "settings": {
+    "colorTheme": "light"
+  },
+  "creationActions": [
+    "browser"
+  ],
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

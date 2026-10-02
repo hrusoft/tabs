@@ -1,4 +1,4 @@
-import type { ContentNode } from '@shared/model/types'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
 import { onTestFinished } from 'vitest'
 import type { ContentRendererDef } from '../core/registry/registry'
 import { contentRegistry } from '../core/registry/registry'

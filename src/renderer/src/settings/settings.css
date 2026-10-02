@@ -163,9 +163,9 @@
 
 /* A content type's own Settings page styles live with its page def — the
    terminal's appearance editor is
-   src/plugins/terminal/settings/terminalSettingsPage.css,
+   packages/plugin-terminal/settings/terminalSettingsPage.css,
    side-effect imported there. Note that is a different file from
-   src/plugins/terminal/renderer/terminal.css, which the *renderer* imports: only the
+   packages/plugin-terminal/renderer/terminal.css, which the *renderer* imports: only the
    Settings window needs these, and only a pane window needs those. */
 
 /* --- Settings window --- */

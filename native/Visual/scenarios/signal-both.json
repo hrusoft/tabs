@@ -1,0 +1,53 @@
+{
+  "description": "split-horizontal (A active). B carries both cues: the bell icon then the robot after its grip, before the title; its content outline and inner glow take the agent (controlled) color, which wins over the bell's. The root tab shows the bell (never the robot). Pulse at its peak.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "signals": {
+    "leaf-b": [
+      "bell",
+      "controlled"
+    ]
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

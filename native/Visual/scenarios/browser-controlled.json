@@ -1,0 +1,60 @@
+{
+  "description": "Split [A | browser B], A active, B controlled by another pane (as signal-controlled): the robot icon in the agent color after B's grip and before its buttons, B's content outlined in the agent color with the glow at the pulse's peak.",
+  "size": {
+    "width": 1000,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "signals": {
+    "leaf-b": [
+      "controlled"
+    ]
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "browser",
+                "title": "Example Domain",
+                "config": {
+                  "url": "https://example.com/docs/getting-started"
+                }
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  },
+  "browser": {
+    "leaf-b": {
+      "page": "#2b3a55"
+    }
+  }
+}

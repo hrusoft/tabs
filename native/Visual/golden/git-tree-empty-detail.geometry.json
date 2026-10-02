@@ -1,0 +1,282 @@
+{
+  "scenario": "git-tree-empty-detail",
+  "size": {
+    "width": 900,
+    "height": 600
+  },
+  "panes": {
+    "root": {
+      "rect": [0, 0, 900, 600],
+      "body": [1, 1, 898, 598],
+      "header": null,
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null,
+      "grip": null,
+      "depth": 0,
+      "active": false,
+      "dimmed": false,
+      "dragging": false
+    },
+    "leaf-git": {
+      "rect": [1, 31, 898, 568],
+      "body": [1, 57, 898, 542],
+      "header": [1, 32, 898, 25],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null,
+      "grip": [15, 39, 6.84, 10],
+      "depth": 1,
+      "active": true,
+      "dimmed": false,
+      "dragging": false
+    }
+  },
+  "tabBars": {
+    "root": {
+      "rect": [1, 1, 898, 30],
+      "root": true,
+      "strip": [90, 8, 705, 24],
+      "grip": null,
+      "newTab": [147.7, 13, 20, 14],
+      "settings": [866, 4.5, 23, 23],
+      "tabs": {
+        "tab-git": {
+          "rect": [90, 10, 55.7, 22],
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "baseline": 25,
+          "text": "Tabs",
+          "truncated": false,
+          "close": [127.69, 14.5, 15.02, 14],
+          "active": true,
+          "dragging": false
+        }
+      }
+    }
+  },
+  "controls": {
+    "root": {
+      "rect": [803, 7.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-new-tab-button": [803, 7.5, 23, 17],
+        "pane-close-button": [835, 7.5, 23, 17]
+      },
+      "separator": [830, 10.5, 1, 11],
+      "dropdown": null
+    },
+    "leaf-git": {
+      "rect": [840, 35.5, 55, 17],
+      "visible": false,
+      "buttons": {
+        "pane-split-horizontal-button": [840, 35.5, 23, 17],
+        "pane-close-button": [872, 35.5, 23, 17]
+      },
+      "separator": [867, 38.5, 1, 11],
+      "dropdown": null
+    }
+  },
+  "separators": {},
+  "floating": {},
+  "emptyToolbars": {},
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "emptyDropTarget": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "tooltip": null,
+  "contextMenu": null,
+  "gitTree": {
+    "leaf-git": {
+      "container": [1, 57, 898, 542],
+      "pathInput": [29.84, 34, 599.11, 20],
+      "browse": [636.95, 35.5, 23, 17],
+      "pathBaseline": 48.5,
+      "head": [667.95, 37.5, 33.05, 13],
+      "headText": [671.95, 37.5, 25.05, 13],
+      "headBaseline": 48.5,
+      "select": [709, 34, 123, 20],
+      "selectBaseline": 48.5,
+      "state": "list",
+      "notice": null,
+      "noticeLines": [],
+      "list": [1, 57, 898, 325.2],
+      "rows": {
+        "working-tree": {
+          "rect": [1, 57, 898, 24],
+          "gutter": [7, 57, 36, 24],
+          "hash": null,
+          "hashBaseline": null,
+          "subject": [59, 61.5, 832, 15],
+          "subjectText": [59, 61.5, 127.72, 15],
+          "subjectBaseline": 73.5,
+          "truncated": false,
+          "refs": [],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": true
+        },
+        "c63ae6dd4fc9f9dda66970e827d13f7c73fe841c": {
+          "rect": [1, 81, 898, 24],
+          "gutter": [7, 81, 36, 24],
+          "hash": [51, 86.5, 46.36, 13],
+          "hashBaseline": 96.5,
+          "subject": [105.36, 85, 785.64, 16],
+          "subjectText": [263.67, 86, 208.42, 15],
+          "subjectBaseline": 98,
+          "truncated": false,
+          "refs": [
+            [105.36, 85, 39.86, 16],
+            [151.22, 85, 35, 16],
+            [192.22, 85, 65.45, 16]
+          ],
+          "author": null,
+          "date": null,
+          "selected": true,
+          "phantom": false
+        },
+        "999d0cd62b8ea4c8cc007fa60dd7f242818b5349": {
+          "rect": [1, 105, 898, 24],
+          "gutter": [7, 105, 36, 24],
+          "hash": [51, 110.5, 46.36, 13],
+          "hashBaseline": 120.5,
+          "subject": [105.36, 109.5, 785.64, 15],
+          "subjectText": [105.36, 109.5, 286.55, 15],
+          "subjectBaseline": 121.5,
+          "truncated": false,
+          "refs": [],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": false
+        },
+        "6dcd4ce23d88e2ee9568ba546c007c63d9131c1b": {
+          "rect": [1, 129, 898, 24],
+          "gutter": [7, 129, 36, 24],
+          "hash": [51, 134.5, 46.36, 13],
+          "hashBaseline": 144.5,
+          "subject": [105.36, 133.5, 785.64, 15],
+          "subjectText": [105.36, 133.5, 195.5, 15],
+          "subjectBaseline": 145.5,
+          "truncated": false,
+          "refs": [],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": false
+        },
+        "7cf184f4c67ad58283ecb19349720b0cae756829": {
+          "rect": [1, 153, 898, 24],
+          "gutter": [7, 153, 36, 24],
+          "hash": [51, 158.5, 46.36, 13],
+          "hashBaseline": 168.5,
+          "subject": [105.36, 157.5, 785.64, 15],
+          "subjectText": [105.36, 157.5, 281.42, 15],
+          "subjectBaseline": 169.5,
+          "truncated": false,
+          "refs": [],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": false
+        },
+        "88bfad9cfffeafd299a44d4daf979d57419a2621": {
+          "rect": [1, 177, 898, 24],
+          "gutter": [7, 177, 36, 24],
+          "hash": [51, 182.5, 46.36, 13],
+          "hashBaseline": 192.5,
+          "subject": [105.36, 181.5, 785.64, 15],
+          "subjectText": [105.36, 181.5, 308.84, 15],
+          "subjectBaseline": 193.5,
+          "truncated": false,
+          "refs": [],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": false
+        },
+        "c032adc1ff629c9b66f22749ad667e6beadf144b": {
+          "rect": [1, 201, 898, 24],
+          "gutter": [7, 201, 36, 24],
+          "hash": [51, 206.5, 46.36, 13],
+          "hashBaseline": 216.5,
+          "subject": [105.36, 205.5, 785.64, 15],
+          "subjectText": [105.36, 205.5, 316.86, 15],
+          "subjectBaseline": 217.5,
+          "truncated": false,
+          "refs": [],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": false
+        },
+        "c2c53d66948214258a26ca9ca845d7ac0c17f8e7": {
+          "rect": [1, 225, 898, 24],
+          "gutter": [7, 225, 36, 24],
+          "hash": [51, 230.5, 46.36, 13],
+          "hashBaseline": 240.5,
+          "subject": [105.36, 229, 785.64, 16],
+          "subjectText": [164.14, 230, 324.55, 15],
+          "subjectBaseline": 242,
+          "truncated": false,
+          "refs": [
+            [105.36, 229, 52.78, 16]
+          ],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": false
+        },
+        "06576556d1ad802f247cad11ae748be47b70cd9c": {
+          "rect": [1, 249, 898, 24],
+          "gutter": [7, 249, 36, 24],
+          "hash": [51, 254.5, 46.36, 13],
+          "hashBaseline": 264.5,
+          "subject": [105.36, 253.5, 785.64, 15],
+          "subjectText": [105.36, 253.5, 168.52, 15],
+          "subjectBaseline": 265.5,
+          "truncated": false,
+          "refs": [],
+          "author": null,
+          "date": null,
+          "selected": false,
+          "phantom": false
+        }
+      },
+      "loadMore": null,
+      "divider": [1, 382.2, 898, 0],
+      "dividerCollapsed": false,
+      "detail": [1, 382.2, 898, 216.8],
+      "message": [11, 391.2, 878, 60],
+      "fields": [
+        {
+          "dt": [11, 459.2, 40.63, 13],
+          "dd": [61.63, 459.2, 264.91, 13]
+        },
+        {
+          "dt": [11, 474.2, 35.11, 13],
+          "dd": [61.63, 474.2, 218.55, 13]
+        },
+        {
+          "dt": [11, 489.2, 24.53, 13],
+          "dd": [61.63, 489.2, 105.97, 13]
+        },
+        {
+          "dt": [11, 504.2, 39.67, 13],
+          "dd": [61.63, 504.2, 105.97, 13]
+        },
+        {
+          "dt": [11, 519.2, 23.05, 13],
+          "dd": [61.63, 519.2, 152.33, 13]
+        }
+      ],
+      "files": [],
+      "detailNotes": [
+        [11, 559.2, 230.52, 15]
+      ]
+    }
+  }
+}

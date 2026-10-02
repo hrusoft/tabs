@@ -7,19 +7,43 @@ directories:
 files:
   - out/**
   - package.json
-  # node-pty is a native module (used by src/main/content/terminal/terminal.ts): it can't be
-  # bundled by vite like the rest of main/preload, so its runtime files ship
-  # from node_modules explicitly. Only the macOS pieces are included since
-  # Windows/Linux aren't packaged here (see README); postinstall's
-  # `electron-rebuild` (see package.json) is what actually produces
-  # build/Release for the current arch, and prebuilds/darwin-* ships too as a
-  # fallback.
-  - node_modules/node-pty/package.json
-  - node_modules/node-pty/lib/**/*.js
-  - node_modules/node-pty/build/Release/*.node
-  - node_modules/node-pty/build/Release/spawn-helper
-  - node_modules/node-pty/prebuilds/darwin-arm64/**/*
-  - node_modules/node-pty/prebuilds/darwin-x64/**/*
+  # node-pty is a native module (used by packages/plugin-terminal/main/terminal.ts): it can't be
+  # bundled by vite like the rest of main/preload (electron.vite.config.ts
+  # keeps it external), so its runtime files ship from node_modules
+  # explicitly. Only the macOS pieces are included since Windows/Linux aren't
+  # packaged here (see README); postinstall's `electron-rebuild` (see
+  # package.json) is what actually produces build/Release for the current
+  # arch, and prebuilds/darwin-* ships too as a fallback.
+  #
+  # A FileSet (`from`/`to`), not plain `node_modules/node-pty/...` patterns:
+  # electron-builder only copies node_modules for the *root* package.json's
+  # own production dependencies and uses plain patterns merely to filter that
+  # set, and node-pty is declared by packages/plugin-terminal (issue #18) —
+  # the root declares none. With plain patterns the packed app silently
+  # shipped no node-pty at all ("no node modules returned" in the pack log)
+  # and would have died at launch. npm hoists it to the root node_modules,
+  # which is what `from` names. Its one dependency, node-addon-api, is
+  # build-time C++ headers only, so nothing else needs to ship.
+  #
+  # This filter is also the first time the list below is actually *applied*:
+  # before, electron-builder copied every collected production dependency
+  # whole and the old plain patterns filtered nothing — the pack carried
+  # node-pty's winpty sources and win32 prebuilds plus all of @xterm/*, which
+  # is dead weight since vite bundles xterm into the renderer. The
+  # `bin/<platform>-<arch>-<abi>/` directory that used to ship is an
+  # electron-rebuild cache node-pty's loader never reads (lib/utils.js checks
+  # build/Release, build/Debug, prebuilds/<platform>-<arch> only). LICENSE is
+  # listed on purpose: shipping node-pty means shipping its MIT notice.
+  - from: node_modules/node-pty
+    to: node_modules/node-pty
+    filter:
+      - package.json
+      - LICENSE
+      - lib/**/*.js
+      - build/Release/*.node
+      - build/Release/spawn-helper
+      - prebuilds/darwin-arm64/**/*
+      - prebuilds/darwin-x64/**/*
 asarUnpack:
   - node_modules/node-pty/**
 asar: true

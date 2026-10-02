@@ -1,3 +1,4 @@
+import { IconButton } from '@tabs/plugin-sdk/renderer/IconButton'
 import {
   bindingsEqual,
   findConflict,
@@ -17,12 +18,11 @@ import {
   type ShortcutSettingsLike,
   shortcutAction,
   toAccelerator
-} from '@shared/shortcuts'
+} from '@tabs/plugin-sdk/shared/shortcuts'
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { platform } from '../core/platform'
 import { useSettingsStore } from '../core/store/settingsStore'
-import { IconButton } from '../IconButton'
 import { SettingsActionRow } from './settingsRows'
 
 /** Keys that only ever modify another key — held down while a combination is being formed. */

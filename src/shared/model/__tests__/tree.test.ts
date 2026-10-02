@@ -1,5 +1,18 @@
+import {
+  createLeaf,
+  createSplit,
+  createTab,
+  createTabs
+} from '@tabs/plugin-sdk/shared/model/factories'
+import type {
+  ContentNode,
+  LeafContent,
+  SplitContent,
+  Tab,
+  TabsContent
+} from '@tabs/plugin-sdk/shared/model/types'
+import { EMPTY_TYPE, isSplit, isTabs } from '@tabs/plugin-sdk/shared/model/types'
 import { describe, expect, it } from 'vitest'
-import { createLeaf, createSplit, createTab, createTabs } from '../factories'
 import {
   addTab,
   canDockExternalTarget,
@@ -9,7 +22,6 @@ import {
   canMoveTabToTabs,
   closePane,
   closeTab,
-  collectLeaves,
   dockPane,
   dockTab,
   findNode,
@@ -36,8 +48,6 @@ import {
   withTabDetached,
   wrapInTabs
 } from '../tree'
-import type { ContentNode, LeafContent, SplitContent, Tab, TabsContent } from '../types'
-import { EMPTY_TYPE, isSplit, isTabs } from '../types'
 
 function welcomeTab(title = 'Welcome'): ReturnType<typeof createTab> {
   return createTab(title, createLeaf('welcome'))
@@ -77,25 +87,6 @@ describe('mapLeaves', () => {
 
     expect(result.tabs[0]!.content).not.toBe(tab.content)
     expect((result.tabs[0]!.content as LeafContent).config.cwd).toBe('/tmp/y')
-  })
-})
-
-describe('collectLeaves', () => {
-  it('returns a single leaf as itself', () => {
-    const leaf = createLeaf('terminal')
-    expect(collectLeaves(leaf)).toEqual([leaf])
-  })
-
-  it('collects every leaf nested across a split and a tab group, depth-first', () => {
-    const tabbed = createLeaf('terminal')
-    const other = createLeaf('empty')
-    const direct = createLeaf('terminal')
-    const root = createSplit('horizontal', [
-      createTabs([createTab('Tab', tabbed), createTab('Other', other)]),
-      direct
-    ])
-
-    expect(collectLeaves(root)).toEqual([tabbed, other, direct])
   })
 })
 

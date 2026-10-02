@@ -1,6 +1,6 @@
 import type { FloatRect } from '@shared/model/floating'
 import { clampRect, MIN_FLOAT_SIZE } from '@shared/model/floating'
-import type { NodeId } from '@shared/model/types'
+import type { NodeId } from '@tabs/plugin-sdk/shared/model/types'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useLayoutStore, viewportSize } from '../../core/store/layoutStore'
 import { armPointerGesture } from '../pointerGesture'

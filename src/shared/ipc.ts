@@ -4,7 +4,7 @@
  * `window.api`, which preload builds from them.
  *
  * A content type's channels live with the type, in
- * `src/plugins/<type>/shared/ipc.ts`, and are not re-exported here: this object
+ * `packages/plugin-<type>/shared/ipc.ts`, and are not re-exported here: this object
  * is what core owns, and a type's channel count is nobody else's business.
  * `bellRing` and `fontsListFamilies` stay here despite having a single
  * terminal-side caller each, because their `window.api` namespaces are core by

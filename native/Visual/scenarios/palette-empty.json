@@ -1,0 +1,41 @@
+{
+  "description": "palette on step 1 with every content type disabled (settings.disabledContentTypes = [browser, stub]): the panel holds only the sentence 'No content types are enabled \u2014 turn one on in Settings \u2192 General \u2192 Content types.' and no rows. The registered types are Browser and Stub (as in palette-types).",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark",
+    "disabledContentTypes": [
+      "browser",
+      "stub"
+    ]
+  },
+  "creationActions": [
+    "browser"
+  ],
+  "palette": {
+    "step": "type"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-a"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "description": "Light theme, split-horizontal with B active. A bell on A: the bell icon in A's header and A's outline and glow in the (light) bell color; the root tab shows the bell. B controlled: the robot in B's header and B's outline in the (light) agent color instead of the accent.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "light"
+  },
+  "signals": {
+    "leaf-a": [
+      "bell"
+    ],
+    "leaf-b": [
+      "controlled"
+    ]
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-b",
+    "floating": []
+  }
+}

@@ -1,5 +1,7 @@
-import { installGuestActivation } from '../../../plugins/browser/renderer/guestActivation'
-import { installGuestNavForwarding } from '../../../plugins/browser/renderer/guestNavKeys'
+import { createLeaf } from '@tabs/plugin-sdk/shared/model/factories'
+import { createElement } from 'react'
+import { installGuestActivation } from '../../../../packages/plugin-browser/renderer/guestActivation'
+import { installGuestNavForwarding } from '../../../../packages/plugin-browser/renderer/guestNavKeys'
 import { registerStructuralContent } from '../content/registerStructural'
 import { dispatchNavChord } from '../content/spatialNav'
 import { contentRegistry } from '../core/registry/registry'
@@ -37,4 +39,59 @@ export function registerTestContent(): void {
   const browserIpc = createRendererPluginContext('browser').ipc
   installGuestNavForwarding(browserIpc, dispatchNavChord)
   installGuestActivation(browserIpc, (paneId) => useLayoutStore.getState().setActivePane(paneId))
+}
+
+/**
+ * The native-vs-Electron visual comparison's git tree (native/Visual): the
+ * real renderer and header title over the fake bridge seeded with `seed` — see the package's testing/visualCapture.ts.
+ * Harness-only, and imported lazily, so no other page ever loads the git
+ * tree's renderer or CSS.
+ */
+export async function registerGitTreeVisualCapture(seed: unknown): Promise<void> {
+  const { activateVisualCapture } = await import(
+    '../../../../packages/plugin-gitTree/testing/visualCapture'
+  )
+  activateVisualCapture(
+    createRendererPluginContext('gitTree'),
+    seed as Parameters<typeof activateVisualCapture>[1]
+  )
+}
+
+/**
+ * The native-vs-Electron visual comparison's browser (native/Visual): the
+ * real header chrome around a solid-color stand-in for the page, one seed per
+ * browser pane, and the creation action when asked for — see the package's testing/visualCapture.ts. Harness-only and
+ * lazy, like the git tree's.
+ */
+export async function registerBrowserVisualCapture(capture: unknown): Promise<void> {
+  const { activateVisualCapture } = await import(
+    '../../../../packages/plugin-browser/testing/visualCapture'
+  )
+  activateVisualCapture(
+    createRendererPluginContext('browser'),
+    capture as Parameters<typeof activateVisualCapture>[1]
+  )
+}
+
+/**
+ * The native-vs-Electron visual comparison's long command palette
+ * (native/Visual, the `palette-many` scenario): `count` extra creation-capable
+ * stub types after the harness's own, named "Sample 2", "Sample 3", ..., each
+ * with the stub's "\u25A3" glyph as its icon. Harness-only, like the two above.
+ */
+export function registerPaletteVisualTypes(count: number): void {
+  for (let n = 2; n < 2 + count; n++) {
+    const type = `sample-${n}`
+    contentRegistry.register({
+      type,
+      displayName: `Sample ${n}`,
+      Component: stubContentDef.Component,
+      createAction: {
+        testId: `pane-new-${type}-button`,
+        label: `New sample ${n}`,
+        Icon: () => createElement('span', { 'aria-hidden': 'true' }, '\u25A3'),
+        createContent: () => createLeaf(type)
+      }
+    })
+  }
 }

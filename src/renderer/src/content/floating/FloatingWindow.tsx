@@ -38,7 +38,7 @@ function FloatingWindowImpl({ entry, depth }: { entry: FloatingPane; depth: numb
           toolbar logged five (see CLAUDE.md). Those presses arrive over the
           browser's own bridge instead and raise this window by activating its
           pane, since `setActivePane` raises the float that owns the pane —
-          see src/plugins/browser/main/guestActivation.ts. */}
+          see packages/plugin-browser/main/guestActivation.ts. */}
       <div
         className="floating-window"
         data-testid="floating-window"

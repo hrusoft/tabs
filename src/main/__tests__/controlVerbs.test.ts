@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ControlRequest } from '../../shared/externalControl'
 import { CONTROL_REQUEST_TYPES } from '../../shared/externalControl'
 import type { MainControlContext, MainControlVerbTable } from '../controlVerbs'
 import {
@@ -15,10 +14,26 @@ import {
  * The registry in isolation. Core's own verbs are registered at module scope in
  * externalControl.ts, which pulls in Electron — so this file deliberately never
  * imports it, and every test starts from a genuinely empty registry.
+ *
+ * These two synthetic request shapes are hand-written rather than
+ * `Extract<ControlRequest, { type: ... }>`: `ControlRequest`'s plugin half is
+ * a generic catch-all (see shared/externalControl.ts), so extracting a
+ * made-up verb name like 'navigate' from it would resolve to `never` — a
+ * table like a real content type's has to be typed against its *own* concrete
+ * union, which for this file's purposes is just these two ad hoc types.
  */
 
-type PingRequest = Extract<ControlRequest, { type: 'ping' }>
-type NavigateRequest = Extract<ControlRequest, { type: 'navigate' }>
+interface PingRequest {
+  type: 'ping'
+  paneId: string
+}
+interface NavigateRequest {
+  type: 'navigate'
+  paneId: string
+  targetPaneId: string
+  url: string
+  retryOnRedirect?: boolean
+}
 
 const context: MainControlContext = {
   relay: async () => ({ ok: true }),

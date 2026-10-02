@@ -1,7 +1,7 @@
+import type { MainPluginContext, MainPluginModule } from '@tabs/plugin-sdk/main/api'
 import type { BrowserWindow, WebPreferences } from 'electron'
 import type { ContentTypeId } from '../shared/content/registry'
 import { resolvePluginEntries } from '../shared/plugin/entries'
-import type { MainPluginContext, MainPluginModule } from './plugin/api'
 import { createMainPluginContext } from './plugin/context'
 
 /**
@@ -20,7 +20,7 @@ import { createMainPluginContext } from './plugin/context'
  * activates in, and the order every hook below runs in.
  */
 const mainEntries = import.meta.glob<{ activate: (ctx: MainPluginContext) => MainPluginModule }>(
-  '../plugins/*/main/index.ts',
+  '../../packages/plugin-*/main/index.ts',
   { eager: true }
 )
 

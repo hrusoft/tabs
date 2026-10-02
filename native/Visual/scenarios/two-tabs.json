@@ -1,0 +1,40 @@
+{
+  "description": "Docked root group with two tabs, \"Tabs\" and \"New Tab\", each an empty pane; the second tab is active.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-b",
+          "title": "New Tab",
+          "content": {
+            "id": "leaf-b",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-b"
+    },
+    "activePaneId": "leaf-b",
+    "floating": []
+  }
+}

@@ -12,7 +12,7 @@
  *
  * SCOPE — the theme owns app chrome; a content type's own profile owns its
  * content. Concretely: the terminal's 20-color palette
- * (DEFAULT_TERMINAL_APPEARANCE in src/plugins/terminal/shared/settings.ts) does NOT switch with
+ * (DEFAULT_TERMINAL_APPEARANCE in packages/plugin-terminal/shared/settings.ts) does NOT switch with
  * the theme, and that is deliberate, not an oversight. See the color-theme
  * gotcha in CLAUDE.md before "fixing" it.
  *

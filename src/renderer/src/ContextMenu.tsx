@@ -1,5 +1,5 @@
+import { clampOverlay } from '@tabs/plugin-sdk/renderer/overlayPosition'
 import { useEffect, useRef, useState } from 'react'
-import { clampOverlay } from './core/overlayPosition'
 import { useContextMenuStore } from './core/store/contextMenuStore'
 
 /**

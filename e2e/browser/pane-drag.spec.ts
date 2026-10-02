@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import {
   expectNoDragFrom,
   grabAndHover,

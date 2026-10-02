@@ -1,4 +1,4 @@
-import type { NodeId } from '@shared/model/types'
+import type { NodeId } from '@tabs/plugin-sdk/shared/model/types'
 import { create } from 'zustand'
 import type { PaneCreationAction } from '../registry/registry'
 

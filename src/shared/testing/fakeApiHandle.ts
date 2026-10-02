@@ -1,3 +1,4 @@
+import type { ShortcutActionId } from '@tabs/plugin-sdk/shared/shortcuts'
 import type { Api, CaffeinateFlags } from '../api'
 import type { LayoutSnapshot } from '../layout'
 import type {
@@ -5,8 +6,6 @@ import type {
   CrossWindowMessageFromRenderer
 } from '../layoutCrossWindow'
 import type { Settings } from '../settings'
-import type { ShortcutActionId } from '../shortcuts'
-import type { ContentFakeApiHandle } from './content/api'
 
 /** Initial state for a fake-bridge session — what the real app would read from disk. */
 export interface TestSeed {
@@ -101,26 +100,18 @@ interface CoreFakeApiHandle {
 }
 
 /**
- * The whole driver handle: core plus whatever the registered content types
- * contribute (see ./content/api.ts) — a type's surface belongs with the type,
- * including the surface that only exists for tests.
+ * The driver handle as core types it. At runtime the object also carries
+ * every content type's own driver methods (merged in by the fake content
+ * bridge, src/renderer/src/testing/content/index.ts), but those are typed by
+ * each package beside its own handle interface — a type's surface belongs
+ * with the type, including the surface that only exists for tests — so core
+ * names no content type here.
  */
-export type FakeApiHandle = CoreFakeApiHandle & ContentFakeApiHandle
+export type FakeApiHandle = CoreFakeApiHandle
 
 /**
- * What the fake content bridge lends a package's testing piece — a fake main
- * entry, deliberately mirroring MainPluginIpc plus the emit the real main
- * performs through `ipc.emit`: the piece registers the same method names its
- * real main entry does and fires the same events, so the package's renderer
- * client (over `ctx.ipc`) cannot tell the tiers apart. Scoped to the piece's
- * own type by the host that hands it over (see
- * renderer/src/testing/content/index.ts).
+ * `FakeContentHost` now lives in packages/plugin-sdk/renderer/fakeContentHost.ts (the
+ * only export of this file any plugin's own testing/fakeApi.ts imports),
+ * re-exported here for every existing importer.
  */
-export interface FakeContentHost {
-  /** Registers a request/response method; the fake `invoke` resolves with its return. */
-  handle(method: string, handler: (...args: unknown[]) => unknown): void
-  /** Registers a fire-and-forget method for the fake `send`. */
-  on(method: string, listener: (...args: unknown[]) => void): void
-  /** Emits an event to every `ctx.ipc.on` subscriber (names may embed ids). */
-  emit(event: string, ...args: unknown[]): void
-}
+export type { FakeContentHost } from '@tabs/plugin-sdk/renderer/fakeContentHost'

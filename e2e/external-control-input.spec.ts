@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import type { PageElement } from '../src/plugins/browser/shared/externalControl'
+import type { PageElement } from '../packages/plugin-browser/shared/externalControl'
 import {
   closeAgentSession,
   createAgentPane,
@@ -113,10 +113,12 @@ test('a modifier chord cannot reach the editing commands, and --command can', as
   expect(plain.ok).toBe(true)
   expect(plain.result?.note).toBeUndefined()
 
-  // Exactly one of key/command.
+  // Exactly one of key/command — refused by the handler (handleKey), not by
+  // client-side flag coercion: the dumb CLI ships no oneOf knowledge of its
+  // own any more, so this is the app's own message, not tabs-ctl's.
   const neither = await runTabsCtl(['key', '--pane', paneId], env)
   expect(neither.ok).toBe(false)
-  expect(neither.error).toContain('one of --key, --command')
+  expect(neither.error).toContain('needs one of key')
 
   // The clipboard commands are deliberately absent from the surface.
   const clipboard = await runTabsCtl(['key', '--pane', paneId, '--command', 'paste'], env)
@@ -300,6 +302,14 @@ test('an agent can read the page structure and drive it: click, type, submit, sc
   await closeAgentSession(page, env, paneId)
 })
 
+/**
+ * Refs live in the guest page's own globals, so a navigation drops them —
+ * but the counter numbering them restarts with each page too, so a ref used
+ * to be refused only until the new page was *read*: after that, an old `e3`
+ * named whatever the new page had numbered 3, and a click landed there with
+ * `ok: true` (the rebind the skill promises never happens). The test reads
+ * the new page before using the old ref, which is the order an agent works in.
+ */
 test('a stale element ref reports why rather than clicking something else', async ({
   page,
   electronApp
@@ -312,16 +322,38 @@ test('a stale element ref reports why rather than clicking something else', asyn
   await expect
     .poll(async () => (await runTabsCtl(['read-page', '--pane', paneId], env)).result?.elements)
     .not.toEqual([])
+  const before = (await runTabsCtl(['read-page', '--pane', paneId], env)).result?.elements ?? []
+  const oldRefs = before.map((element) => element.ref)
 
-  // Refs live in the guest page's own globals, so a navigation drops them.
-  await runTabsCtl(['navigate', '--pane', paneId, '--url', server.url('/other')], env)
+  await runTabsCtl(['navigate', '--pane', paneId, '--url', server.url('/listing')], env)
   await expect
     .poll(async () => (await runTabsCtl(['pane-info', '--pane', paneId], env)).result?.title)
-    .toBe('Elsewhere')
+    .toBe('Listing')
+  const after = (await runTabsCtl(['read-page', '--pane', paneId], env)).result?.elements ?? []
+  expect(after.length).toBeGreaterThan(oldRefs.length)
+  // No ref minted on the new page repeats one from the old.
+  expect(after.filter((element) => oldRefs.includes(element.ref))).toEqual([])
 
-  const stale = await runTabsCtl(['click', '--pane', paneId, '--ref', 'e1'], env)
-  expect(stale.ok).toBe(false)
-  expect(stale.error).toContain('readPage')
+  for (const ref of oldRefs.slice(0, 3)) {
+    const stale = await runTabsCtl(['click', '--pane', paneId, '--ref', ref], env)
+    expect(stale.ok, `${ref} must not rebind`).toBe(false)
+    expect(stale.error).toContain('readPage')
+  }
+  // Nothing on the new page was clicked by a stale ref.
+  expect(
+    (
+      await runTabsCtl(
+        [
+          'execute-js',
+          '--pane',
+          paneId,
+          '--code',
+          "document.querySelectorAll('input:checked').length"
+        ],
+        env
+      )
+    ).result?.value
+  ).toBe(0)
 
   await closeAgentSession(page, env, paneId)
 })
@@ -642,7 +674,9 @@ test('form-input picks select options by value with real change events', async (
   )
   expect(unmatched.result?.filled).toBe(0)
   expect(unmatched.result?.errors?.[0]?.error).toContain('no option matching')
-  expect(unmatched.result?.errors?.[0]?.error).toContain('two')
+  // Labels and values both — both are accepted, and the labels are what the
+  // page shows (the list used to be values alone: "options: one, two").
+  expect(unmatched.result?.errors?.[0]?.error).toContain('(options: "One" (one), "Two" (two))')
   // The response stays ok:true (the report is the useful part), but the exit
   // code reflects the failed field — batch's any-step-failed rule, so a shell
   // `&&` can't read "nothing was filled" as success.
@@ -778,6 +812,115 @@ test('type refuses text its keystrokes cannot carry, before touching the page', 
   )
   expect(typed.ok).toBe(true)
   await expect.poll(() => guestText(electronApp, '#status')).toBe('typed:ok')
+
+  await closeAgentSession(page, env, paneId)
+})
+
+/**
+ * Chromium submits a form implicitly from Enter's *keypress*, and `sendKey`
+ * used to send Enter as keydown + keyup only — so neither `type --submit` nor
+ * `key --key Enter` submitted a plain form (the fixture page's own Enter
+ * listener is a keydown one, which is why the older input tests never
+ * noticed). A textarea takes the same press as exactly one line break.
+ */
+test('Enter from type --submit and from key submits a plain form, once', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  const paneId = await createAgentPane(env, '--url', server.url('/form'))
+  const state = async () =>
+    (
+      await runTabsCtl(
+        [
+          'execute-js',
+          '--pane',
+          paneId,
+          '--code',
+          "[window.__submits, document.getElementById('query').value, document.getElementById('notes').value]"
+        ],
+        env
+      )
+    ).result?.value
+
+  const typed = await runTabsCtl(
+    ['type', '--pane', paneId, '--selector', '#query', '--text', 'hello', '--submit'],
+    env
+  )
+  expect(typed.ok, typed.error).toBe(true)
+  await expect.poll(state).toEqual([1, 'hello', ''])
+
+  // A bare Enter at the field, as the guide suggests for a stubborn widget.
+  expect((await runTabsCtl(['key', '--pane', paneId, '--key', 'Enter'], env)).ok).toBe(true)
+  await expect.poll(state).toEqual([2, 'hello', ''])
+
+  // The same press in a textarea is a line break, not a submit.
+  await runTabsCtl(['type', '--pane', paneId, '--selector', '#notes', '--text', 'a'], env)
+  await runTabsCtl(['key', '--pane', paneId, '--key', 'Enter'], env)
+  await expect.poll(state).toEqual([2, 'hello', 'a\n'])
+
+  await closeAgentSession(page, env, paneId)
+})
+
+/**
+ * `type` used to send only `char` events, so a page saw keypress and input
+ * but never keydown/keyup for typed text — invisible to key-driven
+ * autocompletes and every onKeyDown handler. Every printable ASCII character
+ * is typed here, because each one is a separate `sendInputEvent` key token
+ * and any of them could come out as a null keydown (the way the DOM spelling
+ * `ArrowLeft` once did — see keystrokes.ts), or insert twice.
+ */
+test('type delivers each character as keydown, keypress and keyup, inserting it once', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  const paneId = await createAgentPane(env, '--url', server.url('/form'))
+  const printable = Array.from({ length: 0x7f - 0x20 }, (_, i) => String.fromCharCode(0x20 + i))
+  const text = printable.join('')
+
+  const typed = await runTabsCtl(
+    ['type', '--pane', paneId, '--selector', '#query', '--text', text],
+    env
+  )
+  expect(typed.ok, typed.error).toBe(true)
+  const read = await runTabsCtl(
+    [
+      'execute-js',
+      '--pane',
+      paneId,
+      '--code',
+      "({ value: document.getElementById('query').value, keys: window.__keys, submits: window.__submits })"
+    ],
+    env
+  )
+  const seen = read.result?.value as {
+    value: string
+    keys: [type: string, key: string, code: string, shiftKey: boolean][]
+    submits: number
+  }
+  expect(seen.value).toBe(text)
+  expect(seen.submits).toBe(0)
+  // Three events per character, each naming the character typed, with shift
+  // exactly where a keyboard needs it for a capital letter.
+  const expected = printable.flatMap((character) =>
+    ['keydown', 'keypress', 'keyup'].map((type) => [type, character])
+  )
+  expect(seen.keys.map(([type, key]) => [type, key])).toEqual(expected)
+  for (const [type, key, code, shiftKey] of seen.keys) {
+    const label = `${type} ${JSON.stringify(key)}`
+    if (/^[A-Z]$/.test(key)) expect(shiftKey, label).toBe(true)
+    if (/^[a-z0-9]$/.test(key)) expect(shiftKey, label).toBe(false)
+    expect(code, label).not.toBe('')
+  }
+
+  // Text with no key behind it still arrives, as a character without a keydown.
+  await runTabsCtl(['type', '--pane', paneId, '--selector', '#notes', '--text', 'é'], env)
+  const notes = await runTabsCtl(
+    ['execute-js', '--pane', paneId, '--code', "document.getElementById('notes').value"],
+    env
+  )
+  expect(notes.result?.value).toBe('é')
 
   await closeAgentSession(page, env, paneId)
 })

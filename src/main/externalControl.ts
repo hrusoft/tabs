@@ -3,7 +3,12 @@ import { readdirSync, unlinkSync } from 'node:fs'
 import * as net from 'node:net'
 import { dirname, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { RELAY_HEADROOM_MS } from '@tabs/plugin-sdk/main/relayHeadroom'
+import { validateJsonSchema } from '@tabs/plugin-sdk/shared/jsonSchema'
 import type { WebContents } from 'electron'
+import { CONTENT_TYPE_MANIFESTS } from '../shared/content/registry'
+import { controlVerbSpecFor } from '../shared/controlSpecRegistry'
+import { CORE_CONTROL_VERB_SPECS, CORE_LIMITS } from '../shared/coreControlSpec'
 import type {
   BatchStep,
   ControlRequest,
@@ -15,6 +20,8 @@ import type {
 } from '../shared/externalControl'
 import { CONTROL_REQUEST_TYPES, MAX_BATCH_SIZE, PANE_GONE_ERROR } from '../shared/externalControl'
 import { IpcChannel } from '../shared/ipc'
+import { describeCommand, indexLineFor } from './controlDescribe'
+import { buildRequestFromEnvelope } from './controlEnvelope'
 import { controlSocketPath, parseControlSocketPid } from './controlSocket'
 import type { MainControlContext, MainControlVerbTable } from './controlVerbs'
 import {
@@ -27,6 +34,7 @@ import { onRendererMessage, registerSyncGetter } from './ipcListeners'
 import { forEachLiveWindow } from './liveWindows'
 import { getPaneHost, hasPaneHost } from './paneHostRegistry'
 import { createRendererRelay } from './rendererRelay'
+import { getSettings } from './settings'
 
 /**
  * Child pane id → the pane id that created it — the only panes a caller may
@@ -52,12 +60,11 @@ const relay = createRendererRelay<RelayedControlRequest, RelayedControlResponse>
 )
 
 /**
- * Margin a relay budget keeps above a renderer-side wait it must outlive.
- * Exported because the budgets that need it are declared by the content types
- * whose verbs do the waiting (see each type's MainControlVerbTable), while the
- * relay it applies to is core's.
+ * Margin a relay budget keeps above a renderer-side wait it must outlive —
+ * now defined in packages/plugin-sdk/main/relayHeadroom.ts (imported at top), re-exported
+ * here for every existing importer.
  */
-export const RELAY_HEADROOM_MS = 5000
+export { RELAY_HEADROOM_MS }
 
 /**
  * Budget for a verb that relays without declaring a wait of its own — a pure
@@ -263,7 +270,7 @@ function isListedPane(value: unknown): value is ListedPane {
  *
  * There is deliberately no batch-wide deadline (its `timeoutMs` below is
  * infinite). Each step runs on its own verb's budget — every sub-request goes
- * back through handleRequest — a wait step's budget is the caller's to size,
+ * back through dispatchTypedRequest — a wait step's budget is the caller's to size,
  * and cutting a batch off midway would discard the transcript that is its
  * whole point.
  */
@@ -294,7 +301,7 @@ async function handleBatch(
       continue
     }
     const startedAt = Date.now()
-    const response = await handleRequest({ ...sub, paneId: request.paneId })
+    const response = await dispatchTypedRequest({ ...sub, paneId: request.paneId })
     steps.push({ type: sub.type, durationMs: Date.now() - startedAt, ...response })
     // `ok` on the batch itself reports that the batch *ran*, not that every
     // step succeeded — reporting a failed step as `ok: false` would discard
@@ -379,6 +386,63 @@ const CORE_CONTROL_VERBS: MainControlVerbTable<CoreControlRequest> = {
         .filter((pane) => ownerOf.get(pane.paneId) === request.paneId)
       return { ok: true, result: { panes } }
     }
+  },
+  capabilities: {
+    timeoutMs: DEFAULT_RELAY_TIMEOUT_MS,
+    handle: () => {
+      const disabled = new Set(getSettings().disabledContentTypes)
+      const capabilities = [
+        {
+          id: 'core',
+          displayName: 'Core',
+          enabled: true,
+          commands: CORE_CONTROL_VERB_SPECS.map(indexLineFor)
+        },
+        ...CONTENT_TYPE_MANIFESTS.map((manifest) => ({
+          id: manifest.type,
+          displayName: manifest.displayName,
+          enabled: !disabled.has(manifest.type),
+          commands: (manifest.controlVerbs ?? []).map(indexLineFor)
+        }))
+      ]
+      return { ok: true, result: { capabilities } }
+    }
+  },
+  describe: {
+    timeoutMs: DEFAULT_RELAY_TIMEOUT_MS,
+    handle: (request) => {
+      // Core has no manifest of its own (it isn't a content type), and no
+      // guide — SKILL.md's own preamble already covers everything about its
+      // six verbs, so a second copy here would only be something to drift.
+      // It does have its own numeric constants (maxBatchRequests), served
+      // the same way a content type's are.
+      if (request.capability === 'core') {
+        return {
+          ok: true,
+          result: {
+            capability: 'core',
+            limits: CORE_LIMITS,
+            commands: CORE_CONTROL_VERB_SPECS.map(describeCommand)
+          }
+        }
+      }
+      const manifest = CONTENT_TYPE_MANIFESTS.find((m) => m.type === request.capability)
+      if (!manifest) {
+        return {
+          ok: false,
+          error: `unknown capability "${request.capability}" — run capabilities to list them`
+        }
+      }
+      return {
+        ok: true,
+        result: {
+          capability: manifest.type,
+          ...(manifest.guide ? { guide: manifest.guide } : {}),
+          ...(manifest.limits ? { limits: manifest.limits } : {}),
+          commands: (manifest.controlVerbs ?? []).map(describeCommand)
+        }
+      }
+    }
   }
 }
 
@@ -394,12 +458,17 @@ function isControlRequest(value: unknown): value is ControlRequest {
 
 /**
  * Validates untyped wire input, enforces the two boundary checks every verb
- * shares, then hands off to whichever content type claimed the verb.
+ * shares, runs the verb's own wire-schema check, then hands off to whichever
+ * content type claimed the verb.
  *
  * Everything type-specific now lives behind that registry lookup — the reason
- * this function names no verb but its own.
+ * this function names no verb but its own. Two callers reach it: a `batch`
+ * sub-request, which arrives already wire-shaped (see handleBatch — batch
+ * payloads are raw protocol requests, not friendlier `{command, args}`
+ * envelopes, by design), and `handleEnvelope` below, once it has turned a
+ * caller's `{command, args}` into exactly this shape.
  */
-async function handleRequest(request: unknown): Promise<ControlResponse> {
+async function dispatchTypedRequest(request: unknown): Promise<ControlResponse> {
   // What arrives here is untyped wire input — a raw socket client, or a
   // `batch` sub-request assembled from caller JSON — so an unknown type has to
   // be rejected at runtime rather than trusted to be a member of the union.
@@ -443,6 +512,27 @@ async function handleRequest(request: unknown): Promise<ControlResponse> {
   if (!verb) {
     return { ok: false, error: `no handler is registered for "${request.type}"` }
   }
+
+  // Structural validation against the verb's own declared wire schema — the
+  // one check every verb gets whether it arrived as a caller-typed request
+  // (a batch sub-request, or a client that speaks the wire protocol
+  // directly) or was assembled by controlEnvelope.ts from a {command, args}
+  // envelope. A verb with no spec (there should be none — every one declares
+  // one, core's own six included, see coreControlSpec.ts) skips this rather
+  // than refusing, since a missing spec is a gap in the app, not the caller's
+  // mistake.
+  const spec = controlVerbSpecFor(request.type)
+  if (spec) {
+    // paneId is real on every request but deliberately absent from every
+    // spec's wire schema (the app fills it in from the caller's environment,
+    // never the caller — see ControlVerbSpec's doc), so it's stripped before
+    // validating against a schema that closes the object with
+    // additionalProperties: false.
+    const { paneId: _paneId, ...withoutPaneId } = request
+    const schemaError = validateJsonSchema(withoutPaneId, spec.wire, 'request')
+    if (schemaError) return { ok: false, error: schemaError }
+  }
+
   // The error boundary controlVerbs.ts promises handlers ("a throw becomes an
   // error response"), mirroring the renderer's installExternalControl. It has
   // to live here rather than at the socket: a batch sub-request never touches
@@ -459,6 +549,41 @@ async function handleRequest(request: unknown): Promise<ControlResponse> {
   } catch (error) {
     return { ok: false, error: String(error) }
   }
+}
+
+/**
+ * Whether `value` is shaped like a `{command, args, paneId}` envelope — the
+ * only shape the socket accepts at the top level now (`tabs-ctl` ships no
+ * command-specific knowledge; see resources/skills/tabs/scripts/tabs-ctl and
+ * controlEnvelope.ts). `args`/`cwd` are optional on the wire (a command with
+ * no flags, or a caller with no cwd to offer) and default to `{}`/`''`.
+ */
+function isControlEnvelope(
+  value: unknown
+): value is { command: string; args?: unknown; paneId: string; cwd?: string } {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.command === 'string' && typeof candidate.paneId === 'string'
+}
+
+/**
+ * The socket's actual entry point: turns a caller's `{command, args, paneId,
+ * cwd}` envelope into a typed request (controlEnvelope.ts) and dispatches it
+ * through the exact same validated path a `batch` sub-request goes through —
+ * so a coercion bug can never let an envelope-built request skip a check a
+ * hand-typed one gets.
+ */
+async function handleEnvelope(raw: unknown): Promise<ControlResponse> {
+  if (!isControlEnvelope(raw)) {
+    return { ok: false, error: 'expected a {command, args, paneId} envelope' }
+  }
+  const args =
+    typeof raw.args === 'object' && raw.args !== null ? (raw.args as Record<string, unknown>) : {}
+  const built = buildRequestFromEnvelope(raw.command, args, raw.paneId, raw.cwd ?? '')
+  if (built.error !== undefined || built.request === undefined) {
+    return { ok: false, error: built.error ?? 'could not build a request from that envelope' }
+  }
+  return dispatchTypedRequest(built.request)
 }
 
 /** Wires a renderer's reply (see preload's ExternalControlApi.respond) back to its pending relayToRenderer promise. */
@@ -550,11 +675,13 @@ function sweepControlSockets(dir: string): void {
 
 /**
  * Starts the Unix socket a `tabs-ctl` CLI call (see resources/skills/tabs)
- * connects to: one newline-delimited JSON `ControlRequest` per connection,
- * one `ControlResponse` back, then the server closes it — matching
- * tabs-ctl's one-shot, exit-after-one-command design. Starts unconditionally
- * at app launch regardless of whether the skill has ever been installed
- * (cheap, and inert until something actually connects).
+ * connects to: one newline-delimited JSON `{command, args, paneId, cwd}`
+ * envelope per connection (see handleEnvelope/controlEnvelope.ts — the CLI
+ * carries no command-specific knowledge of its own), one `ControlResponse`
+ * back, then the server closes it — matching tabs-ctl's one-shot,
+ * exit-after-one-command design. Starts unconditionally at app launch
+ * regardless of whether the skill has ever been installed (cheap, and inert
+ * until something actually connects).
  *
  * Called from whenReady *after* registerContentModules, so every content
  * type's verbs are claimed before the socket can accept a request for one.
@@ -595,15 +722,15 @@ export function registerExternalControlServer(windows: ControlWindows): void {
       const line = buffer.slice(0, newlineIndex)
       buffer = ''
 
-      let request: unknown
+      let envelope: unknown
       try {
-        request = JSON.parse(line)
+        envelope = JSON.parse(line)
       } catch {
         socket.end(`${JSON.stringify({ ok: false, error: 'invalid JSON' })}\n`)
         return
       }
 
-      handleRequest(request)
+      handleEnvelope(envelope)
         .then((response) => socket.end(`${JSON.stringify(response)}\n`))
         .catch((error) => socket.end(`${JSON.stringify({ ok: false, error: String(error) })}\n`))
     })

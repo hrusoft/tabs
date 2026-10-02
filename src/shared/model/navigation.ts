@@ -1,8 +1,12 @@
+import type {
+  ContentNode,
+  NavDirection,
+  NodeId,
+  SplitDirection,
+  TabsContent
+} from '@tabs/plugin-sdk/shared/model/types'
+import { isSplit, isTabs } from '@tabs/plugin-sdk/shared/model/types'
 import { findNode, findParent, findTab, neighbourOf } from './tree'
-import type { ContentNode, NodeId, SplitDirection, TabsContent } from './types'
-import { isSplit, isTabs } from './types'
-
-export type NavDirection = 'left' | 'right' | 'up' | 'down'
 
 /** Plain rect (a DOMRect works) so this module stays DOM-free and node-testable. */
 export interface NavRect {

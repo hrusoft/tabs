@@ -45,8 +45,10 @@ export default defineConfig({
   // never approaches this.
   timeout: 60_000,
   reporter: [['list']],
-  // macOS crash/persistence dialog suppression — an Electron-only concern,
-  // harmless to run for the browser project too.
+  // macOS only: the UI-element clone of Electron.app every e2e app launches
+  // from (e2e/helpers/electronClone.ts), plus the crash/persistence dialog
+  // suppression. Both are Electron-only concerns and harmless for the browser
+  // project, except that in a fresh checkout the first run downloads Electron.
   globalSetup: './e2e/helpers/global-setup',
   projects: [
     {

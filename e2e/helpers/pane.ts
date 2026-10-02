@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
+import { PANE_ATTR, PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import type { ElectronApplication } from 'playwright'
-import { PANE_ATTR, PANE_BUTTON } from '../../src/shared/paneDomAttrs'
 import { PANE_HEADER_SELECTOR } from '../../src/shared/testing/paneSelectors'
 import { requireBox } from './geometry'
 import { clickMenuItem } from './menu'

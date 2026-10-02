@@ -1,0 +1,52 @@
+{
+  "description": "split-horizontal (A active) with a bell on B: the bell icon (bell color) after B's header grip, before its title, and B's content outlined in the bell color with an inner glow, at the pulse's peak (opacity 1). The root tab shows the bell too (it holds B). A keeps the accent outline.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "signals": {
+    "leaf-b": [
+      "bell"
+    ]
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

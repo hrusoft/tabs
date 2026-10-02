@@ -1,6 +1,6 @@
 import { CONTROL_REQUEST_TYPES } from '@shared/externalControl'
 import { expect, test } from 'vitest'
-import { activate as activateBrowser } from '../../../../plugins/browser/renderer/index'
+import { activate as activateBrowser } from '../../../../../packages/plugin-browser/renderer/index'
 import { createRendererPluginContext } from '../../plugin/context'
 import { unhandledControlVerbs } from '../externalControl'
 
@@ -19,7 +19,10 @@ import { unhandledControlVerbs } from '../externalControl'
  *   failure, because the browser verbs are reached only through the real
  *   package `activate`, never by calling the registrar directly. Drop that
  *   entry from registerBuiltins' list, or move a verb into a module nothing
- *   invokes, and twenty-one verbs go unanswered here.
+ *   invokes, and twenty-two verbs (the browser's own union) go unanswered
+ *   here — core's own six (including the four pane-tree verbs) are
+ *   unaffected, since they're registered at module scope regardless of which
+ *   content types are active.
  *
  * The terminal is deliberately not registered: it contributes no verbs, and
  * importing it would pull in xterm and its CSS (see registerTerminal.ts). The
@@ -44,7 +47,19 @@ test('core answers only the verbs that belong to no content type', () => {
   // Guards the split itself: a browser verb drifting back into core's
   // module-scope registrations would show up here — including one main answers
   // alone, which still owes this window a handler and gets it from its own type.
-  expect([...answeredByCore].sort()).toEqual(['batch', 'ping'])
+  // activatePane/closePane/listOwnedPanes/getPaneInfo are core's own
+  // pane-tree verbs (they name only a pane id) — see
+  // src/renderer/src/content/externalControl.ts.
+  expect([...answeredByCore].sort()).toEqual([
+    'activatePane',
+    'batch',
+    'capabilities',
+    'closePane',
+    'describe',
+    'getPaneInfo',
+    'listOwnedPanes',
+    'ping'
+  ])
 })
 
 test('every verb in the wire protocol is answered once the built-in types have registered', () => {

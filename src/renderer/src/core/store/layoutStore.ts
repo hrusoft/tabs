@@ -3,7 +3,6 @@ import { LAYOUT_VERSION, layoutTrees, mapLayoutLeaves } from '@shared/layout'
 import type { CrossWindowDragContent } from '@shared/layoutCrossWindow'
 import { CROSS_WINDOW_TRANSFER_STATE_KEY, dragContentNode } from '@shared/layoutCrossWindow'
 import type { DragSubject, DropTarget } from '@shared/model/drag'
-import { createLeaf } from '@shared/model/factories'
 import type { FloatAnchor, FloatingPane, FloatRect } from '@shared/model/floating'
 import {
   captureAnchor,
@@ -16,9 +15,10 @@ import {
   restoreFloating,
   sanitizeFloating
 } from '@shared/model/floating'
-import { createId } from '@shared/model/ids'
 import { entryPaneId, focusAfterClose } from '@shared/model/navigation'
 import * as tree from '@shared/model/tree'
+import { createLeaf } from '@tabs/plugin-sdk/shared/model/factories'
+import { createId } from '@tabs/plugin-sdk/shared/model/ids'
 import type {
   ContentNode,
   DockZone,
@@ -26,8 +26,8 @@ import type {
   NodeId,
   SplitDirection,
   TabsContent
-} from '@shared/model/types'
-import { EMPTY_TYPE, isEmpty, isTabs } from '@shared/model/types'
+} from '@tabs/plugin-sdk/shared/model/types'
+import { collectLeaves, EMPTY_TYPE, isEmpty, isTabs } from '@tabs/plugin-sdk/shared/model/types'
 import { create } from 'zustand'
 import { rootTabTitleForContent, titleForContent } from '../registry/titles'
 
@@ -731,7 +731,7 @@ export const useLayoutStore = create<LayoutState>()((set) => ({
       // wrapped in groups with nothing beside it): a fresh placeholder stays,
       // and the tree as it was is kept for a rollback — see wholeWindowDetach.
       let rawRoot: ContentNode
-      if (tree.collectLeaves(state.root).every((leaf) => tree.findNode(node, leaf.id))) {
+      if (collectLeaves(state.root).every((leaf) => tree.findNode(node, leaf.id))) {
         const placeholder = createLeaf(EMPTY_TYPE)
         whole = { placeholderId: placeholder.id, before: state.root }
         rawRoot = placeholder
@@ -795,7 +795,7 @@ export const useLayoutStore = create<LayoutState>()((set) => ({
     wholeWindowDetach = null
     setReportingCommit(set, (state) => {
       const node = dragContentNode(content)
-      const leaves = tree.collectLeaves(state.root)
+      const leaves = collectLeaves(state.root)
       const next =
         whole && leaves.length === 1 && leaves[0]!.id === whole.placeholderId
           ? (tree.replaceNode(whole.before, node.id, () => node) ?? whole.before)

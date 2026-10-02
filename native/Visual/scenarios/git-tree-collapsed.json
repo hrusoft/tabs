@@ -1,0 +1,177 @@
+{
+  "description": "git-tree-default with the details collapsed: the list fills the body above the 8pt collapsed divider with its grip.",
+  "size": {
+    "width": 900,
+    "height": 600
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-git",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-git",
+            "type": "gitTree",
+            "config": {
+              "cwd": "/Users/ann/src/tabs",
+              "detailCollapsed": true
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-git"
+    },
+    "activePaneId": "leaf-git",
+    "floating": []
+  },
+  "gitTree": {
+    "leaf-git": {
+      "log": {
+        "root": "/Users/ann/src/tabs",
+        "commits": [
+          {
+            "hash": "c63ae6dd4fc9f9dda66970e827d13f7c73fe841c",
+            "parents": [
+              "6dcd4ce23d88e2ee9568ba546c007c63d9131c1b",
+              "999d0cd62b8ea4c8cc007fa60dd7f242818b5349"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-24T16:42:07Z",
+            "refs": [
+              "HEAD",
+              "main",
+              "origin/main"
+            ],
+            "subject": "Merge branch 'feature/detail-divider'"
+          },
+          {
+            "hash": "999d0cd62b8ea4c8cc007fa60dd7f242818b5349",
+            "parents": [
+              "88bfad9cfffeafd299a44d4daf979d57419a2621"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-24T11:05:31Z",
+            "refs": [],
+            "subject": "Collapse the detail panel below its minimum height"
+          },
+          {
+            "hash": "6dcd4ce23d88e2ee9568ba546c007c63d9131c1b",
+            "parents": [
+              "c032adc1ff629c9b66f22749ad667e6beadf144b",
+              "7cf184f4c67ad58283ecb19349720b0cae756829"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-23T18:20:00Z",
+            "refs": [],
+            "subject": "Merge branch 'hotfix/refresh-race'"
+          },
+          {
+            "hash": "7cf184f4c67ad58283ecb19349720b0cae756829",
+            "parents": [
+              "c2c53d66948214258a26ca9ca845d7ac0c17f8e7"
+            ],
+            "author": "Chen Wei",
+            "date": "2026-09-23T09:47:12Z",
+            "refs": [],
+            "subject": "Drop a stale first page when a refresh overtakes it"
+          },
+          {
+            "hash": "88bfad9cfffeafd299a44d4daf979d57419a2621",
+            "parents": [
+              "c2c53d66948214258a26ca9ca845d7ac0c17f8e7"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-22T15:13:44Z",
+            "refs": [],
+            "subject": "Add a draggable divider between the list and the detail"
+          },
+          {
+            "hash": "c032adc1ff629c9b66f22749ad667e6beadf144b",
+            "parents": [
+              "c2c53d66948214258a26ca9ca845d7ac0c17f8e7"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-22T10:02:09Z",
+            "refs": [],
+            "subject": "Keep the path bar's text while a default directory arrives"
+          },
+          {
+            "hash": "c2c53d66948214258a26ca9ca845d7ac0c17f8e7",
+            "parents": [
+              "06576556d1ad802f247cad11ae748be47b70cd9c"
+            ],
+            "author": "Chen Wei",
+            "date": "2026-09-19T14:30:55Z",
+            "refs": [
+              "tag: v1.0"
+            ],
+            "subject": "Show the working tree as a row above the newest commit"
+          },
+          {
+            "hash": "06576556d1ad802f247cad11ae748be47b70cd9c",
+            "parents": [],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-17T08:15:00Z",
+            "refs": [],
+            "subject": "Git tree: a commit graph pane"
+          }
+        ],
+        "hasMore": false,
+        "hasUncommittedChanges": true
+      },
+      "details": {
+        "c63ae6dd4fc9f9dda66970e827d13f7c73fe841c": {
+          "hash": "c63ae6dd4fc9f9dda66970e827d13f7c73fe841c",
+          "parents": [
+            "6dcd4ce23d88e2ee9568ba546c007c63d9131c1b",
+            "999d0cd62b8ea4c8cc007fa60dd7f242818b5349"
+          ],
+          "author": "Ann Lindqvist",
+          "authorEmail": "ann@lindqvist.dev",
+          "date": "2026-09-24T16:42:07Z",
+          "refs": [
+            "HEAD",
+            "main",
+            "origin/main"
+          ],
+          "message": "Merge branch 'feature/detail-divider'\n\nDrag the divider to resize the list and the detail; drag it below the\ndetail's minimum to collapse it, and back up from the bottom to reopen.",
+          "files": [
+            {
+              "path": "docs/images/detail-divider.png",
+              "insertions": null,
+              "deletions": null
+            },
+            {
+              "path": "packages/plugin-gitTree/renderer/DetailDivider.tsx",
+              "insertions": 142,
+              "deletions": 0
+            },
+            {
+              "path": "packages/plugin-gitTree/renderer/GitTreeRenderer.tsx",
+              "insertions": 38,
+              "deletions": 11
+            },
+            {
+              "path": "packages/plugin-gitTree/renderer/__tests__/fixtures/detail-divider/collapse-below-the-minimum-then-reopen-from-the-bottom-edge.snapshot.json",
+              "insertions": 1204,
+              "deletions": 87
+            },
+            {
+              "path": "packages/plugin-gitTree/renderer/gitTree.css",
+              "insertions": 61,
+              "deletions": 4
+            }
+          ],
+          "filesTruncated": false
+        }
+      }
+    }
+  }
+}

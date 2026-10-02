@@ -1,5 +1,5 @@
-import type { ContentNode, LeafContent } from '@shared/model/types'
-import { EMPTY_TYPE } from '@shared/model/types'
+import type { ContentNode, LeafContent } from '@tabs/plugin-sdk/shared/model/types'
+import { EMPTY_TYPE } from '@tabs/plugin-sdk/shared/model/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentRendererDef } from '../../core/registry/registry'
 import { useSettingsStore } from '../../core/store/settingsStore'

@@ -1,0 +1,34 @@
+{
+  "description": "An empty pane whose toolbar offers the browser next to the harness's stub type: the 16x16 globe (circle r 6, meridian and equator, stroke 0.9) in the second segment.",
+  "size": {
+    "width": 600,
+    "height": 400
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "creationActions": [
+    "browser"
+  ],
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

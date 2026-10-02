@@ -1,5 +1,7 @@
-import { createLeaf, createTab, createTabs } from './factories'
-import { createId } from './ids'
+import { createLeaf, createTab, createTabs } from '@tabs/plugin-sdk/shared/model/factories'
+import { createId } from '@tabs/plugin-sdk/shared/model/ids'
+import type { ContentNode, NodeId, SplitDirection } from '@tabs/plugin-sdk/shared/model/types'
+import { EMPTY_TYPE, isPlausibleNode, isSplit, isTabs } from '@tabs/plugin-sdk/shared/model/types'
 import type { TabTitler } from './tree'
 import {
   addTab,
@@ -14,8 +16,6 @@ import {
   splitContent,
   withPaneDetached
 } from './tree'
-import type { ContentNode, NodeId, SplitDirection } from './types'
-import { EMPTY_TYPE, isPlausibleNode, isSplit, isTabs } from './types'
 
 /**
  * Free-floating panes: a subtree lifted out of the docked layout into a window

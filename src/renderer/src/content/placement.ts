@@ -6,11 +6,11 @@ import {
   spawnRectIn
 } from '@shared/model/floating'
 import { ancestorTabSteps } from '@shared/model/navigation'
-import type { ContentNode, NodeId, SplitDirection } from '@shared/model/types'
+import { paneDomRect } from '@tabs/plugin-sdk/renderer/paneDom'
+import type { ContentNode, NodeId, SplitDirection } from '@tabs/plugin-sdk/shared/model/types'
 import { useLayoutStore } from '../core/store/layoutStore'
 import { useSettingsStore } from '../core/store/settingsStore'
 import { createContentLike } from './contentLike'
-import { paneDomRect } from './paneDom'
 
 /**
  * Places `content` at `targetId` — a new tab when `direction` is omitted, or
@@ -110,10 +110,10 @@ export function placeNewUnpinnedPane(originId: NodeId, content: ContentNode): vo
  * Content-agnostic on purpose, and here rather than in a content folder for
  * that reason — it is the same tab-walking mechanic `placeNewPane` relies on,
  * expressed for a pane that already exists. Its only caller today is the
- * external-control `activatePane` verb, which applies its own ownership rules
- * before calling (see src/plugins/browser/renderer/paneVerbs.ts); the split
- * keeps the layout mechanics reusable and the ownership policy with the
- * content type that defines it.
+ * external-control `activatePane` verb (core's own, see
+ * src/renderer/src/content/externalControl.ts), which is reached only once
+ * main's ownership ledger has already granted the caller this pane — this
+ * function itself carries no policy, just the tree walk.
  */
 export function revealPane(paneId: NodeId): void {
   const state = useLayoutStore.getState()

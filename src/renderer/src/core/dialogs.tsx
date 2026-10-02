@@ -1,4 +1,16 @@
+import type {
+  AlertDialogOptions,
+  ChooseDialogOptions,
+  ConfirmDialogOptions
+} from '@tabs/plugin-sdk/renderer/dialogs'
 import { useState } from 'react'
+
+export type {
+  AlertDialogOptions,
+  ChooseDialogOptions,
+  ConfirmDialogOptions
+} from '@tabs/plugin-sdk/renderer/dialogs'
+
 import { openModal } from './modal'
 
 /**
@@ -19,29 +31,6 @@ import { openModal } from './modal'
  * wraps-a-core-singleton shape `bell`/`contextMenu` already use — packages
  * never import this module directly (see the plugin boundary ledger).
  */
-
-interface DialogOptionsBase {
-  title: string
-  message: string
-  /** Distinguishes this dialog's rendered panel in tests — becomes the modal's own `data-testid`. */
-  testId?: string
-}
-
-export interface ConfirmDialogOptions extends DialogOptionsBase {
-  confirmLabel?: string
-  cancelLabel?: string
-}
-
-export interface AlertDialogOptions extends DialogOptionsBase {
-  okLabel?: string
-}
-
-export interface ChooseDialogOptions extends DialogOptionsBase {
-  /** What the select lists, in the order shown — also each option's own value, since every caller here (branch/remote-ref names) already has unique labels. */
-  options: string[]
-  confirmLabel?: string
-  cancelLabel?: string
-}
 
 function DialogMessage({ children }: { children: string }) {
   // white-space: pre-wrap (global.css) is what keeps a multi-line message —

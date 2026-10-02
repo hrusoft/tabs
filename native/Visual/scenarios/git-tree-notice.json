@@ -1,0 +1,41 @@
+{
+  "description": "A git tree pointed at a directory that is not a repository: the notice (\"No git repository at …\" and the hint). The header title is the directory's name; no HEAD label.",
+  "size": {
+    "width": 900,
+    "height": 600
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-git",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-git",
+            "type": "gitTree",
+            "config": {
+              "cwd": "/Users/ann/Downloads"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-git"
+    },
+    "activePaneId": "leaf-git",
+    "floating": []
+  },
+  "gitTree": {
+    "leaf-git": {
+      "failure": {
+        "kind": "not-a-repo",
+        "path": "/Users/ann/Downloads"
+      }
+    }
+  }
+}

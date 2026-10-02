@@ -1,4 +1,4 @@
-import type { NavDirection } from '@shared/model/navigation'
+import type { NavDirection } from '@tabs/plugin-sdk/shared/model/types'
 import { create } from 'zustand'
 
 export interface NavFlashState {

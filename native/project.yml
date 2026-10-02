@@ -1,0 +1,322 @@
+# XcodeGen spec. `make project` turns this into Tabs.xcodeproj (generated,
+# never committed). docs/ARCHITECTURE.md explains the graph; in short:
+#
+#   TabsPluginSDK.framework   role sdk   the only module plugins see: core's exposed surface
+#   TabsCore.framework        role core  plugin runtime, layout, persistence, control — core-private
+#   Tabs.app                  role app   AppKit shell: renders the layout, menus, pane chrome
+#   <id>.tabsplugin           role plugin — links only the SDK; plugins are isolated from each other
+#
+# This file holds the rules (target templates) and core's targets. Each plugin
+# is a folder, Plugins/<Name>/, whose plugin.yml declares its bundle, its tests
+# and its place in the app; `make project` includes every one of them
+# (build/plugins.yml, generated), so adding a plugin edits nothing shared.
+#
+# Every image carries Resources/TabsBuildStamp.plist (Scripts/stamp-build-info.sh)
+# with its role and the shared-ABI fingerprint; the loader and the packaging
+# gate (Scripts/verify-app.sh) refuse anything that doesn't match.
+name: Tabs
+
+include:
+  - path: build/plugins.yml
+    relativePaths: false
+
+options:
+  bundleIdPrefix: dev.tabs.prototype
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    # The stamp script reads sources and build configuration and writes the
+    # built Info.plist.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    DEAD_CODE_STRIPPING: YES
+    # Lockstep releases: no module stability, no resilience. The shared-ABI
+    # fingerprint is what makes that safe.
+    BUILD_LIBRARY_FOR_DISTRIBUTION: NO
+
+aggregateTargets:
+  # The shared-ABI fingerprint, computed once per build for every image's stamp.
+  SharedFingerprint:
+    buildScripts:
+      - name: Shared-ABI fingerprint
+        script: |
+          mkdir -p "${OBJROOT}"
+          "${SRCROOT}/Scripts/shared-fingerprint.sh" "${CONFIGURATION}" > "${OBJROOT}/TabsSharedFingerprint-${CONFIGURATION}.txt"
+        basedOnDependencyAnalysis: false
+
+targetTemplates:
+  # Writes Resources/TabsBuildStamp.plist (role + fingerprint). Every target
+  # that produces a shipped image uses it.
+  Stamped:
+    settings:
+      base:
+        # The version is Config/Base.xcconfig's. XcodeGen's framework preset sets
+        # CURRENT_PROJECT_VERSION = 1 on the target, which would hide it.
+        CURRENT_PROJECT_VERSION: $(inherited)
+    dependencies:
+      - target: SharedFingerprint
+    postBuildScripts:
+      - name: Stamp build info
+        script: '"${SRCROOT}/Scripts/stamp-build-info.sh"'
+        # Runs every build (its inputs are sources and settings across the
+        # project); the declared output orders signing after it.
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/TabsBuildStamp.plist
+
+  # The SDK: a module whose types cross image boundaries. Dynamic, so the
+  # process holds exactly one copy; its sources feed the shared-ABI fingerprint.
+  SharedFramework:
+    templates: [Stamped]
+    type: framework
+    platform: macOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../Frameworks"
+
+  # One plugin = one loadable bundle named <pluginID>.tabsplugin whose module is
+  # the target name, built from <pluginDir>/Sources with <pluginDir>/Info.plist.
+  # Plugins link the SDK (never embed it) and never link core.
+  Plugin:
+    templates: [Stamped]
+    type: bundle
+    platform: macOS
+    sources:
+      - path: ${pluginDir}/Sources
+    settings:
+      base:
+        TABS_IMAGE_ROLE: plugin
+        WRAPPER_EXTENSION: tabsplugin
+        PRODUCT_NAME: ${pluginID}
+        PRODUCT_MODULE_NAME: ${target_name}
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.plugin.${pluginID}
+        INFOPLIST_FILE: ${pluginDir}/Info.plist
+        SKIP_INSTALL: YES
+        # Resolves against the host app when loaded; the second entry keeps a
+        # plugin loadable when something other than Tabs is the executable.
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../../../../Frameworks"
+        # A plugin's own package: `package` declarations of the SDK and of
+        # TabsCore stay invisible to it.
+        SWIFT_PACKAGE_NAME: ${target_name}
+    dependencies:
+      - target: TabsPluginSDK
+        link: true
+        embed: false
+
+  # A plugin's unit tests: its sources compiled into an unhosted test bundle
+  # with <pluginDir>/Tests, run against the real core runtime (PluginHarness)
+  # with no app, no windows and no other plugin. Core's `package` API is
+  # visible here (for the harness), never to the plugin's own target.
+  PluginTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ${pluginDir}/Sources
+      - path: ${pluginDir}/Tests
+      - path: Tests/Support
+        excludes: [ControlClient.swift]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.tests.${target_name}
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_PACKAGE_NAME: TabsCore
+        TEST_HOST: ""
+        BUNDLE_LOADER: ""
+    dependencies:
+      - target: TabsCore
+        link: true
+        embed: false
+      - target: TabsPluginSDK
+        link: true
+        embed: false
+
+targets:
+  TabsPluginSDK:
+    templates: [SharedFramework]
+    sources: [Sources/TabsPluginSDK]
+    settings:
+      base:
+        TABS_IMAGE_ROLE: sdk
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.sdk
+        # Shared with core, the shell and tests: `package` = core-only API.
+        SWIFT_PACKAGE_NAME: TabsCore
+
+  # The plugin runtime: discovery, resolution, loading, activation, the
+  # contribution registry, events, panes, the layout, shortcuts, persistence,
+  # control. No windows. Its API is `package`, so nothing outside the TabsCore
+  # package can use it even by importing it.
+  TabsCore:
+    templates: [Stamped]
+    type: framework
+    platform: macOS
+    sources: [Sources/TabsCore]
+    settings:
+      base:
+        TABS_IMAGE_ROLE: core
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.core
+        GENERATE_INFOPLIST_FILE: YES
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../Frameworks"
+        SWIFT_PACKAGE_NAME: TabsCore
+    dependencies:
+      - target: TabsPluginSDK
+        link: true
+        embed: false
+
+  # Each plugin's plugin.yml adds its bundle to the dependencies (copied into
+  # PlugIns) and a TABS_BUNDLED_PLUGIN_<ID> setting: the stamp lists every one
+  # of them as the app's bundled plugins, reconciled against PlugIns at launch
+  # and by the packaging gate.
+  Tabs:
+    templates: [Stamped]
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Tabs
+        excludes: [Info.plist]
+      # The "control Tabs" skill (SKILL.md and scripts/tabs-ctl), the Electron app's
+      # resources/skills, bundled unchanged as Contents/Resources/skills/tabs — the one copy.
+      # Real files rather than anything inside an archive: Settings ▸ AI symlinks it into an
+      # agent's skill directory, and the agent's shell reads it as a plain OS process.
+      - path: ../resources/skills
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        TABS_IMAGE_ROLE: app
+        PRODUCT_NAME: Tabs
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.app
+        INFOPLIST_FILE: Sources/Tabs/Info.plist
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        SWIFT_PACKAGE_NAME: TabsCore
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # Keep Debug's bundle layout identical to Release's (no Tabs.debug.dylib).
+        ENABLE_DEBUG_DYLIB: NO
+    dependencies:
+      - target: TabsPluginSDK
+      - target: TabsCore
+
+  # Test-only plugin: contributes, then throws from activate().
+  FixtureThrowingPlugin:
+    templates: [Plugin]
+    templateAttributes: { pluginID: fixture-throws, pluginDir: Tests/Fixtures/ThrowingPlugin }
+
+  # Core logic against in-process plugins. Unhosted: no app launch, no windows.
+  TabsCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/TabsCoreTests, Tests/Support]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.coretests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_PACKAGE_NAME: TabsCore
+    dependencies:
+      - target: TabsCore
+        link: true
+        embed: false
+      - target: TabsPluginSDK
+        link: true
+        embed: false
+
+  # Hosted in Tabs.app: real plugin bundles across real image boundaries, the
+  # AppKit shell, offscreen snapshots.
+  TabsAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/TabsAppTests, Tests/Support]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.apptests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_PACKAGE_NAME: TabsCore
+    dependencies:
+      - target: Tabs
+      # Linked for their symbols; at run time the test bundle binds to the
+      # app's copies, so there is still one of each in the process.
+      - target: TabsCore
+        link: true
+        embed: false
+      - target: TabsPluginSDK
+        link: true
+        embed: false
+      - target: FixtureThrowingPlugin
+        link: false
+        embed: true
+        copy: { destination: resources, subpath: Fixtures }
+
+  # The app as a user runs it: launched as its own process (hidden), driven
+  # only over the control socket, quit and relaunched. Unhosted.
+  TabsEndToEndTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/TabsEndToEndTests
+      - Tests/Support/ControlClient.swift
+      - Tests/Support/FixtureServer.swift
+      - Tests/Support/FixtureServer+Standard.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tabs.prototype.e2etests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: ""
+        BUNDLE_LOADER: ""
+    dependencies:
+      # The app under test is a separate process, but it must be the one this
+      # build made: built first, never a stale copy.
+      - target: Tabs
+        link: false
+        embed: false
+      # JSONValue only.
+      - target: TabsPluginSDK
+        link: true
+        embed: false
+
+schemes:
+  # Everything: the app, every plugin, all test tiers (plugins add their tests).
+  Tabs:
+    build:
+      targets:
+        Tabs: all
+        TabsCoreTests: [test]
+        TabsAppTests: [test]
+        TabsEndToEndTests: [test]
+    run:
+      config: Debug
+      environmentVariables:
+        TABS_DATA_DIR: $(PROJECT_DIR)/build/dev-data
+    test:
+      config: Debug
+      targets: [TabsCoreTests, TabsAppTests, TabsEndToEndTests]
+  # Core alone: builds the SDK, TabsCore and their tests — nothing else.
+  Core:
+    build:
+      targets:
+        TabsCoreTests: [test]
+    test:
+      config: Debug
+      targets: [TabsCoreTests]
+  # Every plugin's unit tests (plugins add themselves), without the app.
+  Plugins:
+    build:
+      targets:
+        TabsCore: [test]
+    test:
+      config: Debug
+      targets: []

@@ -1,0 +1,27 @@
+{
+  // The strictness every TypeScript project in this repo shares — core's two
+  // (tsconfig.node.json, tsconfig.web.json) and every workspace package's
+  // (packages/tsconfig.package.json) — on top of the @electron-toolkit base.
+  // One copy, so a package project can't drift looser than core the way the
+  // hand-copied package configs once did (they lacked
+  // noUncheckedSideEffectImports).
+  "extends": "@electron-toolkit/tsconfig/tsconfig.json",
+  "compilerOptions": {
+    // The @electron-toolkit base sets strict but forces noImplicitAny back off.
+    "noImplicitAny": true,
+    "noImplicitOverride": true,
+    // Catches a typo'd side-effect import of a TS module resolving to nothing;
+    // note vite/client's wildcard *.css declarations mean a typo'd CSS path
+    // still resolves, so this does not cover those.
+    "noUncheckedSideEffectImports": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    // A build that fails still emits by default — and a rootDir violation
+    // (a package reaching into core, TS6059) emits the out-of-root file's
+    // declaration *next to its source*, whatever outDir says: that is how
+    // src/plugins/index.{js,d.ts} and, in a later mutation test,
+    // src/shared/theme.d.ts appeared. Fencing outDir into .tsbuildcache/
+    // only covers successful builds; this covers the failing ones.
+    "noEmitOnError": true
+  }
+}

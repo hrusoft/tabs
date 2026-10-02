@@ -1,4 +1,8 @@
-import { SHORTCUT_ACTIONS, type ShortcutActionId, toAccelerator } from '../src/shared/shortcuts'
+import {
+  SHORTCUT_ACTIONS,
+  type ShortcutActionId,
+  toAccelerator
+} from '@tabs/plugin-sdk/shared/shortcuts'
 import { expect, test, withApp } from './helpers/launch'
 import { acceleratorOf, clickMenuItem } from './helpers/menu'
 import { headerOf, initialPane, splitHorizontal } from './helpers/pane'

@@ -1,0 +1,20 @@
+{
+  // Process-agnostic: no DOM lib, no Node or Electron globals (`types` names
+  // only vite/client, for the ambient `*?raw` declaration a manifest guide
+  // uses). Tests (__tests__) are not part of
+  // any package project — the root projects typecheck them (they import the
+  // package's code as a consumer would, and some reach into core's test harness).
+  "extends": "../../tsconfig.package.json",
+  "compilerOptions": {
+    "outDir": "../../../.tsbuildcache/plugin-terminal/shared",
+    "rootDir": ".",
+    "types": ["vite/client"]
+  },
+  "references": [
+    {
+      "path": "../../plugin-sdk/shared"
+    }
+  ],
+  "include": ["**/*.ts"],
+  "exclude": ["**/__tests__/**"]
+}

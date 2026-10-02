@@ -1,9 +1,14 @@
+import {
+  createLeaf,
+  createSplit,
+  createTab,
+  createTabs
+} from '@tabs/plugin-sdk/shared/model/factories'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IpcChannel } from '../../shared/ipc'
 import type { LayoutSnapshot } from '../../shared/layout'
 import { LAYOUT_VERSION } from '../../shared/layout'
-import { createLeaf, createSplit, createTab, createTabs } from '../../shared/model/factories'
-import type { ContentNode } from '../../shared/model/types'
 
 // The window lifecycle rules in layout.ts — which closes drop a layout,
 // which keep it, when a window's panes are reported discarded, and what main

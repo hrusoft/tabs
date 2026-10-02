@@ -1,4 +1,4 @@
-import { REATTACH_GRACE_MS } from '../src/shared/reattach'
+import { REATTACH_GRACE_MS } from '@tabs/plugin-sdk/shared/reattach'
 import { openBrowser } from './helpers/browser'
 import {
   expectNoDragFrom,

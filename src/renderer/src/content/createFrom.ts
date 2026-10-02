@@ -1,8 +1,8 @@
-import { createLeaf } from '@shared/model/factories'
 import { entryPaneId } from '@shared/model/navigation'
 import { findNode } from '@shared/model/tree'
-import type { ContentNode, LeafContent } from '@shared/model/types'
-import { EMPTY_TYPE, isLeaf, isSplit, isTabs } from '@shared/model/types'
+import { createLeaf } from '@tabs/plugin-sdk/shared/model/factories'
+import type { ContentNode, LeafContent } from '@tabs/plugin-sdk/shared/model/types'
+import { EMPTY_TYPE, isLeaf, isSplit, isTabs } from '@tabs/plugin-sdk/shared/model/types'
 import type { PaneCreationAction } from '../core/registry/registry'
 import { contentRegistry } from '../core/registry/registry'
 

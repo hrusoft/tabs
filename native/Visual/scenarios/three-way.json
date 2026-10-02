@@ -1,0 +1,53 @@
+{
+  "description": "Three side-by-side empty panes A | B | C at 20/50/30; B (middle) is active.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-c",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.2,
+              0.5,
+              0.3
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-b",
+    "floating": []
+  }
+}

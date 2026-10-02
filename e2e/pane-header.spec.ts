@@ -1,5 +1,5 @@
-import { PANE_BUTTON } from '../src/shared/paneDomAttrs'
-import { REATTACH_GRACE_MS } from '../src/shared/reattach'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
+import { REATTACH_GRACE_MS } from '@tabs/plugin-sdk/shared/reattach'
 import { expect, test } from './helpers/launch'
 import {
   clearPane,

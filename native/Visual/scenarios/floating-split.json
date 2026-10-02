@@ -1,0 +1,85 @@
+{
+  "description": "A floating window holding a horizontal split of an empty pane and a two-tab group, over a docked single pane; the floating split's left pane is active.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-base",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "fleaf",
+    "floating": [
+      {
+        "id": "float-s",
+        "content": {
+          "id": "fsplit",
+          "type": "split",
+          "direction": "horizontal",
+          "children": [
+            {
+              "id": "fleaf",
+              "type": "empty",
+              "config": {}
+            },
+            {
+              "id": "fgroup",
+              "type": "tabs",
+              "tabs": [
+                {
+                  "id": "ft1",
+                  "title": "New Tab",
+                  "content": {
+                    "id": "fl1",
+                    "type": "empty",
+                    "config": {}
+                  }
+                },
+                {
+                  "id": "ft2",
+                  "title": "New Tab",
+                  "content": {
+                    "id": "fl2",
+                    "type": "empty",
+                    "config": {}
+                  }
+                }
+              ],
+              "activeTabId": "ft1"
+            }
+          ],
+          "sizes": [
+            0.45,
+            0.55
+          ]
+        },
+        "rect": {
+          "x": 220.5,
+          "y": 180.25,
+          "width": 640,
+          "height": 360
+        },
+        "anchor": {
+          "kind": "root"
+        }
+      }
+    ]
+  }
+}

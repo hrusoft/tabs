@@ -1,5 +1,5 @@
-import { collectLeaves } from '@shared/model/tree'
-import type { ContentNode } from '@shared/model/types'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
+import { collectLeaves } from '@tabs/plugin-sdk/shared/model/types'
 import { contentRegistry } from '../core/registry/registry'
 
 /**

@@ -6,8 +6,8 @@ import type {
   CrossWindowMessageFromRenderer
 } from '@shared/layoutCrossWindow'
 import { DEFAULT_SETTINGS, type Settings } from '@shared/settings'
-import type { ShortcutActionId } from '@shared/shortcuts'
 import type { ExtraStubType, FakeApiHandle, TestSeed } from '@shared/testing/fakeApiHandle'
+import type { ShortcutActionId } from '@tabs/plugin-sdk/shared/shortcuts'
 import { createFakeContentBridge } from './content'
 import { Emitter } from './emitter'
 

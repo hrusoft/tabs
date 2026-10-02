@@ -1,6 +1,7 @@
 import { act, fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test } from 'vitest'
+import { browserGuestFake } from '../../../../packages/plugin-browser/shared/testing'
 import { headerOf, initialPane, panes } from '../testing/domQueries'
 import { openNewTab, splitHorizontal } from '../testing/paneActions'
 import { renderApp } from '../testing/renderApp'
@@ -176,7 +177,7 @@ test('an ordinary text field still keeps the arrows for editing', async () => {
 // A focused <webview> guest swallows every keydown before this window sees it,
 // so main matches the chord and forwards the direction over the browserGuest
 // channel. Core no longer subscribes to that channel itself — the browser
-// content type does, at registration (src/plugins/browser/renderer/guestNavKeys.ts),
+// content type does, at registration (packages/plugin-browser/renderer/guestNavKeys.ts),
 // and the stub content stands in for it here. Without that inversion working,
 // this press reaches nothing at all.
 test('a nav press forwarded out of a guest navigates, without any keydown', async () => {
@@ -189,9 +190,9 @@ test('a nav press forwarded out of a guest navigates, without any keydown', asyn
   // Wrapped in act(): unlike fireEvent, this arrives from outside React
   // entirely — the bridge callback updates the store directly, and without
   // act() the re-render it schedules hasn't happened when the class is read.
-  act(() => window.__fakeApi?.emitNavKey('right'))
+  act(() => browserGuestFake()?.emitNavKey('right'))
   expect(panes()[2]).toHaveClass('pane-active')
 
-  act(() => window.__fakeApi?.emitNavKey('left'))
+  act(() => browserGuestFake()?.emitNavKey('left'))
   expect(panes()[1]).toHaveClass('pane-active')
 })

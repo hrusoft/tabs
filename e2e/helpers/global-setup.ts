@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CLONE_EXECUTABLE_ENV, ensureElectronClone } from './electronClone'
 
 /**
  * Two macOS mechanisms can block an unattended e2e run on a modal dialog
@@ -123,6 +124,10 @@ function sweepMarkers(): number[] {
 
 export default function globalSetup(): (() => void) | undefined {
   if (process.platform !== 'darwin') return
+
+  // First, so a failure to make it stops the run before any default is
+  // touched. launch.ts reads the path back in every worker.
+  process.env[CLONE_EXECUTABLE_ENV] = ensureElectronClone()
 
   mkdirSync(coordDir, { recursive: true })
   // No live run means any leftover record belongs to runs that are all gone,

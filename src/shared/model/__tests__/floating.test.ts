@@ -1,5 +1,11 @@
+import {
+  createLeaf,
+  createSplit,
+  createTab,
+  createTabs
+} from '@tabs/plugin-sdk/shared/model/factories'
+import type { ContentNode, SplitContent, TabsContent } from '@tabs/plugin-sdk/shared/model/types'
 import { describe, expect, it } from 'vitest'
-import { createLeaf, createSplit, createTab, createTabs } from '../factories'
 import {
   captureAnchor,
   clampRect,
@@ -20,7 +26,6 @@ import {
   spawnRectIn
 } from '../floating'
 import { findNode, moveTab } from '../tree'
-import type { ContentNode, SplitContent, TabsContent } from '../types'
 
 const titleOf = (node: ContentNode): string => node.type
 const RECT: FloatRect = { x: 40, y: 60, width: 500, height: 300 }

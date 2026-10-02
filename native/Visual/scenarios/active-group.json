@@ -1,0 +1,67 @@
+{
+  "description": "Horizontal split [empty A, tab group G with two tabs X (active tab) and Y]; the active pane is the group G itself, so the accent outline wraps G's content below its tab bar.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "group-g",
+                "type": "tabs",
+                "tabs": [
+                  {
+                    "id": "tab-x",
+                    "title": "New Tab",
+                    "content": {
+                      "id": "leaf-x",
+                      "type": "empty",
+                      "config": {}
+                    }
+                  },
+                  {
+                    "id": "tab-y",
+                    "title": "New Tab",
+                    "content": {
+                      "id": "leaf-y",
+                      "type": "empty",
+                      "config": {}
+                    }
+                  }
+                ],
+                "activeTabId": "tab-x"
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "group-g",
+    "floating": []
+  }
+}

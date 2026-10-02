@@ -2,13 +2,13 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_BROWSER_SETTINGS } from '../../plugins/browser/shared/settings'
-import { DEFAULT_GIT_TREE_SETTINGS } from '../../plugins/gitTree/shared/settings'
+import { DEFAULT_BROWSER_SETTINGS } from '../../../packages/plugin-browser/shared/settings'
+import { DEFAULT_GIT_TREE_SETTINGS } from '../../../packages/plugin-gitTree/shared/settings'
 import {
   DEFAULT_TERMINAL_APPEARANCE,
   DEFAULT_TERMINAL_SETTINGS,
   type TerminalSettings
-} from '../../plugins/terminal/shared/settings'
+} from '../../../packages/plugin-terminal/shared/settings'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { loadSettings, saveSettings } from '../settings'
 

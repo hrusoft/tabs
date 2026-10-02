@@ -1,15 +1,20 @@
 import { readFileSync } from 'node:fs'
+import { createLeaf } from '@tabs/plugin-sdk/shared/model/factories'
+import { createId } from '@tabs/plugin-sdk/shared/model/ids'
+import type { ContentNode, NodeId } from '@tabs/plugin-sdk/shared/model/types'
+import {
+  collectLeaves,
+  EMPTY_TYPE,
+  isEmpty,
+  isPlausibleNode
+} from '@tabs/plugin-sdk/shared/model/types'
 import type { WebContents } from 'electron'
 import { manifestFor } from '../shared/content/registry'
 import { IpcChannel } from '../shared/ipc'
 import type { LayoutSnapshot } from '../shared/layout'
 import { LAYOUT_VERSION, layoutTrees, mapLayoutLeaves, ROOT_TAB_TITLE } from '../shared/layout'
-import { createLeaf } from '../shared/model/factories'
 import { sanitizeFloating } from '../shared/model/floating'
-import { createId } from '../shared/model/ids'
-import { collectLeaves, ensureTabsRoot, findNode, normalize } from '../shared/model/tree'
-import type { ContentNode, NodeId } from '../shared/model/types'
-import { EMPTY_TYPE, isEmpty, isPlausibleNode } from '../shared/model/types'
+import { ensureTabsRoot, findNode, normalize } from '../shared/model/tree'
 import { onRendererMessage, registerSyncGetter } from './ipcListeners'
 import type { JsonReadDeps, JsonWriteDeps } from './persist'
 import { removeQuietly, saveJsonQuietly, userDataPath } from './persist'
@@ -374,7 +379,7 @@ export function withPatchedLeafConfigs(
  * too — which is what keeps this file free of any content type: layout.ts
  * imports nothing from terminal.ts, and the terminal module passes its own
  * pair, plus the `cwd` key they mean, from its onQuitSync hook (see
- * src/plugins/terminal/main/index.ts).
+ * packages/plugin-terminal/main/index.ts).
  *
  * Ids come from `listPaneIds` (a live registry), not any window's tree: the
  * renderer's debounced save means a window's entry in `windowLayouts` can lag

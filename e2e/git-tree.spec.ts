@@ -40,7 +40,7 @@ import { alive, openTerminal, typeAndEnter } from './helpers/terminal'
  * since the Chromium tier registers stub content instead. What the rows *say*,
  * how the selection moves and how each failure reads are renderer questions
  * and live in
- * src/plugins/gitTree/renderer/__tests__/gitTree.test.tsx, driven against a
+ * packages/plugin-gitTree/renderer/__tests__/gitTree.test.tsx, driven against a
  * scripted bridge — repeating them here would only be slower.
  *
  * Repositories are built per test in a temp dir with every hash input pinned

@@ -1,3 +1,4 @@
+import type { ShortcutActionId } from '@tabs/plugin-sdk/shared/shortcuts'
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   Api,
@@ -32,7 +33,6 @@ import type {
 import type { ContentBridgeApi } from '../shared/plugin/bridge'
 import { pluginEventChannel, pluginMethodChannel } from '../shared/plugin/bridge'
 import type { Settings } from '../shared/settings'
-import type { ShortcutActionId } from '../shared/shortcuts'
 
 /** Subscribes `listener` to an IPC channel, dropping the event arg; returns the unsubscriber. */
 function on<Args extends unknown[]>(

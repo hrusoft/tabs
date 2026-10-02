@@ -1,0 +1,37 @@
+{
+  "description": "palette-types in the light theme (colorTheme light): the same two-row list, two rows in order: Browser (globe icon, the browser's own 16x16 SVG), then Stub (the harness stub type, icon the text glyph U+25A3 in a span), first row highlighted.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "light"
+  },
+  "creationActions": [
+    "browser"
+  ],
+  "palette": {
+    "step": "type"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-a"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

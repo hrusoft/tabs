@@ -1,7 +1,7 @@
+import type { LeafContent, Tab, TabsContent } from '@tabs/plugin-sdk/shared/model/types'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import type { LayoutSnapshot } from '../../src/shared/layout'
 import { LAYOUT_VERSION } from '../../src/shared/layout'
-import type { LeafContent, Tab, TabsContent } from '../../src/shared/model/types'
-import { PANE_BUTTON } from '../../src/shared/paneDomAttrs'
 import { requireBox } from '../helpers/geometry'
 import { expect, test } from './helpers/harness'
 

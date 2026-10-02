@@ -1,7 +1,7 @@
-import {
-  CONTENT_CONTROL_REQUEST_MARKER,
-  type ContentControlRequest
-} from './content/externalControl'
+import type { ControlResponse, PluginControlRequest } from '@tabs/plugin-sdk/shared/externalControl'
+import { CONTENT_TYPE_MANIFESTS } from './content/registry'
+
+export type { ControlResponse, PluginControlRequest } from '@tabs/plugin-sdk/shared/externalControl'
 
 /**
  * Wire protocol for the external control socket (see src/main/externalControl.ts)
@@ -12,32 +12,40 @@ import {
  * TABS_PANE_ID env injection).
  *
  * This file is the *registry*: core's own verbs, the transport envelopes, and
- * the assembled `ControlRequest` union. A content type's verbs are declared
- * with the type and reach core as one name through
- * src/shared/content/externalControl.ts — so core names no type here.
+ * the assembled `ControlRequest` union.
  *
- * Two things about that split are worth stating so nobody undoes them:
+ * A content type's verbs are **not** individually named here, and cannot be —
+ * TypeScript cannot glob types, so there is no way to assemble a literal union
+ * of every package's request shapes from the runtime census. Instead the
+ * plugin half of `ControlRequest` is one generic shape
+ * (`PluginControlRequest`): `type`/`paneId`/optional `targetPaneId`, plus
+ * whatever else the verb needs, untyped. Core never reads a plugin-specific
+ * field, so it loses nothing by not naming them; a package keeps (and gains)
+ * full compile-time exhaustiveness through its own verb table, typed against
+ * its own concrete union (`MainControlVerbTable<BrowserControlRequest>`,
+ * `RendererControlVerbTable<BrowserControlRequest>`) — never against this
+ * generic shape.
  *
- * - It is a split of *types*, not of handlers. Several verbs declared here are
- *   registered by the browser content type (`activatePane`, `closePane`,
- *   `listOwnedPanes`, `getPaneInfo` — see the renderer's verb registry). Their
- *   request shapes name nothing about a page, so they belong to core's
- *   protocol even while the browser happens to be the only thing answering
- *   them. Which module registers which handler is a separate question from
- *   where a type lives.
- * - The *combined* union is assembled here because `batch` carries
- *   `ControlRequest[]`, i.e. it recurses through the whole protocol. That is
- *   why the combined union has to exist in core; it is not a reason for core to
- *   enumerate the halves, which is why the content half arrives pre-unioned.
+ * `CONTROL_REQUEST_TYPES` — the full verb-name list, core's plus every
+ * package's — is derived from the census (`CONTENT_TYPE_MANIFESTS`) at
+ * runtime rather than from a hand-aggregated type, which is what makes adding
+ * a content type's verbs touch no file outside its own package.
+ *
+ * One thing worth stating so nobody undoes it: several verbs declared here as
+ * core's are registered by the browser content type (`activatePane`,
+ * `closePane`, `listOwnedPanes`, `getPaneInfo` — see the renderer's verb
+ * registry, and `ContentRendererDef.listSummaryForControl`/
+ * `describeForControl`). Their request shapes name nothing about a page, so
+ * they belong to core's protocol even while the browser happens to be the
+ * only thing answering them. Which module answers a verb is a separate
+ * question from which union declares it.
  */
-
-export type ControlResponse =
-  | { ok: true; result?: Record<string, unknown> }
-  | { ok: false; error: string }
 
 /**
  * The verbs that belong to no content type: liveness, pane-tree operations
- * that name only pane ids, and the batching envelope.
+ * that name only pane ids, the batching envelope, and protocol discovery
+ * (`capabilities`/`describe`, answered from the census — see
+ * src/main/externalControl.ts).
  *
  * Every request carries `paneId` (the caller's own pane, for the ownership
  * check); one that acts on another pane also carries `targetPaneId`, which
@@ -50,15 +58,17 @@ export type CoreControlRequest =
   | { type: 'listOwnedPanes'; paneId: string }
   | { type: 'getPaneInfo'; paneId: string; targetPaneId: string }
   | { type: 'batch'; paneId: string; requests: ControlRequest[]; continueOnError?: boolean }
+  | { type: 'capabilities'; paneId: string }
+  | { type: 'describe'; paneId: string; capability: string }
 
-/** Every request the socket accepts: core's, plus every content type's. */
-export type ControlRequest = CoreControlRequest | ContentControlRequest
+/** Every request the socket accepts: core's six, plus every content type's own. */
+export type ControlRequest = CoreControlRequest | PluginControlRequest
 
 /**
- * Core's verb names at runtime — the same compile-time trick each content type
- * applies to its own list (see CONTENT_CONTROL_REQUEST_MARKER): a verb added to
- * `CoreControlRequest` without a key here fails to build, and a key naming a
- * verb that no longer exists fails too.
+ * Core's verb names at runtime — the same compile-time trick each content
+ * type's own union keeps for itself: a verb added to `CoreControlRequest`
+ * without a key here fails to build, and a key naming a verb that no longer
+ * exists fails too.
  */
 const CORE_CONTROL_REQUEST_MARKER: Record<CoreControlRequest['type'], true> = {
   ping: true,
@@ -66,37 +76,35 @@ const CORE_CONTROL_REQUEST_MARKER: Record<CoreControlRequest['type'], true> = {
   closePane: true,
   listOwnedPanes: true,
   getPaneInfo: true,
-  batch: true
+  batch: true,
+  capabilities: true,
+  describe: true
 }
 
 /**
- * Every verb name, available at runtime rather than only to the type checker.
- *
- * Composed from the per-type markers rather than re-listing every name, so the
- * exhaustiveness guarantee survives the protocol being split across files: the
- * `Record` annotation here fails if the two halves together miss a member of
- * `ControlRequest`, and each half's own annotation fails on a name that is not
- * a verb. That closes the last gap in the chain that keeps the CLI honest —
- * main's per-type verb tables are each annotated with their own union, so the
- * compiler forces every verb to declare a handler and a relay budget
- * (src/main/controlVerbs.ts), both processes back that with a runtime gate
- * against a registration that never ran (the renderer's
- * content/__tests__/externalControlVerbs.test.tsx, main's in
- * e2e/external-control.spec.ts), and `tabs-ctl`'s own command table is checked
- * against this list by src/shared/__tests__/tabsCtlDescribe.test.ts, which runs
- * the real shipped executable's `describe` output.
+ * Every verb name, available at runtime rather than only to the type checker
+ * — core's eight (checked at compile time above) plus every package's declared
+ * `controlVerbs`, read from the census. This is what keeps the CLI, the
+ * renderer's coverage gate and main's `unhandledMainControlVerbs` gate honest
+ * without any file naming a content type: add a verb to a package's manifest
+ * and its own request union, and it appears here for free.
  */
-const CONTROL_REQUEST_TYPE_MARKER: Record<ControlRequest['type'], true> = {
-  ...CORE_CONTROL_REQUEST_MARKER,
-  ...CONTENT_CONTROL_REQUEST_MARKER
-}
+export const CONTROL_REQUEST_TYPES: string[] = [
+  ...Object.keys(CORE_CONTROL_REQUEST_MARKER),
+  ...CONTENT_TYPE_MANIFESTS.flatMap((manifest) =>
+    (manifest.controlVerbs ?? []).map((spec) => spec.verb)
+  )
+]
 
-export const CONTROL_REQUEST_TYPES = Object.keys(
-  CONTROL_REQUEST_TYPE_MARKER
-) as ControlRequest['type'][]
-
-/** How many sub-requests one `batch` may carry. Bounds the work a single socket connection can ask for. */
-export const MAX_BATCH_SIZE = 50
+/**
+ * How many sub-requests one `batch` may carry. Bounds the work a single
+ * socket connection can ask for. Defined in its own leaf module
+ * (`controlLimits.ts`) and re-exported here so this file's existing
+ * importers see no change; `coreControlSpec.ts` imports the leaf directly,
+ * since it must not pull in this file's own module-scope census read (see
+ * that module's constant for why).
+ */
+export { MAX_BATCH_SIZE } from './controlLimits'
 
 /**
  * What a verb aimed at a pane that is gone answers with — quoted verbatim in

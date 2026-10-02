@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { isSafeExternalUrl } from '@tabs/plugin-sdk/shared/url'
 import { describe, expect, it } from 'vitest'
+import { workspaceRuntimeDependencies } from '../../../externals.config'
 import { ATTRIBUTIONS, RUNTIME_COMPONENTS } from '../attributions'
 import { CRYPTO_ADDRESSES, DONATION_TIERS } from '../donations'
-import { isSafeExternalUrl } from '../url'
 
 /**
  * The attributions reconciliation gate — the mechanism behind "should be easy
@@ -55,9 +56,16 @@ const BUNDLED_DEV_DEPENDENCIES = [
   'zustand'
 ]
 
-/** Every npm package that ends up inside the shipped app. */
+/**
+ * Every npm package that ends up inside the shipped app: every third-party
+ * runtime dependency any workspace package declares — the same list
+ * electron.vite.config.ts keeps external, from the same one function
+ * (externals.config.ts), since issue #18 moved node-pty and @xterm/* off the
+ * root and onto packages/plugin-terminal — plus the bundled devDependencies
+ * above.
+ */
 function shippedPackages(): string[] {
-  return [...Object.keys(packageJson.dependencies ?? {}), ...BUNDLED_DEV_DEPENDENCIES].sort()
+  return [...new Set([...workspaceRuntimeDependencies(root), ...BUNDLED_DEV_DEPENDENCIES])].sort()
 }
 
 /**

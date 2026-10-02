@@ -1,4 +1,4 @@
-import type { ContentNode } from '@shared/model/types'
+import type { ContentNode } from '@tabs/plugin-sdk/shared/model/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   testLeaf as leaf,

@@ -1,0 +1,55 @@
+{
+  "description": "signal-both with the bell and control indicators turned off (enableBellIndicator, enableControlIndicator false): identical to split-horizontal — no icon in any header or tab, no cue outline; A keeps the accent outline.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark",
+    "enableBellIndicator": false,
+    "enableControlIndicator": false
+  },
+  "signals": {
+    "leaf-b": [
+      "bell",
+      "controlled"
+    ]
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "split-1",
+            "type": "split",
+            "direction": "horizontal",
+            "children": [
+              {
+                "id": "leaf-a",
+                "type": "empty",
+                "config": {}
+              },
+              {
+                "id": "leaf-b",
+                "type": "empty",
+                "config": {}
+              }
+            ],
+            "sizes": [
+              0.5,
+              0.5
+            ]
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

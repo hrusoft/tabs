@@ -1,5 +1,19 @@
+import type { ContentTypeManifest } from '@tabs/plugin-sdk/shared/content/manifest'
 import { PLUGIN_PACKAGES, type PluginPackageName } from '../../plugins/index'
-import type { ContentTypeSettingsDescriptor } from './settingsDescriptor'
+
+export type { ContentTypeManifest, PluginEntryKind } from '@tabs/plugin-sdk/shared/content/manifest'
+
+/**
+ * Every content type's `type` string as a literal union — `'terminal' |
+ * 'browser' | 'gitTree'`, derived from the one hand-written list rather than
+ * from the globbed manifests (which arrive as `ContentTypeManifest[]` and
+ * could only offer `string`). Defined here, not in the SDK's own manifest.ts,
+ * because it's built from `PLUGIN_PACKAGES` (src/plugins/index.ts) and no
+ * plugin file needs it (verified by grep) — and a relative reach into core
+ * from inside the SDK's composite project is refused by `tsc -b` anyway
+ * (TS6059/TS6307, see CLAUDE.md's plugin-SDK entry).
+ */
+export type ContentTypeId = PluginPackageName
 
 /**
  * ## The content-type census, discovered rather than listed
@@ -11,7 +25,7 @@ import type { ContentTypeSettingsDescriptor } from './settingsDescriptor'
  * again.
  *
  * It is populated by globbing every package's manifest
- * (`src/plugins/<name>/shared/manifest.ts`) and ordering by `PLUGIN_PACKAGES` —
+ * (`packages/plugin-<name>/shared/manifest.ts`) and ordering by `PLUGIN_PACKAGES` —
  * the one hand-written list, which owns order, intent and the literal
  * `ContentTypeId` union (src/plugins/index.ts says why those three cannot be
  * discovered). The other aggregation points do the same per import-graph
@@ -30,63 +44,12 @@ import type { ContentTypeSettingsDescriptor } from './settingsDescriptor'
  * fail a boot.
  */
 
-/** The entry kinds a package may ship, one per import-graph boundary. `shared/` always exists (the manifest lives there). */
-export type PluginEntryKind = 'main' | 'renderer' | 'settings' | 'testing'
-
-export interface ContentTypeManifest {
-  /** The content-type id: matches ContentNode.type AND the package's folder name (enforced at load). */
-  type: string
-  /** Human-readable name — titles panes holding this content, and labels it wherever it is listed. */
-  displayName: string
-  /**
-   * Whether a user may turn this type off.
-   *
-   * Read by `togglableContentTypes()` (./enablement.ts), which is what the
-   * Settings window renders a checkbox from — so a new type appears in that UI
-   * with no edit there. Note this governs only what the UI *offers*: the gate
-   * itself honours plain membership of `disabledContentTypes` for any type at
-   * all, for the reasons enablement.ts sets out. Structural types
-   * (tabs/split/empty) are layout rather than content and are absent from the
-   * census entirely, which is what excludes them.
-   */
-  canDisable: boolean
-  /**
-   * Which entry files this package ships — what each boundary's glob is
-   * reconciled against, in both directions: a declared entry whose file the
-   * glob didn't find is an error, and so is a file nothing declared. The
-   * "you registered what you declared" gate, running against
-   * built-ins today.
-   */
-  entries: readonly PluginEntryKind[]
-  /**
-   * The external-control verbs this package *adds to the wire protocol* — the
-   * names of its own request union, declared so the protocol surface is
-   * readable off the manifest. Reconciled three ways: declared here, typed in
-   * the union, answered by the activations (the reconciliation gate plus the
-   * two verb-coverage gates name whichever copy drifts). Core verbs a package
-   * merely answers (the browser handles four of core's) are deliberately not
-   * declared — which module answers a verb is a separate question from which
-   * union declares it.
-   */
-  controlVerbs?: readonly string[]
-  /**
-   * What this type contributes to the persisted Settings shape, if anything.
-   * Optional: a type with no user-facing settings declares none.
-   * `CONTENT_TYPE_SETTINGS` in src/shared/settings.ts is derived from these,
-   * so this census stays the single source. A package that declares settings
-   * must also ship a `settings` entry, and vice versa — reconciled with the
-   * rest.
-   */
-  settings?: ContentTypeSettingsDescriptor
-}
-
 /**
- * Every content type's `type` string as a literal union — `'terminal' |
- * 'browser' | 'gitTree'`, derived from the one hand-written list rather than
- * from the globbed manifests (which arrive as `ContentTypeManifest[]` and
- * could only offer `string`).
+ * `ContentTypeManifest`/`PluginEntryKind`/`ContentTypeId` themselves now live
+ * in `packages/plugin-sdk/shared/content/manifest.ts` (issue #18) — the pure, declarative
+ * contract a plugin's own `shared/manifest.ts` satisfies, re-exported above
+ * so nothing outside this file needs to know it moved.
  */
-export type ContentTypeId = PluginPackageName
 
 type ManifestModule = { manifest: ContentTypeManifest }
 
@@ -112,7 +75,9 @@ type ManifestModule = { manifest: ContentTypeManifest }
  */
 function loadManifestModules(): Record<string, ManifestModule> {
   if ((import.meta as { env?: unknown }).env) {
-    return import.meta.glob<ManifestModule>('../../plugins/*/shared/manifest.ts', { eager: true })
+    return import.meta.glob<ManifestModule>('../../../packages/plugin-*/shared/manifest.ts', {
+      eager: true
+    })
   }
   throw new Error(
     'the content-type census is only available inside Vite-built contexts; ' +
@@ -124,19 +89,20 @@ function loadManifestModules(): Record<string, ManifestModule> {
 const manifestModules = loadManifestModules()
 
 /**
- * The `src/plugins/<name>/` folder a globbed path belongs to, or undefined
- * for a path that isn't shaped like one — shared with entries.ts, the other
- * `import.meta.glob` reconciler, so the two don't each hand-write this regex.
- * Deliberately as loose as the shape it names: registry.ts's own glob pattern
- * (`plugins/*\/shared/manifest.ts`) already guarantees the stricter shape its
- * caller wants, so narrowing this further would only duplicate that
- * guarantee, not add one.
+ * The package name a globbed path belongs to — `<name>` in
+ * `…/packages/plugin-<name>/…` — or undefined for a path that isn't shaped
+ * like one. Shared with entries.ts, the other `import.meta.glob` reconciler,
+ * so the two don't each hand-write this regex. Deliberately as loose as the
+ * shape it names: each call site's own glob pattern already guarantees the
+ * stricter shape its caller wants, so narrowing this further would only
+ * duplicate that guarantee, not add one. (The glob patterns cannot reach
+ * packages/plugin-sdk: it ships none of the entry files they name.)
  */
 export function packageNameFromPluginPath(path: string): string | undefined {
-  return /\/plugins\/([^/]+)\//.exec(path)?.[1]
+  return /(?:^|\/)packages\/plugin-([^/]+)\//.exec(path)?.[1]
 }
 
-/** The folder name a globbed manifest path belongs to — `../../plugins/<name>/shared/manifest.ts`. */
+/** The folder name a globbed manifest path belongs to — its `shared/manifest.ts`. */
 function packageNameOf(path: string): string {
   const name = packageNameFromPluginPath(path)
   if (!name) throw new Error(`unexpected manifest glob path: ${path}`)
@@ -161,12 +127,12 @@ function buildCensus(): readonly ContentTypeManifest[] {
     }
     if (manifest.type !== name) {
       throw new Error(
-        `content-type package folder "src/plugins/${name}" declares type "${manifest.type}" — a package's folder name is its type id`
+        `content-type package "${name}" declares type "${manifest.type}" — a package's folder name is its type id`
       )
     }
     if (!(PLUGIN_PACKAGES as readonly string[]).includes(name)) {
       throw new Error(
-        `content-type package "${name}" exists under src/plugins/ but is not named in PLUGIN_PACKAGES (src/plugins/index.ts) — add it there to ship it, or remove the folder`
+        `content-type package "${name}" exists but is not named in PLUGIN_PACKAGES (src/plugins/index.ts) — add it there to ship it, or remove the folder`
       )
     }
     byName.set(name, manifest)
@@ -175,7 +141,7 @@ function buildCensus(): readonly ContentTypeManifest[] {
     const manifest = byName.get(name)
     if (!manifest) {
       throw new Error(
-        `PLUGIN_PACKAGES names "${name}" but src/plugins/${name}/shared/manifest.ts does not exist`
+        `PLUGIN_PACKAGES names "${name}" but packages/plugin-${name}/shared/manifest.ts does not exist`
       )
     }
     return manifest

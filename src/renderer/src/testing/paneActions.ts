@@ -1,4 +1,4 @@
-import { PANE_BUTTON } from '@shared/paneDomAttrs'
+import { PANE_BUTTON } from '@tabs/plugin-sdk/shared/paneDomAttrs'
 import { within } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import { headerOf } from './domQueries'

@@ -1,5 +1,5 @@
-import { createLeaf, createTabs } from '@shared/model/factories'
-import type { LeafContent } from '@shared/model/types'
+import { createLeaf, createTabs } from '@tabs/plugin-sdk/shared/model/factories'
+import type { LeafContent } from '@tabs/plugin-sdk/shared/model/types'
 import { afterEach, describe, expect, it } from 'vitest'
 import { contentRegistry } from '../registry'
 import { paneTitleForContent } from '../titles'

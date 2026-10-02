@@ -1,7 +1,6 @@
 import type { ContentBridgeApi } from '@shared/plugin/bridge'
 import { assertPluginTypeName } from '@shared/plugin/bridge'
 import { resolvePluginEntries } from '@shared/plugin/entries'
-import type { ContentFakeApiHandle } from '@shared/testing/content/api'
 import type { FakeContentHost } from '@shared/testing/fakeApiHandle'
 import { Emitter } from '../emitter'
 
@@ -10,7 +9,7 @@ import { Emitter } from '../emitter'
  * installed into it — the test tiers' twin of the real pair (preload's
  * `window.api.content` + each package's main `activate` registering methods).
  * The pieces are discovered the way every other boundary's entries are: a
- * glob over `src/plugins/<name>/testing/fakeApi.ts`, reconciled against each
+ * glob over `packages/plugin-<name>/testing/fakeApi.ts`, reconciled against each
  * manifest's declared `testing` entry (shared/plugin/entries.ts).
  *
  * One routing table per verb kind, keyed by type name — the same namespace
@@ -20,16 +19,19 @@ import { Emitter } from '../emitter'
  * — a typo surfaces as a loud failure, not a silent undefined.
  *
  * Each piece receives a host scoped to its own type and returns its driver
- * contribution. The composed handle is cast to `ContentFakeApiHandle` rather
- * than compile-checked complete — the one completeness check discovery cost,
- * traded knowingly: a driver method a package stopped contributing fails the
- * test that calls it, by name, which is the same loudness one step later.
+ * contribution, merged into one object here and spread onto the core driver
+ * (`window.__fakeApi`) by fakeApi.ts. Core deliberately does not type the
+ * merge: each package types its own slice beside its handle interface (the
+ * browser's `browserGuestFake()`, the git tree's `gitTreeFake()`, in its
+ * shared/testing.ts), so no core file names a content type's test surface. A
+ * driver method a package stopped contributing still fails the test that
+ * calls it, by name.
  */
 const fakeEntries = import.meta.glob<{
-  installFake: (host: FakeContentHost) => Partial<ContentFakeApiHandle>
-}>('../../../../plugins/*/testing/fakeApi.ts', { eager: true })
+  installFake: (host: FakeContentHost) => object
+}>('../../../../../packages/plugin-*/testing/fakeApi.ts', { eager: true })
 
-export function createFakeContentBridge(): { api: ContentBridgeApi; handle: ContentFakeApiHandle } {
+export function createFakeContentBridge(): { api: ContentBridgeApi; handle: object } {
   const invokeHandlers = new Map<string, (...args: unknown[]) => unknown>()
   const sendListeners = new Map<string, (...args: unknown[]) => void>()
   const emitters = new Map<string, Emitter<unknown[]>>()
@@ -71,7 +73,7 @@ export function createFakeContentBridge(): { api: ContentBridgeApi; handle: Cont
     on: (type, event, listener) => emitterFor(type, event).subscribe((args) => listener(...args))
   }
 
-  const handle = {} as ContentFakeApiHandle
+  const handle = {}
   for (const [type, entry] of resolvePluginEntries('testing', fakeEntries)) {
     Object.assign(handle, entry.installFake(hostFor(type)))
   }

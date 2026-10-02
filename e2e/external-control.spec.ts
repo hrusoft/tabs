@@ -16,9 +16,10 @@ import {
   closePane,
   initialPane,
   paneById,
-  splitHorizontal
+  splitHorizontal,
+  wrapInTabGroup
 } from './helpers/pane'
-import { openSettingsWindow } from './helpers/settings'
+import { mergeSettings, openSettingsWindow } from './helpers/settings'
 import { openTerminal } from './helpers/terminal'
 import { testServerForSpec } from './helpers/testServer'
 
@@ -38,6 +39,62 @@ test('a skill running outside Tabs is rejected before it can do anything', async
   const response = await runTabsCtl(['create-browser-pane', '--url', 'about:blank'], {})
   expect(response.ok).toBe(false)
   expect(response.error).toContain('not running inside a Tabs terminal pane')
+})
+
+test('capabilities lists every capability with its enabled state, describe returns one capability’s full reference', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  try {
+    const capabilities = await runTabsCtl(['capabilities'], env)
+    expect(capabilities.ok).toBe(true)
+    const ids = capabilities.result?.capabilities?.map((c) => c.id)
+    expect(ids).toContain('core')
+    expect(ids).toContain('browser')
+    const browser = capabilities.result?.capabilities?.find((c) => c.id === 'browser')
+    expect(browser?.enabled).toBe(true)
+    expect(browser?.commands?.length).toBeGreaterThan(0)
+    // Every command line is compact — one line, naming the command.
+    for (const line of browser?.commands ?? []) {
+      expect(line).not.toContain('\n')
+      expect(line).toContain('tabs-ctl')
+    }
+
+    const describe = await runTabsCtl(['describe', '--capability', 'browser'], env)
+    expect(describe.ok).toBe(true)
+    expect(describe.result?.capability).toBe('browser')
+    expect(describe.result?.guide).toContain('Browser panes')
+    const click = describe.result?.commands?.find((c) => c.command === 'click')
+    expect(click?.wire).toMatchObject({ type: 'object' })
+    expect(click?.usage).toContain('tabs-ctl click')
+
+    const unknown = await runTabsCtl(['describe', '--capability', 'nonexistent'], env)
+    expect(unknown.ok).toBe(false)
+    expect(unknown.error).toContain('unknown capability')
+  } finally {
+    await closeAgentSession(page, env)
+  }
+})
+
+test('a malformed envelope is refused with a validation message, before anything is dispatched', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  try {
+    // An unknown command.
+    const unknownCommand = await runTabsCtl(['not-a-real-command'], env)
+    expect(unknownCommand.ok).toBe(false)
+    expect(unknownCommand.error).toContain('unknown command')
+
+    // A known command, missing its one required flag.
+    const missingFlag = await runTabsCtl(['navigate', '--pane', 'whatever'], env)
+    expect(missingFlag.ok).toBe(false)
+    expect(missingFlag.error).toContain('--url is required')
+  } finally {
+    await closeAgentSession(page, env)
+  }
 })
 
 test('an agent can create and control a browser pane it owns, but no other', async ({
@@ -221,6 +278,96 @@ for (const { placement, direction, shared, apart } of [
   })
 }
 
+/**
+ * With split placement every create-browser-pane splices its pane into the
+ * split beside the caller, and every close takes one out — and each of those
+ * used to remount the whole split, reloading every browser page in it (the
+ * group was keyed by its children's ids; see SplitRenderer.tsx and CLAUDE.md's
+ * webview-reparent entry). What an agent loses then is exactly what lives
+ * only in the page: history, a filled field, the console buffer, and its
+ * refs. So those are what this checks, through the verbs an agent would use.
+ */
+test('creating and closing split-placed panes leaves an existing browser pane untouched', async ({
+  page,
+  electronApp
+}) => {
+  const { env } = await openAgentSession(page, electronApp)
+  await mergeSettings(electronApp, {
+    contentTypes: { browser: { controlledPanePlacement: 'split-horizontal' } }
+  })
+
+  const first = await createAgentPane(env, '--url', server.url('/other'))
+  expect((await runTabsCtl(['navigate', '--pane', first, '--url', server.url()], env)).ok).toBe(
+    true
+  )
+  const filled = await runTabsCtl(
+    [
+      'form-input',
+      '--pane',
+      first,
+      '--fields',
+      JSON.stringify([{ target: { selector: '#name' }, value: 'kept' }])
+    ],
+    env
+  )
+  expect(filled.result?.filled).toBe(1)
+  const found = await runTabsCtl(['read-page', '--pane', first, '--selector', '#go'], env)
+  const ref = found.result?.elements?.[0]?.ref
+  expect(ref).toBeTruthy()
+
+  /** Everything that lives only in the page, read the way an agent would. */
+  const pageState = async () => ({
+    pageInstance: (await runTabsCtl(['pane-info', '--pane', first], env)).result?.pageInstance,
+    page: (
+      await runTabsCtl(
+        [
+          'execute-js',
+          '--pane',
+          first,
+          '--code',
+          "[history.length, document.getElementById('name').value]"
+        ],
+        env
+      )
+    ).result?.value,
+    canGoBack: (await runTabsCtl(['pane-info', '--pane', first], env)).result?.canGoBack,
+    consoleKept: (
+      await runTabsCtl(['read-console', '--pane', first, '--pattern', '^fixture ready$'], env)
+    ).result?.messages?.length,
+    refResolves: (await runTabsCtl(['click', '--pane', first, '--ref', ref ?? ''], env)).ok
+  })
+  const before = await pageState()
+  expect(before).toEqual({
+    pageInstance: expect.any(String),
+    page: [2, 'kept'],
+    canGoBack: true,
+    consoleKept: 1,
+    refResolves: true
+  })
+
+  const second = await createAgentPane(env, '--url', server.url('/other'))
+  const third = await createAgentPane(env, '--url', server.url('/other'))
+  expect(await pageState()).toEqual(before)
+
+  expect((await runTabsCtl(['close-pane', '--pane', third], env)).ok).toBe(true)
+  expect(await pageState()).toEqual(before)
+  expect((await runTabsCtl(['close-pane', '--pane', second], env)).ok).toBe(true)
+  expect(await pageState()).toEqual(before)
+
+  // The case that still re-creates the page — the pane itself changing place
+  // (here wrapped into a tab group by the user) — is the one pageInstance
+  // exists to announce: it changes, and the page is back to one entry.
+  await wrapInTabGroup(paneById(page, first))
+  await expect
+    .poll(async () => (await runTabsCtl(['pane-info', '--pane', first], env)).result?.pageInstance)
+    .not.toBe(before.pageInstance)
+  await expect
+    .poll(async () => (await runTabsCtl(['pane-info', '--pane', first], env)).result?.canGoBack)
+    .toBe(false)
+
+  await closeAgentSession(page, env, first)
+})
+
 test('create-browser-pane opens its own unpinned window when placement is set to unpinned', async ({
   page,
   electronApp
@@ -301,7 +448,7 @@ test('driving a pane never steals keyboard focus from the terminal', async ({
   const before = await focusedTag()
   // The active-pane highlight is the other half of "whose turn is it", and
   // since a press inside a guest now activates its pane
-  // (src/plugins/browser/main/guestActivation.ts), an agent's synthesized click would
+  // (packages/plugin-browser/main/guestActivation.ts), an agent's synthesized click would
   // move it — an injected mouseDown being indistinguishable from the user's at
   // the guest. Record where it sits so the assertions below can prove it
   // didn't move; a moved highlight would drag the keyboard after it through
@@ -399,18 +546,24 @@ function rawRequest(socketPath: string, parts: Buffer[]): Promise<string> {
   })
 }
 
-test('a raw socket client sending an unknown verb gets a clean refusal', async ({
+test('a raw socket client sending an unknown command gets a clean refusal', async ({
   page,
   electronApp
 }) => {
   const { env } = await openAgentSession(page, electronApp)
 
-  // tabs-ctl now validates verbs client-side, so go under it to prove the
-  // server rejects unknown types too instead of answering `undefined`.
+  // tabs-ctl sends no more than {command, args, paneId, cwd} — go under it to
+  // prove the server rejects an unrecognized command too, rather than
+  // crashing or answering `undefined`. A malformed *envelope* (missing
+  // `command` entirely) is covered by the "malformed envelope" test above;
+  // this is a well-formed envelope naming a command nothing declares.
   const raw = await rawRequest(env.TABS_CONTROL_SOCKET, [
-    Buffer.from(`${JSON.stringify({ type: 'nope', paneId: env.TABS_PANE_ID })}\n`)
+    Buffer.from(`${JSON.stringify({ command: 'nope', paneId: env.TABS_PANE_ID })}\n`)
   ])
-  expect(JSON.parse(raw)).toEqual({ ok: false, error: 'unknown request type: nope' })
+  expect(JSON.parse(raw)).toEqual({
+    ok: false,
+    error: 'unknown command: nope — run capabilities to list them'
+  })
 
   await closeAgentSession(page, env)
 })
@@ -421,16 +574,19 @@ test('a request split mid-character across socket chunks decodes intact', async 
 }) => {
   const { env } = await openAgentSession(page, electronApp)
 
-  // The refusal echoes the type back, which makes it an echo of the decoded
-  // text. The emoji's four bytes are cut in half across two writes — decoded
-  // chunk by chunk, each half became U+FFFD.
-  const bytes = Buffer.from(`${JSON.stringify({ type: 'nope-🙂', paneId: env.TABS_PANE_ID })}\n`)
+  // The refusal echoes the command back, which makes it an echo of the
+  // decoded text. The emoji's four bytes are cut in half across two writes —
+  // decoded chunk by chunk, each half became U+FFFD.
+  const bytes = Buffer.from(`${JSON.stringify({ command: 'nope-🙂', paneId: env.TABS_PANE_ID })}\n`)
   const cut = bytes.indexOf(Buffer.from('🙂')) + 2
   const raw = await rawRequest(env.TABS_CONTROL_SOCKET, [
     bytes.subarray(0, cut),
     bytes.subarray(cut)
   ])
-  expect(JSON.parse(raw)).toEqual({ ok: false, error: 'unknown request type: nope-🙂' })
+  expect(JSON.parse(raw)).toEqual({
+    ok: false,
+    error: 'unknown command: nope-🙂 — run capabilities to list them'
+  })
 
   await closeAgentSession(page, env)
 })

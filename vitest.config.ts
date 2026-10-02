@@ -13,7 +13,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
-          include: ['src/**/__tests__/**/*.test.ts']
+          include: ['src/**/__tests__/**/*.test.ts', 'packages/*/**/__tests__/**/*.test.ts']
         }
       },
       {
@@ -24,7 +24,7 @@ export default defineConfig({
         test: {
           name: 'components',
           environment: 'jsdom',
-          include: ['src/**/__tests__/**/*.test.tsx'],
+          include: ['src/**/__tests__/**/*.test.tsx', 'packages/*/**/__tests__/**/*.test.tsx'],
           // Order matters: the polyfills must run before react-dom's module
           // init, which the second file's RTL import triggers.
           setupFiles: [

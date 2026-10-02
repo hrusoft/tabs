@@ -1,0 +1,19 @@
+{
+  "name": "@tabs/plugin-terminal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tabs/plugin-sdk": "*",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0"
+  },
+  "peerDependencies": {
+    "electron": "*",
+    "react": "*"
+  }
+}

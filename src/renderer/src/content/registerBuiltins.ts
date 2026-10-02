@@ -1,6 +1,6 @@
 import { resolvePluginEntries } from '@shared/plugin/entries'
+import type { RendererPluginContext } from '@tabs/plugin-sdk/renderer/api'
 import { contentRegistry } from '../core/registry/registry'
-import type { RendererPluginContext } from '../plugin/api'
 import { createRendererPluginContext } from '../plugin/context'
 import { registerStructuralContent } from './registerStructural'
 
@@ -8,8 +8,8 @@ import { registerStructuralContent } from './registerStructural'
  * The pane window's activation point: every package's renderer entry,
  * discovered by glob and reconciled against the manifests
  * (shared/plugin/entries.ts), each activated against a context bound to its
- * type (plugin/context.ts). No package is named here — adding one is a folder
- * plus a PLUGIN_PACKAGES line, and this file never changes.
+ * type (plugin/context.ts). No package is named here, and adding one never
+ * changes this file (the steps are listed beside PLUGIN_PACKAGES).
  *
  * Activation order is PLUGIN_PACKAGES order, and it is a UI contract: the
  * registry's iteration order drives the order creation actions appear in
@@ -24,7 +24,7 @@ import { registerStructuralContent } from './registerStructural'
  * shared/content/registry.ts).
  */
 const rendererEntries = import.meta.glob<{ activate: (ctx: RendererPluginContext) => void }>(
-  '../../../plugins/*/renderer/index.ts',
+  '../../../../packages/plugin-*/renderer/index.ts',
   { eager: true }
 )
 

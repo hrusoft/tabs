@@ -1,3 +1,4 @@
+import type { MainPluginContext } from '@tabs/plugin-sdk/main/api'
 import { ipcMain } from 'electron'
 import { pluginEventChannel, pluginMethodChannel } from '../../shared/plugin/bridge'
 import { registerCloseBlockerProvider } from '../closeBlockers'
@@ -10,7 +11,6 @@ import { openExternalUrl } from '../openExternal'
 import { registerPaneHost } from '../paneHostRegistry'
 import { userDataPath } from '../persist'
 import { getSettings } from '../settings'
-import type { MainPluginContext } from './api'
 
 /**
  * Core's side of the main-process plugin API: builds the context a

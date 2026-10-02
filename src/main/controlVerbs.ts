@@ -1,5 +1,16 @@
+import type {
+  MainControlContext,
+  MainControlVerb,
+  MainControlVerbTable
+} from '@tabs/plugin-sdk/main/controlVerbTable'
 import type { ControlRequest, ControlResponse } from '../shared/externalControl'
 import { CONTROL_REQUEST_TYPES } from '../shared/externalControl'
+
+export type {
+  MainControlContext,
+  MainControlVerb,
+  MainControlVerbTable
+} from '@tabs/plugin-sdk/main/controlVerbTable'
 
 /**
  * The main process's registry of external-control verb handlers — main's twin
@@ -30,91 +41,6 @@ import { CONTROL_REQUEST_TYPES } from '../shared/externalControl'
  */
 
 type ControlVerb = ControlRequest['type']
-
-/**
- * What core lends a verb handler. Deliberately tiny: the two capabilities that
- * genuinely live in core's half and cannot be reimplemented by a content type
- * — the renderer relay (whose pending-request bookkeeping and per-verb budget
- * are core's) and the ownership ledger's grant side.
- *
- * There is no revoke here on purpose. Ownership is dropped by `closePane`,
- * which is a core verb, so revoking stays internal to core's own module rather
- * than becoming surface a content type could get wrong.
- */
-export interface MainControlContext {
-  /**
-   * Asks the renderer hosting the caller's pane to answer this request, on the
-   * budget registered for its verb. Resolves with an error response rather
-   * than rejecting — every caller is a socket connection expecting a
-   * `ControlResponse`.
-   */
-  relay(request: ControlRequest): Promise<ControlResponse>
-  /**
-   * Records that `paneId` was created by, and therefore belongs to,
-   * `ownerPaneId` — the check every `targetPaneId`-bearing verb is gated on.
-   * Call it only once the pane genuinely exists.
-   */
-  grantOwnership(paneId: string, ownerPaneId: string): void
-}
-
-/**
- * A verb's main-side implementation. It receives its own narrowed request and
- * *returns* the answer — it never touches the socket, so it cannot reply twice
- * or fail to reply. A throw becomes an error response (see handleRequest).
- */
-type MainControlVerbHandler<V extends ControlVerb> = (
-  request: Extract<ControlRequest, { type: V }>,
-  context: MainControlContext
-) => ControlResponse | Promise<ControlResponse>
-
-export interface MainControlVerb<V extends ControlVerb> {
-  /**
-   * How long the verb may take before the socket caller is told it timed out.
-   * A relayed verb's relay times out at exactly this; core also cuts off any
-   * handler still running `RELAY_HEADROOM_MS` past it (see handleRequest),
-   * which is what bounds a verb answered entirely in main — a stalled fetch,
-   * a guest script that never settles — and lets a relay's own, more
-   * specific answer win whenever there is one. `Infinity` opts out, for a
-   * verb whose sub-steps carry their own budgets (`batch`).
-   *
-   * A budget must outlive any renderer-side wait it covers — the renderer's
-   * own timeout answer is far more useful than a bare relay timeout, so the
-   * relay must always fire later.
-   *
-   * The function form is for a verb whose wait is *per-request* — `waitFor`
-   * carries its own `timeoutMs` field, so a static number would have to be
-   * sized for the ceiling and leave a 3-second wait hanging five minutes on a
-   * dead renderer. It receives the verb's own narrowed request and is
-   * evaluated once per relay (see relayToRenderer), which is also what lets a
-   * long wait inside a `batch` get exactly its own budget: each sub-request
-   * relays individually, so the arithmetic composes with no further plumbing.
-   * The invariant is the caller's to keep: derive the returned number from
-   * the same clamped wait the renderer will actually run, plus
-   * RELAY_HEADROOM_MS.
-   */
-  timeoutMs: number | ((request: Extract<ControlRequest, { type: V }>) => number)
-  /**
-   * Whether this verb may appear inside a `batch`. Defaults to true.
-   *
-   * `false` is for verbs whose effect depends on evaluation order within the
-   * batch — `createBrowserPane` registers a new pane's ownership partway
-   * through, so whether a later sub-request may target it would depend on
-   * where it sits in the list. Core refuses those without naming any of them
-   * (see handleBatch), which is why this is a property of the verb rather than
-   * a check in core.
-   */
-  batchable?: boolean
-  handle: MainControlVerbHandler<V>
-}
-
-/**
- * Every verb of one request union, with its budget and handler. Annotate a
- * content type's table with its own union (`MainControlVerbTable<FooRequest>`)
- * and the compiler enforces that it covers exactly that union's verbs.
- */
-export type MainControlVerbTable<R extends { type: ControlVerb }> = {
-  [V in R['type']]: MainControlVerb<V>
-}
 
 /**
  * How a verb is held once stored. Not `MainControlVerb` itself: handlers are
@@ -151,7 +77,7 @@ export function registerMainControlVerbs<R extends { type: ControlVerb }>(
 ): void {
   for (const [verb, def] of Object.entries(table) as [
     ControlVerb,
-    MainControlVerb<ControlVerb>
+    MainControlVerb<ControlVerb, ControlRequest>
   ][]) {
     if (verbs.has(verb)) {
       throw new Error(`Main control verb already registered for "${verb}"`)
