@@ -1,0 +1,41 @@
+{
+  "description": "browser-history in the light theme.",
+  "size": {
+    "width": 900,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "light"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-web",
+            "type": "browser",
+            "config": {
+              "url": "about:blank"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-web",
+    "floating": []
+  },
+  "content": {
+    "leaf-web": {
+      "page": "#2b3a55",
+      "canGoBack": true,
+      "address": "https://example.com/docs/getting-started",
+      "title": "Example Domain"
+    }
+  }
+}

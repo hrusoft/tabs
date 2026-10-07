@@ -1,0 +1,182 @@
+{
+  "contextMenu": null,
+  "controls": {
+    "group-g": {
+      "buttons": {
+        "pane-close-button": [1172, 35.5, 23, 17],
+        "pane-split-horizontal-button": [1140, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1140, 35.5, 55, 17],
+      "separator": [1167, 38.5, 1, 11],
+      "visible": true
+    },
+    "leaf-a": {
+      "buttons": {
+        "pane-close-button": [572, 35.5, 23, 17],
+        "pane-split-horizontal-button": [540, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [540, 35.5, 55, 17],
+      "separator": [567, 38.5, 1, 11],
+      "visible": false
+    },
+    "leaf-y": {
+      "buttons": {
+        "pane-close-button": [1172, 60.5, 23, 17],
+        "pane-split-horizontal-button": [1140, 60.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1140, 60.5, 55, 17],
+      "separator": [1167, 63.5, 1, 11],
+      "visible": false
+    },
+    "root": {
+      "buttons": {
+        "pane-close-button": [1135, 7.5, 23, 17],
+        "pane-new-tab-button": [1103, 7.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1103, 7.5, 55, 17],
+      "separator": [1130, 10.5, 1, 11],
+      "visible": false
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "dragGhost": [770, 62, 74.33, 26],
+  "dragGhostText": "New Tab",
+  "dropIndicator": [708.03, 37.5, 2, 15],
+  "emptyDropTarget": null,
+  "emptyToolbars": {
+    "leaf-a": {
+      "buttons": [
+        [284, 412, 32, 32]
+      ],
+      "rect": [284, 412, 32, 32]
+    },
+    "leaf-y": {
+      "buttons": [
+        [884, 424.5, 32, 32]
+      ],
+      "rect": [884, 424.5, 32, 32]
+    }
+  },
+  "floating": {},
+  "panes": {
+    "group-g": {
+      "active": false,
+      "body": [601, 32, 598, 767],
+      "depth": 1,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [600, 31, 599, 768],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    },
+    "leaf-a": {
+      "active": false,
+      "body": [1, 57, 598, 742],
+      "depth": 1,
+      "dimmed": true,
+      "dragging": false,
+      "grip": [15, 39, 6.84, 10],
+      "header": [1, 32, 598, 25],
+      "rect": [1, 31, 599, 768],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane"
+    },
+    "leaf-y": {
+      "active": true,
+      "body": [601, 82, 598, 717],
+      "depth": 2,
+      "dimmed": false,
+      "dragging": false,
+      "grip": [622, 64, 6.84, 10],
+      "header": [601, 57, 598, 25],
+      "rect": [601, 56, 598, 743],
+      "title": [636.84, 62.5, 62.03, 13],
+      "titleBaseline": 73.5,
+      "titleText": "Empty pane"
+    },
+    "root": {
+      "active": false,
+      "body": [1, 1, 1198, 798],
+      "depth": 0,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [0, 0, 1200, 800],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    }
+  },
+  "separators": {
+    "split-1:1": [600, 31, 0, 768]
+  },
+  "size": {
+    "height": 800,
+    "width": 1200
+  },
+  "tabBars": {
+    "group-g": {
+      "grip": [615, 39, 6.84, 10],
+      "newTab": [790.21, 38, 20, 14],
+      "rect": [601, 32, 598, 24],
+      "root": false,
+      "settings": null,
+      "strip": [629.84, 33, 502.16, 24],
+      "tabs": {
+        "tab-x": {
+          "active": false,
+          "baseline": 50,
+          "close": [688.02, 39.5, 15.01, 14],
+          "dragging": true,
+          "rect": [629.84, 36, 76.19, 21],
+          "text": "New Tab",
+          "title": [640.84, 39, 45.18, 13],
+          "titleBox": [640.84, 39, 45.18, 13],
+          "truncated": false
+        },
+        "tab-y": {
+          "active": true,
+          "baseline": 50,
+          "close": [770.21, 39.5, 15.01, 14],
+          "dragging": false,
+          "rect": [712.03, 35, 76.19, 22],
+          "text": "New Tab",
+          "title": [723.03, 39, 45.18, 13],
+          "titleBox": [723.03, 39, 45.18, 13],
+          "truncated": false
+        }
+      }
+    },
+    "root": {
+      "grip": null,
+      "newTab": [147.69, 13, 20, 14],
+      "rect": [1, 1, 1198, 30],
+      "root": true,
+      "settings": [1166, 4.5, 23, 23],
+      "strip": [90, 8, 1005, 24],
+      "tabs": {
+        "tab-main": {
+          "active": true,
+          "baseline": 25,
+          "close": [127.69, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [90, 10, 55.69, 22],
+          "text": "Tabs",
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "truncated": false
+        }
+      }
+    }
+  }
+}

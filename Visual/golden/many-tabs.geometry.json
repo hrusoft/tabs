@@ -1,0 +1,184 @@
+{
+  "contextMenu": null,
+  "controls": {
+    "leaf-4": {
+      "buttons": {
+        "pane-close-button": [972, 35.5, 23, 17],
+        "pane-split-horizontal-button": [940, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [940, 35.5, 55, 17],
+      "separator": [967, 38.5, 1, 11],
+      "visible": false
+    },
+    "root": {
+      "buttons": {
+        "pane-close-button": [935, 7.5, 23, 17],
+        "pane-new-tab-button": [903, 7.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [903, 7.5, 55, 17],
+      "separator": [930, 10.5, 1, 11],
+      "visible": false
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "emptyDropTarget": null,
+  "emptyToolbars": {
+    "leaf-4": {
+      "buttons": [
+        [484, 312, 32, 32]
+      ],
+      "rect": [484, 312, 32, 32]
+    }
+  },
+  "floating": {},
+  "panes": {
+    "leaf-4": {
+      "active": true,
+      "body": [1, 57, 998, 542],
+      "depth": 1,
+      "dimmed": false,
+      "dragging": false,
+      "grip": [15, 39, 6.84, 10],
+      "header": [1, 32, 998, 25],
+      "rect": [1, 31, 998, 568],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane"
+    },
+    "root": {
+      "active": false,
+      "body": [1, 1, 998, 598],
+      "depth": 0,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [0, 0, 1000, 600],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    }
+  },
+  "separators": {},
+  "size": {
+    "height": 600,
+    "width": 1000
+  },
+  "tabBars": {
+    "root": {
+      "grip": null,
+      "newTab": [1049.94, 13, 20, 14],
+      "rect": [1, 1, 998, 30],
+      "root": true,
+      "settings": [966, 4.5, 23, 23],
+      "strip": [90, 8, 805, 24],
+      "tabs": {
+        "tab-1": {
+          "active": false,
+          "baseline": 25,
+          "close": [127.69, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [90, 11, 55.69, 21],
+          "text": "Tabs",
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "truncated": false
+        },
+        "tab-2": {
+          "active": false,
+          "baseline": 25,
+          "close": [212.44, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [147.69, 11, 82.75, 21],
+          "text": "api server",
+          "title": [158.69, 14, 51.75, 13],
+          "titleBox": [158.69, 14, 51.75, 13],
+          "truncated": false
+        },
+        "tab-3": {
+          "active": false,
+          "baseline": 25,
+          "close": [307.33, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [232.45, 11, 92.89, 21],
+          "text": "~/work/tabs",
+          "title": [243.45, 14, 61.89, 13],
+          "titleBox": [243.45, 14, 61.89, 13],
+          "truncated": false
+        },
+        "tab-4": {
+          "active": true,
+          "baseline": 25,
+          "close": [529.33, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [327.34, 10, 220, 22],
+          "text": "Build and deploy pipeline logs for the staging environment",
+          "title": [338.34, 14, 188.99, 13],
+          "titleBox": [338.34, 14, 188.99, 13],
+          "truncated": true
+        },
+        "tab-5": {
+          "active": false,
+          "baseline": 25,
+          "close": [591.54, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [549.34, 11, 60.21, 21],
+          "text": "notes",
+          "title": [560.34, 14, 29.2, 13],
+          "titleBox": [560.34, 14, 29.2, 13],
+          "truncated": false
+        },
+        "tab-6": {
+          "active": false,
+          "baseline": 25,
+          "close": [813.54, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [611.54, 11, 220, 21],
+          "text": "Very long title that the tab should truncate",
+          "title": [622.54, 14, 188.99, 13],
+          "titleBox": [622.54, 14, 188.99, 13],
+          "truncated": true
+        },
+        "tab-7": {
+          "active": false,
+          "baseline": 25,
+          "close": [860.19, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [833.54, 11, 44.65, 21],
+          "text": "db",
+          "title": [844.54, 14, 13.64, 13],
+          "titleBox": [844.54, 14, 13.64, 13],
+          "truncated": false
+        },
+        "tab-8": {
+          "active": false,
+          "baseline": 25,
+          "close": [917.05, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [880.2, 11, 54.87, 21],
+          "text": "htop",
+          "title": [891.2, 14, 23.86, 13],
+          "titleBox": [891.2, 14, 23.86, 13],
+          "truncated": false
+        },
+        "tab-9": {
+          "active": false,
+          "baseline": 25,
+          "close": [1029.94, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [937.06, 11, 110.88, 21],
+          "text": "Documentation",
+          "title": [948.06, 14, 79.87, 13],
+          "titleBox": [948.06, 14, 79.87, 13],
+          "truncated": false
+        }
+      }
+    }
+  }
+}

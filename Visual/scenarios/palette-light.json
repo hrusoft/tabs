@@ -1,0 +1,35 @@
+{
+  "description": "palette-types in the light theme (colorTheme light): the same list, two rows in order: Stub (the harness stub type, icon the text glyph U+25A3 in a span), then Sample 2 (the same glyph), first row highlighted.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "light"
+  },
+  "paletteTypes": 1,
+  "palette": {
+    "step": "type"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-a"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

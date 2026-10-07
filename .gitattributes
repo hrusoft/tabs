@@ -1,6 +1,6 @@
 # Paths excluded from the public source mirror.
 #
-# `export-ignore` affects `git archive` only, which is how scripts/sync-public.sh
+# `export-ignore` affects `git archive` only, which is how Scripts/sync-public.sh
 # builds each public snapshot. Nothing here changes this repository, a checkout,
 # a build or a test run.
 
@@ -8,13 +8,13 @@
 .claude/                        export-ignore
 CLAUDE.md                       export-ignore
 
-# scripts/build-dmgs.sh is deliberately NOT excluded: it builds a release's dmgs
-# from the same tree the mirror receives, so anyone can rebuild them from there.
+# Scripts/build-dmg.sh is deliberately NOT excluded: it builds a release's dmg
+# from the same tree the mirror receives, so anyone can rebuild it from there.
 # Note that a file cannot be added to the mirror directly — a snapshot replaces
 # its whole tree — so anything that must exist there has to be published from
 # here.
 
 # The mirror machinery itself — release.sh drives sync-public.sh, so neither
 # can run anywhere but here.
-scripts/sync-public.sh          export-ignore
-scripts/release.sh              export-ignore
+Scripts/sync-public.sh          export-ignore
+Scripts/release.sh              export-ignore

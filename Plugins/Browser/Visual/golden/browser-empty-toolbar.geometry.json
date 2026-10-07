@@ -1,0 +1,97 @@
+{
+  "contextMenu": null,
+  "controls": {
+    "leaf-a": {
+      "buttons": {
+        "pane-close-button": [572, 35.5, 23, 17],
+        "pane-split-horizontal-button": [540, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [540, 35.5, 55, 17],
+      "separator": [567, 38.5, 1, 11],
+      "visible": false
+    },
+    "root": {
+      "buttons": {
+        "pane-close-button": [535, 7.5, 23, 17],
+        "pane-new-tab-button": [503, 7.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [503, 7.5, 55, 17],
+      "separator": [530, 10.5, 1, 11],
+      "visible": false
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "emptyDropTarget": null,
+  "emptyToolbars": {
+    "leaf-a": {
+      "buttons": [
+        [268.5, 212, 32, 32],
+        [299.5, 212, 32, 32]
+      ],
+      "rect": [268.5, 212, 63, 32]
+    }
+  },
+  "floating": {},
+  "panes": {
+    "leaf-a": {
+      "active": true,
+      "body": [1, 57, 598, 342],
+      "depth": 1,
+      "dimmed": false,
+      "dragging": false,
+      "grip": [15, 39, 6.84, 10],
+      "header": [1, 32, 598, 25],
+      "rect": [1, 31, 598, 368],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane"
+    },
+    "root": {
+      "active": false,
+      "body": [1, 1, 598, 398],
+      "depth": 0,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [0, 0, 600, 400],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    }
+  },
+  "separators": {},
+  "size": {
+    "height": 400,
+    "width": 600
+  },
+  "tabBars": {
+    "root": {
+      "grip": null,
+      "newTab": [147.69, 13, 20, 14],
+      "rect": [1, 1, 598, 30],
+      "root": true,
+      "settings": [566, 4.5, 23, 23],
+      "strip": [90, 8, 405, 24],
+      "tabs": {
+        "tab-main": {
+          "active": true,
+          "baseline": 25,
+          "close": [127.69, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [90, 10, 55.69, 22],
+          "text": "Tabs",
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "truncated": false
+        }
+      }
+    }
+  }
+}

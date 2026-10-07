@@ -1,0 +1,40 @@
+{
+  "description": "A single browser pane, active, Back and Forward disabled (0.35), the address bar showing the URL behind a title segment (\"Example Domain\", its own shade, snug width). The body is the solid-color fixture page.",
+  "size": {
+    "width": 900,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-web",
+            "type": "browser",
+            "config": {
+              "url": "about:blank"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-web",
+    "floating": []
+  },
+  "content": {
+    "leaf-web": {
+      "page": "#2b3a55",
+      "address": "https://example.com/docs/getting-started",
+      "title": "Example Domain"
+    }
+  }
+}

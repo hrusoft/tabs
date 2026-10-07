@@ -1,0 +1,40 @@
+# The GitTree plugin: its bundle, its tests, and its place in the app.
+# `make project` includes this file; nothing else in the build names it.
+targets:
+  GitTreePlugin:
+    templates: [Plugin]
+    templateAttributes: { pluginID: git-tree, pluginDir: Plugins/GitTree }
+  GitTreePluginTests:
+    templates: [PluginTests]
+    templateAttributes: { pluginDir: Plugins/GitTree }
+  GitTreePluginUITests:
+    templates: [PluginUITests]
+    templateAttributes: { pluginDir: Plugins/GitTree }
+  GitTreePluginE2ETests:
+    templates: [PluginE2ETests]
+    templateAttributes: { pluginDir: Plugins/GitTree }
+  Tabs:
+    dependencies:
+      - target: GitTreePlugin
+        link: false
+        embed: true
+        copy: { destination: plugins }
+    settings:
+      base:
+        TABS_BUNDLED_PLUGIN_GIT_TREE: git-tree
+schemes:
+  Tabs:
+    test:
+      # The unit and end-to-end suites run at once (each repository, pane and app
+      # is their own); the UI tier drives AppKit's shared state and stays serial.
+      targets:
+        - name: GitTreePluginTests
+          parallelizable: true
+        - GitTreePluginUITests
+        - name: GitTreePluginE2ETests
+          parallelizable: true
+  Plugins:
+    test:
+      targets:
+        - name: GitTreePluginTests
+          parallelizable: true

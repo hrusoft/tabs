@@ -1,6 +1,6 @@
 <table border="0">
   <tr>
-    <td><img src="build/icon.png" alt="Tabs icon" width="96" height="96" style="height: auto;"></td>
+    <td><img src="Sources/Tabs/Assets.xcassets/AppIcon.appiconset/icon_512x512.png" alt="Tabs icon" width="96" height="96" style="height: auto;"></td>
     <td valign="middle">
       <h1>Tabs</h1>
       A fancy terminal for your Mac, with tabs, splits, and nested layouts —
@@ -40,21 +40,35 @@ way around.
 
 ## Installation
 
-Tabs currently ships for **macOS on Apple Silicon** (M1 and later).
+Tabs runs on **macOS 15 (Sequoia) or later**, on Apple Silicon and Intel Macs.
 
 1. Go to the [latest release](https://github.com/hrusoft/tabs/releases/latest) and
-   download `tabs-<version>-arm64.dmg`. Each release lists the files' SHA-256 if you
-   want to verify them.
+   download `tabs-<version>-universal.dmg`. Each release lists its SHA-256 if you want
+   to verify it.
 2. Open the downloaded file and drag **Tabs** into your **Applications** folder.
-3. Launch Tabs from Applications (or Spotlight).
+3. Clear the quarantine flag once, from Terminal:
 
-Tabs isn't notarized by Apple yet, so on first launch macOS will warn that it can't
-verify the app. Right-click (or Control-click) the Tabs icon in Applications and choose
-**Open**, then confirm **Open** in the dialog that appears — you only need to do this once.
+   ```sh
+   xattr -rd com.apple.quarantine /Applications/Tabs.app
+   ```
 
-Each release also carries `tabs-native-experimental-<version>-universal.dmg`: an early,
-experimental native macOS version of Tabs, for Apple Silicon and Intel Macs. It installs
-as Tabs.app too, so installing one replaces the other.
+4. Launch Tabs from Applications (or Spotlight).
+
+Tabs isn't signed or notarized by Apple yet, so macOS quarantines the downloaded copy and
+refuses to open it until step 3 clears that flag. The `Read Me.txt` in the dmg says the
+same.
+
+## Building from source
+
+Tabs is a Swift and AppKit app built with Xcode 27 and [mise](https://mise.jdx.dev):
+
+```sh
+make run      # build and launch with scratch data
+make check    # everything a change must pass
+```
+
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) covers the rest: the commands, the layout of
+the source, and the docs on how it all fits together.
 
 ## Contributing
 

@@ -1,0 +1,208 @@
+{
+  "description": "A graph 8 lanes wide at its widest (the 6-colour palette cycles): an octopus merge (3 parents) on top, four topic tips and an orphan gh-pages branch whose lane ends mid-history, then a diamond, all converging on one base. Clean working tree; the newest commit selected, with a synthesized detail.",
+  "size": {
+    "width": 900,
+    "height": 600
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-git",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-git",
+            "type": "git-tree",
+            "config": {
+              "cwd": "/Users/ann/src/tabs"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-git"
+    },
+    "activePaneId": "leaf-git",
+    "floating": []
+  },
+  "content": {
+    "leaf-git": {
+      "log": {
+        "root": "/Users/ann/src/tabs",
+        "commits": [
+          {
+            "hash": "9509403ffc98cc27c54bd20b14bc61ef628a2da0",
+            "parents": [
+              "065203af7cfceb54a7fb8e297880b0023d298507",
+              "ef4f07ef65bc35c3ce0360eb7b47066a43b5d5b5",
+              "0818669ef853faefcc3304db9955d2887b280c30"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-26T12:00:00Z",
+            "refs": [
+              "HEAD",
+              "main"
+            ],
+            "subject": "Merge branches 'lanes/b1' and 'lanes/b2' into main"
+          },
+          {
+            "hash": "ef4f07ef65bc35c3ce0360eb7b47066a43b5d5b5",
+            "parents": [
+              "33a9866675dc83e1bc07e9dbddf049d857fb30c6"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-26T11:00:00Z",
+            "refs": [],
+            "subject": "Route the gutter width through laneCount"
+          },
+          {
+            "hash": "0818669ef853faefcc3304db9955d2887b280c30",
+            "parents": [
+              "33a9866675dc83e1bc07e9dbddf049d857fb30c6"
+            ],
+            "author": "Chen Wei",
+            "date": "2026-09-26T10:00:00Z",
+            "refs": [],
+            "subject": "Cycle the lane palette past six colours"
+          },
+          {
+            "hash": "bd3ee6a7b4a12c0c502ebfdfe68281c3d94c35e8",
+            "parents": [
+              "33a9866675dc83e1bc07e9dbddf049d857fb30c6"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-26T09:00:00Z",
+            "refs": [
+              "topic/one"
+            ],
+            "subject": "Try a denser row height"
+          },
+          {
+            "hash": "902e97df3a56289ecd334e2da9ea14cd664eed14",
+            "parents": [
+              "33a9866675dc83e1bc07e9dbddf049d857fb30c6"
+            ],
+            "author": "Chen Wei",
+            "date": "2026-09-26T08:00:00Z",
+            "refs": [
+              "topic/two"
+            ],
+            "subject": "Try drawing merges as straight diagonals"
+          },
+          {
+            "hash": "aff83958084adb442f962d99949d0e86f5303753",
+            "parents": [
+              "33a9866675dc83e1bc07e9dbddf049d857fb30c6"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-26T07:00:00Z",
+            "refs": [
+              "topic/three"
+            ],
+            "subject": "Sketch a sticky header for the list"
+          },
+          {
+            "hash": "a4bcaa794a533bdbd5a0f0c4210dce49789d8da9",
+            "parents": [
+              "33a9866675dc83e1bc07e9dbddf049d857fb30c6"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-26T06:00:00Z",
+            "refs": [
+              "topic/four"
+            ],
+            "subject": "Experiment with a minimap"
+          },
+          {
+            "hash": "0294dfd3098aa3bb36a3844fe955a3559a6df27c",
+            "parents": [
+              "73e0315b0286289af73b144b3997fb94e20e2655"
+            ],
+            "author": "Chen Wei",
+            "date": "2026-09-26T05:00:00Z",
+            "refs": [
+              "gh-pages"
+            ],
+            "subject": "Publish the docs site"
+          },
+          {
+            "hash": "73e0315b0286289af73b144b3997fb94e20e2655",
+            "parents": [],
+            "author": "Chen Wei",
+            "date": "2026-09-26T04:00:00Z",
+            "refs": [],
+            "subject": "Start an orphan gh-pages branch"
+          },
+          {
+            "hash": "065203af7cfceb54a7fb8e297880b0023d298507",
+            "parents": [
+              "ea397cd055a6e175e1d805c726349829e4e7ae52",
+              "78c47f2bf0baf26234c69a573190e61a2b39a4c1"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-25T12:00:00Z",
+            "refs": [],
+            "subject": "Merge branch 'lanes/left' and 'lanes/right' back together"
+          },
+          {
+            "hash": "ea397cd055a6e175e1d805c726349829e4e7ae52",
+            "parents": [
+              "6584a8deb298150dc0c6f08d97f7c8ce1923b3ab"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-25T11:00:00Z",
+            "refs": [],
+            "subject": "Left side of the diamond"
+          },
+          {
+            "hash": "78c47f2bf0baf26234c69a573190e61a2b39a4c1",
+            "parents": [
+              "6584a8deb298150dc0c6f08d97f7c8ce1923b3ab"
+            ],
+            "author": "Chen Wei",
+            "date": "2026-09-25T10:00:00Z",
+            "refs": [],
+            "subject": "Right side of the diamond"
+          },
+          {
+            "hash": "6584a8deb298150dc0c6f08d97f7c8ce1923b3ab",
+            "parents": [
+              "33a9866675dc83e1bc07e9dbddf049d857fb30c6"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-25T09:00:00Z",
+            "refs": [],
+            "subject": "Fork the diamond"
+          },
+          {
+            "hash": "33a9866675dc83e1bc07e9dbddf049d857fb30c6",
+            "parents": [
+              "a22ac927b8f0e884be7cd07cd8cb4c1f51008358"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-24T09:00:00Z",
+            "refs": [
+              "tag: v0.9"
+            ],
+            "subject": "Common base of every branch above"
+          },
+          {
+            "hash": "a22ac927b8f0e884be7cd07cd8cb4c1f51008358",
+            "parents": [],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-20T09:00:00Z",
+            "refs": [],
+            "subject": "Initial commit"
+          }
+        ],
+        "hasMore": false,
+        "hasUncommittedChanges": false
+      }
+    }
+  }
+}
