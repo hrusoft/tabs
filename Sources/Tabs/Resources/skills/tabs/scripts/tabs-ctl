@@ -1,0 +1,10 @@
+#!/bin/sh
+# tabs-ctl is a program in the app bundle, Contents/Helpers/tabs-ctl (Sources/TabsCtl).
+# This file is Contents/Resources/skills/tabs/scripts/tabs-ctl, usually reached through the
+# symlink an agent's skill directory is (Settings ▸ AI), so its real path finds the bundle.
+helper="$(dirname "$(realpath "$0")")/../../../../Helpers/tabs-ctl"
+if [ ! -x "$helper" ]; then
+  echo '{"ok":false,"error":"tabs-ctl runs only from the Tabs app (Tabs.app/Contents/Resources/skills/tabs)"}'
+  exit 1
+fi
+exec "$helper" "$@"

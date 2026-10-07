@@ -1,0 +1,101 @@
+{
+  "description": "git-tree-load-more with the pointer on the Load more button (hover: text --text, background tint).",
+  "size": {
+    "width": 900,
+    "height": 600
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "pointer": {
+    "x": 450,
+    "y": 219.5
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-git",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-git",
+            "type": "git-tree",
+            "config": {
+              "cwd": "/Users/ann/src/tabs"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-git"
+    },
+    "activePaneId": "leaf-git",
+    "floating": []
+  },
+  "content": {
+    "leaf-git": {
+      "log": {
+        "root": "/Users/ann/src/tabs",
+        "commits": [
+          {
+            "hash": "c10f5a2e123650c6ab14f7b262c169c9d274acfd",
+            "parents": [
+              "8e5c07eecb7b6add46432a5201c04be915f8821e"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-10T10:00:00Z",
+            "refs": [
+              "HEAD",
+              "main"
+            ],
+            "subject": "Page the log 500 commits at a time"
+          },
+          {
+            "hash": "8e5c07eecb7b6add46432a5201c04be915f8821e",
+            "parents": [
+              "30e45f0274efb6531a0b81eec13212a87bd442d6"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-09T10:00:00Z",
+            "refs": [],
+            "subject": "Ask git for one commit past the page"
+          },
+          {
+            "hash": "30e45f0274efb6531a0b81eec13212a87bd442d6",
+            "parents": [
+              "f0b89ee9977fb93bf3a71343d5a95ac58463bb40"
+            ],
+            "author": "Chen Wei",
+            "date": "2026-09-08T10:00:00Z",
+            "refs": [],
+            "subject": "Append later pages instead of re-reading from zero"
+          },
+          {
+            "hash": "f0b89ee9977fb93bf3a71343d5a95ac58463bb40",
+            "parents": [
+              "bdaf1eca33d4619e80e8ca689a1b74a4febbbb29"
+            ],
+            "author": "Ann Lindqvist",
+            "date": "2026-09-07T10:00:00Z",
+            "refs": [],
+            "subject": "Keep the selection across Load more"
+          },
+          {
+            "hash": "bdaf1eca33d4619e80e8ca689a1b74a4febbbb29",
+            "parents": [
+              "833bbb8c76ebf6debce67525cbf54e8487de74cd"
+            ],
+            "author": "Bo Okafor",
+            "date": "2026-09-06T10:00:00Z",
+            "refs": [],
+            "subject": "Read the first page of history"
+          }
+        ],
+        "hasMore": true,
+        "hasUncommittedChanges": false
+      }
+    }
+  }
+}

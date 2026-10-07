@@ -1,0 +1,44 @@
+{
+  "description": "two-tabs with the pointer on the active tab's close button: the close button's wash on the active tab.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        },
+        {
+          "id": "tab-b",
+          "title": "New Tab",
+          "content": {
+            "id": "leaf-b",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-b"
+    },
+    "activePaneId": "leaf-b",
+    "floating": []
+  },
+  "pointer": {
+    "x": 213.4,
+    "y": 21.5
+  }
+}

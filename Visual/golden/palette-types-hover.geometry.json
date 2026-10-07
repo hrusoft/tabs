@@ -1,0 +1,127 @@
+{
+  "contextMenu": null,
+  "controls": {
+    "leaf-a": {
+      "buttons": {
+        "pane-close-button": [1172, 35.5, 23, 17],
+        "pane-split-horizontal-button": [1140, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1140, 35.5, 55, 17],
+      "separator": [1167, 38.5, 1, 11],
+      "visible": false
+    },
+    "root": {
+      "buttons": {
+        "pane-close-button": [1135, 7.5, 23, 17],
+        "pane-new-tab-button": [1103, 7.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1103, 7.5, 55, 17],
+      "separator": [1130, 10.5, 1, 11],
+      "visible": false
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "emptyDropTarget": null,
+  "emptyToolbars": {
+    "leaf-a": {
+      "buttons": [
+        [568.5, 412, 32, 32],
+        [599.5, 412, 32, 32]
+      ],
+      "rect": [568.5, 412, 63, 32]
+    }
+  },
+  "floating": {},
+  "palette": {
+    "backdrop": [0, 0, 1200, 800],
+    "empty": null,
+    "panel": [440, 365, 320, 70],
+    "rows": [
+      {
+        "badge": [455, 377, 16, 16],
+        "badgeBaseline": 389,
+        "badgeText": [459.79, 379, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 377, 11.25, 16],
+        "label": [498.25, 377, 28.27, 16],
+        "labelBaseline": 390,
+        "rect": [445, 370, 310, 30],
+        "text": "Stub"
+      },
+      {
+        "badge": [455, 407, 16, 16],
+        "badgeBaseline": 419,
+        "badgeText": [459.79, 409, 6.42, 12],
+        "highlighted": true,
+        "icon": [479, 407, 11.25, 16],
+        "label": [498.25, 407, 56.31, 16],
+        "labelBaseline": 420,
+        "rect": [445, 400, 310, 30],
+        "text": "Sample 2"
+      }
+    ],
+    "step": "type"
+  },
+  "panes": {
+    "leaf-a": {
+      "active": true,
+      "body": [1, 57, 1198, 742],
+      "depth": 1,
+      "dimmed": false,
+      "dragging": false,
+      "grip": [15, 39, 6.84, 10],
+      "header": [1, 32, 1198, 25],
+      "rect": [1, 31, 1198, 768],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane"
+    },
+    "root": {
+      "active": false,
+      "body": [1, 1, 1198, 798],
+      "depth": 0,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [0, 0, 1200, 800],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    }
+  },
+  "separators": {},
+  "size": {
+    "height": 800,
+    "width": 1200
+  },
+  "tabBars": {
+    "root": {
+      "grip": null,
+      "newTab": [147.69, 13, 20, 14],
+      "rect": [1, 1, 1198, 30],
+      "root": true,
+      "settings": [1166, 4.5, 23, 23],
+      "strip": [90, 8, 1005, 24],
+      "tabs": {
+        "tab-a": {
+          "active": true,
+          "baseline": 25,
+          "close": [127.69, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [90, 10, 55.69, 22],
+          "text": "Tabs",
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "truncated": false
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "description": "A short page title (\"Docs\"): the title segment is snug around its text, not stretched to the 30% cap.",
+  "size": {
+    "width": 900,
+    "height": 500
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-main",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-web",
+            "type": "browser",
+            "config": {
+              "url": "about:blank"
+            }
+          }
+        }
+      ],
+      "activeTabId": "tab-main"
+    },
+    "activePaneId": "leaf-web",
+    "floating": []
+  },
+  "content": {
+    "leaf-web": {
+      "page": "#2b3a55",
+      "address": "https://example.com/docs/getting-started",
+      "title": "Docs"
+    }
+  }
+}

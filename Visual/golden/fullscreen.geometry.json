@@ -1,0 +1,127 @@
+{
+  "contextMenu": null,
+  "controls": {
+    "leaf-a": {
+      "buttons": {
+        "pane-close-button": [572, 29.5, 23, 17],
+        "pane-split-horizontal-button": [540, 29.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [540, 29.5, 55, 17],
+      "separator": [567, 32.5, 1, 11],
+      "visible": false
+    },
+    "leaf-b": {
+      "buttons": {
+        "pane-close-button": [1172, 29.5, 23, 17],
+        "pane-split-horizontal-button": [1140, 29.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1140, 29.5, 55, 17],
+      "separator": [1167, 32.5, 1, 11],
+      "visible": false
+    },
+    "root": {
+      "buttons": {
+        "pane-close-button": [1135, 4.5, 23, 17],
+        "pane-new-tab-button": [1103, 4.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1103, 4.5, 55, 17],
+      "separator": [1130, 7.5, 1, 11],
+      "visible": false
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "emptyDropTarget": null,
+  "emptyToolbars": {
+    "leaf-a": {
+      "buttons": [
+        [284, 409, 32, 32]
+      ],
+      "rect": [284, 409, 32, 32]
+    },
+    "leaf-b": {
+      "buttons": [
+        [884, 409, 32, 32]
+      ],
+      "rect": [884, 409, 32, 32]
+    }
+  },
+  "floating": {},
+  "panes": {
+    "leaf-a": {
+      "active": true,
+      "body": [1, 51, 598, 748],
+      "depth": 1,
+      "dimmed": false,
+      "dragging": false,
+      "grip": [15, 33, 6.84, 10],
+      "header": [1, 26, 598, 25],
+      "rect": [1, 25, 599, 774],
+      "title": [29.84, 31.5, 62.03, 13],
+      "titleBaseline": 42.5,
+      "titleText": "Empty pane"
+    },
+    "leaf-b": {
+      "active": false,
+      "body": [601, 51, 598, 748],
+      "depth": 1,
+      "dimmed": true,
+      "dragging": false,
+      "grip": [615, 33, 6.84, 10],
+      "header": [601, 26, 598, 25],
+      "rect": [600, 25, 599, 774],
+      "title": [629.84, 31.5, 62.03, 13],
+      "titleBaseline": 42.5,
+      "titleText": "Empty pane"
+    },
+    "root": {
+      "active": false,
+      "body": [1, 1, 1198, 798],
+      "depth": 0,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [0, 0, 1200, 800],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    }
+  },
+  "separators": {
+    "split-1:1": [600, 25, 0, 774]
+  },
+  "size": {
+    "height": 800,
+    "width": 1200
+  },
+  "tabBars": {
+    "root": {
+      "grip": null,
+      "newTab": [65.69, 7, 20, 14],
+      "rect": [1, 1, 1198, 24],
+      "root": true,
+      "settings": [1166, 1.5, 23, 23],
+      "strip": [8, 2, 1087, 24],
+      "tabs": {
+        "tab-main": {
+          "active": true,
+          "baseline": 19,
+          "close": [45.69, 8.5, 15.01, 14],
+          "dragging": false,
+          "rect": [8, 4, 55.69, 22],
+          "text": "Tabs",
+          "title": [19, 8, 24.69, 13],
+          "titleBox": [19, 8, 24.69, 13],
+          "truncated": false
+        }
+      }
+    }
+  }
+}

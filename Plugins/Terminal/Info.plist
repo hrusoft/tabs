@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSPrincipalClass</key>
+	<string>$(PRODUCT_MODULE_NAME).TerminalPlugin</string>
+	<key>TabsPlugin</key>
+	<dict>
+		<key>id</key>
+		<string>terminal</string>
+		<key>displayName</key>
+		<string>Terminal</string>
+		<key>summary</key>
+		<string>Interactive login shells in panes.</string>
+		<key>contentTypes</key>
+		<array><string>terminal</string></array>
+		<key>canDisable</key>
+		<true/>
+		<key>sortOrder</key>
+		<integer>5</integer>
+	</dict>
+	<key>TabsCredits</key>
+	<array>
+		<dict>
+			<key>name</key>
+			<string>SwiftTerm</string>
+			<key>license</key>
+			<string>MIT</string>
+			<key>url</key>
+			<string>https://github.com/migueldeicaza/SwiftTerm</string>
+		</dict>
+	</array>
+</dict>
+</plist>

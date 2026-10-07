@@ -1,0 +1,5 @@
+// The version of every image: CFBundleShortVersionString and CFBundleVersion of the
+// app, the frameworks and every plugin (Scripts/verify-app.sh checks). A release's
+// date, bumped by Scripts/release.sh.
+MARKETING_VERSION = 2026.10.06
+CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)

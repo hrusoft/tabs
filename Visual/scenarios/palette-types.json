@@ -1,0 +1,35 @@
+{
+  "description": "default layout with the Cmd+P palette open on step 1 (type), dark. The list holds two rows in order: Stub (the harness stub type, icon the text glyph U+25A3 in a span), then Sample 2 (the same glyph); row 0 (Stub, badge 1) is highlighted and row 1 (Sample 2, badge 2) is not.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "paletteTypes": 1,
+  "palette": {
+    "step": "type"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-a"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "content": {
+    "leaf-web": {
+      "addressBar": [622.84, 34, 309, 20],
+      "addressBaseline": 48.5,
+      "addressInput": [715.94, 35, 214.9, 18],
+      "addressText": [721.94, 36.5, 202.9, 15],
+      "addressValue": "https://example.com/docs/getting-started",
+      "back": [529.84, 35.5, 23, 17],
+      "backDisabled": true,
+      "focused": false,
+      "forward": [560.84, 35.5, 23, 17],
+      "forwardDisabled": true,
+      "page": [501, 57, 498, 442],
+      "refresh": [591.84, 35.5, 23, 17],
+      "titleBaseline": 49,
+      "titleSegment": [623.84, 35, 92.1, 18],
+      "titleString": "Example Domain",
+      "titleText": [629.84, 37, 86.1, 15],
+      "titleTruncated": true
+    }
+  },
+  "contextMenu": null,
+  "controls": {
+    "leaf-a": {
+      "buttons": {
+        "pane-close-button": [472, 35.5, 23, 17],
+        "pane-split-horizontal-button": [440, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [440, 35.5, 55, 17],
+      "separator": [467, 38.5, 1, 11],
+      "visible": false
+    },
+    "leaf-web": {
+      "buttons": {
+        "pane-close-button": [972, 35.5, 23, 17],
+        "pane-split-horizontal-button": [940, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [940, 35.5, 55, 17],
+      "separator": [967, 38.5, 1, 11],
+      "visible": false
+    },
+    "root": {
+      "buttons": {
+        "pane-close-button": [935, 7.5, 23, 17],
+        "pane-new-tab-button": [903, 7.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [903, 7.5, 55, 17],
+      "separator": [930, 10.5, 1, 11],
+      "visible": false
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "emptyDropTarget": null,
+  "emptyToolbars": {
+    "leaf-a": {
+      "buttons": [
+        [234, 262, 32, 32]
+      ],
+      "rect": [234, 262, 32, 32]
+    }
+  },
+  "floating": {},
+  "panes": {
+    "leaf-a": {
+      "active": true,
+      "body": [1, 57, 498, 442],
+      "depth": 1,
+      "dimmed": false,
+      "dragging": false,
+      "grip": [15, 39, 6.84, 10],
+      "header": [1, 32, 498, 25],
+      "rect": [1, 31, 499, 468],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane"
+    },
+    "leaf-web": {
+      "active": false,
+      "body": [501, 57, 498, 442],
+      "depth": 1,
+      "dimmed": true,
+      "dragging": false,
+      "grip": [515, 39, 6.84, 10],
+      "header": [501, 32, 498, 25],
+      "rect": [500, 31, 499, 468],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    },
+    "root": {
+      "active": false,
+      "body": [1, 1, 998, 498],
+      "depth": 0,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [0, 0, 1000, 500],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    }
+  },
+  "separators": {
+    "split-1:1": [500, 31, 0, 468]
+  },
+  "size": {
+    "height": 500,
+    "width": 1000
+  },
+  "tabBars": {
+    "root": {
+      "grip": null,
+      "newTab": [147.69, 13, 20, 14],
+      "rect": [1, 1, 998, 30],
+      "root": true,
+      "settings": [966, 4.5, 23, 23],
+      "strip": [90, 8, 805, 24],
+      "tabs": {
+        "tab-main": {
+          "active": true,
+          "baseline": 25,
+          "close": [127.69, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [90, 10, 55.69, 22],
+          "text": "Tabs",
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "truncated": false
+        }
+      }
+    }
+  }
+}

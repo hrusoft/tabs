@@ -1,0 +1,223 @@
+{
+  "contextMenu": null,
+  "controls": {
+    "leaf-a": {
+      "buttons": {
+        "pane-close-button": [1172, 35.5, 23, 17],
+        "pane-split-horizontal-button": [1140, 35.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1140, 35.5, 55, 17],
+      "separator": [1167, 38.5, 1, 11],
+      "visible": false
+    },
+    "root": {
+      "buttons": {
+        "pane-close-button": [1135, 7.5, 23, 17],
+        "pane-new-tab-button": [1103, 7.5, 23, 17]
+      },
+      "dropdown": null,
+      "rect": [1103, 7.5, 55, 17],
+      "separator": [1130, 10.5, 1, 11],
+      "visible": false
+    }
+  },
+  "dockPreview": null,
+  "dockPreviewPane": null,
+  "dragGhost": null,
+  "dragGhostText": null,
+  "dropIndicator": null,
+  "emptyDropTarget": null,
+  "emptyToolbars": {
+    "leaf-a": {
+      "buttons": [
+        [444.5, 412, 32, 32],
+        [475.5, 412, 32, 32],
+        [506.5, 412, 32, 32],
+        [537.5, 412, 32, 32],
+        [568.5, 412, 32, 32],
+        [599.5, 412, 32, 32],
+        [630.5, 412, 32, 32],
+        [661.5, 412, 32, 32],
+        [692.5, 412, 32, 32],
+        [723.5, 412, 32, 32]
+      ],
+      "rect": [444.5, 412, 311, 32]
+    }
+  },
+  "floating": {},
+  "palette": {
+    "backdrop": [0, 0, 1200, 800],
+    "empty": null,
+    "panel": [440, 245, 320, 310],
+    "rows": [
+      {
+        "badge": [455, 257, 16, 16],
+        "badgeBaseline": 269,
+        "badgeText": [459.79, 259, 6.42, 12],
+        "highlighted": true,
+        "icon": [479, 257, 11.25, 16],
+        "label": [498.25, 257, 28.27, 16],
+        "labelBaseline": 270,
+        "rect": [445, 250, 310, 30],
+        "text": "Stub"
+      },
+      {
+        "badge": [455, 287, 16, 16],
+        "badgeBaseline": 299,
+        "badgeText": [459.79, 289, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 287, 11.25, 16],
+        "label": [498.25, 287, 56.31, 16],
+        "labelBaseline": 300,
+        "rect": [445, 280, 310, 30],
+        "text": "Sample 2"
+      },
+      {
+        "badge": [455, 317, 16, 16],
+        "badgeBaseline": 329,
+        "badgeText": [459.79, 319, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 317, 11.25, 16],
+        "label": [498.25, 317, 56.61, 16],
+        "labelBaseline": 330,
+        "rect": [445, 310, 310, 30],
+        "text": "Sample 3"
+      },
+      {
+        "badge": [455, 347, 16, 16],
+        "badgeBaseline": 359,
+        "badgeText": [459.79, 349, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 347, 11.25, 16],
+        "label": [498.25, 347, 56.83, 16],
+        "labelBaseline": 360,
+        "rect": [445, 340, 310, 30],
+        "text": "Sample 4"
+      },
+      {
+        "badge": [455, 377, 16, 16],
+        "badgeBaseline": 389,
+        "badgeText": [459.79, 379, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 377, 11.25, 16],
+        "label": [498.25, 377, 56.5, 16],
+        "labelBaseline": 390,
+        "rect": [445, 370, 310, 30],
+        "text": "Sample 5"
+      },
+      {
+        "badge": [455, 407, 16, 16],
+        "badgeBaseline": 419,
+        "badgeText": [459.79, 409, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 407, 11.25, 16],
+        "label": [498.25, 407, 56.74, 16],
+        "labelBaseline": 420,
+        "rect": [445, 400, 310, 30],
+        "text": "Sample 6"
+      },
+      {
+        "badge": [455, 437, 16, 16],
+        "badgeBaseline": 449,
+        "badgeText": [459.79, 439, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 437, 11.25, 16],
+        "label": [498.25, 437, 55.87, 16],
+        "labelBaseline": 450,
+        "rect": [445, 430, 310, 30],
+        "text": "Sample 7"
+      },
+      {
+        "badge": [455, 467, 16, 16],
+        "badgeBaseline": 479,
+        "badgeText": [459.79, 469, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 467, 11.25, 16],
+        "label": [498.25, 467, 56.77, 16],
+        "labelBaseline": 480,
+        "rect": [445, 460, 310, 30],
+        "text": "Sample 8"
+      },
+      {
+        "badge": [455, 497, 16, 16],
+        "badgeBaseline": 509,
+        "badgeText": [459.79, 499, 6.42, 12],
+        "highlighted": false,
+        "icon": [479, 497, 11.25, 16],
+        "label": [498.25, 497, 56.74, 16],
+        "labelBaseline": 510,
+        "rect": [445, 490, 310, 30],
+        "text": "Sample 9"
+      },
+      {
+        "badge": null,
+        "badgeBaseline": null,
+        "badgeText": null,
+        "highlighted": false,
+        "icon": [455, 527, 11.25, 16],
+        "label": [474.25, 527, 62.61, 16],
+        "labelBaseline": 540,
+        "rect": [445, 520, 310, 30],
+        "text": "Sample 10"
+      }
+    ],
+    "step": "type"
+  },
+  "panes": {
+    "leaf-a": {
+      "active": true,
+      "body": [1, 57, 1198, 742],
+      "depth": 1,
+      "dimmed": false,
+      "dragging": false,
+      "grip": [15, 39, 6.84, 10],
+      "header": [1, 32, 1198, 25],
+      "rect": [1, 31, 1198, 768],
+      "title": [29.84, 37.5, 62.03, 13],
+      "titleBaseline": 48.5,
+      "titleText": "Empty pane"
+    },
+    "root": {
+      "active": false,
+      "body": [1, 1, 1198, 798],
+      "depth": 0,
+      "dimmed": false,
+      "dragging": false,
+      "grip": null,
+      "header": null,
+      "rect": [0, 0, 1200, 800],
+      "title": null,
+      "titleBaseline": null,
+      "titleText": null
+    }
+  },
+  "separators": {},
+  "size": {
+    "height": 800,
+    "width": 1200
+  },
+  "tabBars": {
+    "root": {
+      "grip": null,
+      "newTab": [147.69, 13, 20, 14],
+      "rect": [1, 1, 1198, 30],
+      "root": true,
+      "settings": [1166, 4.5, 23, 23],
+      "strip": [90, 8, 1005, 24],
+      "tabs": {
+        "tab-a": {
+          "active": true,
+          "baseline": 25,
+          "close": [127.69, 14.5, 15.01, 14],
+          "dragging": false,
+          "rect": [90, 10, 55.69, 22],
+          "text": "Tabs",
+          "title": [101, 14, 24.69, 13],
+          "titleBox": [101, 14, 24.69, 13],
+          "truncated": false
+        }
+      }
+    }
+  }
+}

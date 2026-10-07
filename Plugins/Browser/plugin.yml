@@ -1,0 +1,46 @@
+# The Browser plugin: its bundle, its tests, and its place in the app.
+# `make project` includes this file; nothing else in the build names it.
+targets:
+  BrowserPlugin:
+    templates: [Plugin]
+    templateAttributes: { pluginID: browser, pluginDir: Plugins/Browser }
+  BrowserPluginTests:
+    templates: [PluginTests]
+    templateAttributes: { pluginDir: Plugins/Browser }
+    settings:
+      base:
+        # Every test needs the main thread (WebKit): all at once, they queued
+        # there for seconds (Tests/Process).
+        TEST_PARALLELIZATION_WIDTH: 4
+  BrowserPluginUITests:
+    templates: [PluginUITests]
+    templateAttributes: { pluginDir: Plugins/Browser }
+  BrowserPluginE2ETests:
+    templates: [PluginE2ETests]
+    templateAttributes: { pluginDir: Plugins/Browser }
+  Tabs:
+    dependencies:
+      - target: BrowserPlugin
+        link: false
+        embed: true
+        copy: { destination: plugins }
+    settings:
+      base:
+        TABS_BUNDLED_PLUGIN_BROWSER: browser
+schemes:
+  Tabs:
+    test:
+      # The unit and end-to-end suites run at once (each page and app is their
+      # own; the unit tests 4 at a time, TEST_PARALLELIZATION_WIDTH above). The
+      # UI tier drives AppKit's shared state and stays serial.
+      targets:
+        - name: BrowserPluginTests
+          parallelizable: true
+        - BrowserPluginUITests
+        - name: BrowserPluginE2ETests
+          parallelizable: true
+  Plugins:
+    test:
+      targets:
+        - name: BrowserPluginTests
+          parallelizable: true
