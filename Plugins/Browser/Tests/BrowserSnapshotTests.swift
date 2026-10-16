@@ -47,7 +47,7 @@ import Testing
         bed.page.webView.frame = NSRect(x: 0, y: 0, width: 345.4, height: 300)
         bed.window.contentView?.layoutSubtreeIfNeeded()
         // The page hears of its new width a moment later: once it reports one under 400.
-        #expect(await eventuallyAsync { (await bed.value("window.innerWidth").doubleValue ?? 400) < 400 })
+        #expect(await eventually { (await bed.value("window.innerWidth").doubleValue ?? 400) < 400 })
         let viewport = try #require(await bed.page.viewport())
         #expect(
             viewport.width == (await bed.value("window.innerWidth").doubleValue ?? -1), "what the page says, not a rounding of the view's")

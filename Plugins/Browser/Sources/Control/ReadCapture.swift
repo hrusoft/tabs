@@ -100,14 +100,9 @@ enum ReadCapture {
         }
         // Resolved after the reveal, never before: an element's rect in a hidden page is
         // meaningless, and scrolling into view in one is a no-op.
-        let view = await page.viewport() ?? unshownViewport(page)
+        let view = await page.viewport() ?? page.viewViewport
         var clip: Clip?
-        if let target {
-            switch await resolveClip(page, target: target, viewport: view) {
-            case .failure(let failure): throw ControlVerbError(failure.message)
-            case .success(let resolved): clip = resolved
-            }
-        }
+        if let target { clip = try await resolveClip(page, target: target, viewport: view).orThrow() }
 
         var snapshot = await page.snapshot(rect: clip?.rect)
         // A freshly revealed page can need a frame or two before a capture sees pixels: retry
@@ -125,13 +120,9 @@ enum ReadCapture {
 
         // Bytes never ride the socket: the PNG is a file and the answer its path (no `--out`: a
         // screenshot only ever takes the generated form).
-        let path: String
-        switch services.agentFiles.write(
-            snapshot.png, out: nil, subdirectory: AgentFiles.Subdirectory.screenshots, ext: "png", what: "screenshot")
-        {
-        case .success(let written): path = written
-        case .failure(let failure): throw ControlVerbError(failure.message)
-        }
+        let path = try services.agentFiles.write(
+            snapshot.png, out: nil, subdirectory: AgentFiles.Subdirectory.screenshots, ext: "png", what: "screenshot"
+        ).orThrow()
         // Two different coordinate spaces, reported separately because they are not the same
         // number on a HiDPI display and conflating them silently puts every coordinate-based
         // click off by the scale factor. The image (and so `width`/`height`) is in *device*
@@ -154,13 +145,5 @@ enum ReadCapture {
         // user's visible tabs were not touched.
         if activated { result["activated"] = true }
         return .object(result)
-    }
-
-    /// The view's own size and its window's scale: what a page that isn't on screen can be measured by.
-    private static func unshownViewport(_ page: BrowserPage) -> PageViewport {
-        let view = page.webView
-        return PageViewport(
-            width: Double(view.bounds.width).rounded(.up), height: Double(view.bounds.height).rounded(.up),
-            scaleFactor: Double(view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1))
     }
 }

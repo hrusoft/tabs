@@ -15,12 +15,12 @@ struct TerminalSettingsPage: View {
             Section {
                 Toggle(isOn: settings.binding(\.enableMetalRendering)) {
                     Text("GPU rendering (Metal)")
-                    Text("Draw terminal panes with Metal. Applies to newly opened panes only.")
+                    Text("Draw terminal panes with Metal. Applies to newly opened panes only.").foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("settings-metal-rendering-checkbox")
                 Toggle(isOn: settings.binding(\.inheritCwdOnNewPane)) {
                     Text("Inherit working directory")
-                    Text("New splits and tabs start in the current terminal's directory.")
+                    Text("New splits and tabs start in the current terminal's directory.").foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("settings-inherit-cwd-checkbox")
                 LabeledContent {
@@ -36,7 +36,8 @@ struct TerminalSettingsPage: View {
                     }
                 } label: {
                     Text("Scrollback")
-                    Text("Lines of history kept above the visible screen, per pane, up to 100,000. 0 keeps none.")
+                    Text("Lines of history kept above the visible screen, per pane, up to 100,000. 0 keeps none.").foregroundStyle(
+                        .secondary)
                 }
             }
             Section("Font") {
@@ -122,7 +123,7 @@ struct TerminalSettingsPage: View {
                 .fill(Color(nsColor: color))
                 .frame(width: 24, height: 18)
                 .padding(2)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.5)))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.5)))
         }
         .buttonStyle(.plain)
         .help(label)

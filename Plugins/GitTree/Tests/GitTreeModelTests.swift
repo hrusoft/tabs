@@ -409,6 +409,31 @@ private func commit(_ hash: String, _ parents: String...) -> Commit {
     }
 }
 
+/// P-19
+@Suite struct CommitDetailLineTotalsTests {
+    private func detail(_ files: [ChangedFile]) -> CommitDetail {
+        CommitDetail(
+            hash: "abc", parents: [], author: "", authorEmail: "", date: "", refs: [], message: "m", files: files, filesTruncated: false)
+    }
+
+    @Test func theTotalsSumTheFilesCountsAndLeaveBinariesOut() throws {
+        let totals = try #require(
+            detail([
+                ChangedFile(path: "a", insertions: 12, deletions: 3), ChangedFile(path: "logo.png", insertions: nil, deletions: nil),
+                ChangedFile(path: "b", insertions: 8, deletions: 1),
+                ChangedFile(path: "new", insertions: 5, deletions: 0, readFromDisk: true),
+            ]).lineTotals)
+        #expect(totals.insertions == 25 && totals.deletions == 4)
+    }
+
+    @Test func thereAreNoTotalsWithoutCounts() {
+        #expect(detail([]).lineTotals == nil)
+        #expect(detail([ChangedFile(path: "logo.png", insertions: nil, deletions: nil)]).lineTotals == nil)
+        let zero = detail([ChangedFile(path: "mode", insertions: 0, deletions: 0)]).lineTotals
+        #expect(zero?.insertions == 0 && zero?.deletions == 0, "zero counted lines are still counts")
+    }
+}
+
 @Suite struct GitParserTests {
     /// H-2
     @Test func parseRefsSplitsHeadArrow() {
@@ -488,5 +513,234 @@ private func commit(_ hash: String, _ parents: String...) -> Commit {
         #expect(Git.scopeArgs(.current) == ["HEAD"])
         #expect(Git.scopeArgs(.local) == ["--branches"])
         #expect(Git.scopeArgs(.all) == ["--branches", "--remotes"])
+    }
+
+    /// P-18
+    @Test func parseNumstatReadsANulRenamesTwoPaths() {
+        let parsed = Git.parseNumstat("1\t0\t\u{0}src/old/a.txt\u{0}src/new/a.txt\u{0}2\t2\tb.txt\u{0}", separator: "\u{0}")
+        #expect(
+            parsed.files == [
+                ChangedFile(path: "src/new/a.txt", insertions: 1, deletions: 0, oldPath: "src/old/a.txt"),
+                ChangedFile(path: "b.txt", insertions: 2, deletions: 2),
+            ])
+        #expect(parsed.files[0].displayPath == "src/{old => new}/a.txt")
+    }
+
+    /// P-18: git's `pprint_rename`.
+    @Test func renameLabelKeepsWhatBothPathsShareOutsideBraces() {
+        #expect(renameLabel("src/old/a.txt", "src/new/a.txt") == "src/{old => new}/a.txt")
+        #expect(renameLabel("dir/a.txt", "dir/b.txt") == "dir/{a.txt => b.txt}")
+        #expect(renameLabel("a/file.txt", "b/file.txt") == "{a => b}/file.txt")
+        #expect(renameLabel("a.txt", "b.txt") == "a.txt => b.txt")
+        #expect(renameLabel("x/a.txt", "x/y/a.txt") == "x/{ => y}/a.txt")
+        #expect(renameLabel("é/a.txt", "é/b.txt") == "é/{a.txt => b.txt}")
+    }
+
+    @Test func aChangedFileDecodesWithoutTheFieldsAScenarioLeavesOut() throws {
+        let file = try JSONValue.object(["path": "a.txt", "insertions": 1, "deletions": 2]).decode(ChangedFile.self)
+        #expect(file == ChangedFile(path: "a.txt", insertions: 1, deletions: 2))
+        #expect(!file.readFromDisk)
+        #expect(file.oldPath == nil)
+    }
+}
+
+// MARK: - One file's diff (P-12 … P-16)
+
+private let patch = """
+    diff --git a/a.swift b/a.swift
+    index 1111111..2222222 100644
+    --- a/a.swift
+    +++ b/a.swift
+    @@ -3,4 +3,5 @@ func run() {
+     three
+    -four
+    +FOUR
+    +four and a half
+     five
+     six
+    @@ -20,2 +21,2 @@ func stop() {
+     twenty
+    -twenty-one
+    \\ No newline at end of file
+    +21
+    \\ No newline at end of file
+
+    """
+
+@Suite struct ParsePatchTests {
+    /// P-12
+    @Test func numbersEveryLineFromItsHunksHeader() throws {
+        let diff = Git.parsePatch(patch)
+        #expect(!diff.binary)
+        #expect(!diff.truncated)
+        #expect(diff.hunks.count == 2)
+        let first = try #require(diff.hunks.first)
+        #expect([first.oldStart, first.oldCount, first.newStart, first.newCount] as [Int] == [3, 4, 3, 5])
+        #expect(
+            first.lines == [
+                FileDiff.Line(kind: .context, text: "three", old: 3, new: 3),
+                FileDiff.Line(kind: .removed, text: "four", old: 4),
+                FileDiff.Line(kind: .added, text: "FOUR", new: 4),
+                FileDiff.Line(kind: .added, text: "four and a half", new: 5),
+                FileDiff.Line(kind: .context, text: "five", old: 5, new: 6),
+                FileDiff.Line(kind: .context, text: "six", old: 6, new: 7),
+            ])
+        #expect(
+            diff.hunks[1].lines.map(\.kind) == [.context, .removed, .note, .added, .note],
+            "the note follows the line it's about, unnumbered")
+        #expect(diff.hunks[1].lines[2] == FileDiff.Line(kind: .note, text: "\\ No newline at end of file"))
+    }
+
+    @Test func aHeaderCountLeftOutIsOne() throws {
+        let header = try #require(Git.parseHunkHeader("@@ -7 +7,0 @@"))
+        #expect(header.oldStart == 7 && header.oldCount == 1 && header.newStart == 7 && header.newCount == 0)
+        #expect(Git.parseHunkHeader("@@ nonsense @@") == nil)
+    }
+
+    /// P-13
+    @Test func binaryFilesHaveNoHunks() {
+        let diff = Git.parsePatch("diff --git a/i.png b/i.png\nindex 1..2 100644\nBinary files a/i.png and b/i.png differ\n")
+        #expect(diff.binary)
+        #expect(diff.hunks.isEmpty)
+    }
+
+    /// P-13: a mode change has only headers.
+    @Test func aModeChangeHasNoHunksAndIsntBinary() {
+        let diff = Git.parsePatch("diff --git a/x b/x\nold mode 100644\nnew mode 100755\n")
+        #expect(!diff.binary)
+        #expect(diff.hunks.isEmpty)
+    }
+
+    @Test func aCarriageReturnBeforeTheNewlineIsntShown() {
+        let diff = Git.parsePatch("@@ -1 +1 @@\n-a\r\n+b\r\n")
+        #expect(diff.hunks[0].lines.map(\.text) == ["a", "b"])
+    }
+
+    @Test func aLaterFileHeaderEndsTheHunk() {
+        let diff = Git.parsePatch("@@ -1 +1 @@\n-a\n+b\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n")
+        #expect(diff.hunks[0].lines.map(\.text) == ["a", "b"], "the next file's `---`/`+++` aren't lines")
+    }
+
+    /// P-14
+    @Test func cutsAtTheLineCapAndLongLinesAtTheLengthCap() {
+        let many = "@@ -1,\(Git.diffLineCap + 5) +1,\(Git.diffLineCap + 5) @@\n" + String(repeating: " x\n", count: Git.diffLineCap + 5)
+        let diff = Git.parsePatch(many)
+        #expect(diff.hunks[0].lines.count == Git.diffLineCap)
+        #expect(diff.truncated)
+        let exact = "@@ -1,\(Git.diffLineCap) +1,\(Git.diffLineCap) @@\n" + String(repeating: " x\n", count: Git.diffLineCap)
+        #expect(!Git.parsePatch(exact).truncated)
+        let long = Git.parsePatch("@@ -1 +1 @@\n+" + String(repeating: "y", count: Git.diffLineLength + 50) + "\n")
+        #expect(long.hunks[0].lines[0].text == String(repeating: "y", count: Git.diffLineLength) + "…")
+    }
+
+    @Test func fileLinesCountAsGitDoes() {
+        #expect(Git.fileLines("a\nb\n") == ["a", "b"])
+        #expect(Git.fileLines("a\nb") == ["a", "b"])
+        #expect(Git.fileLines("a\r\n\nb") == ["a", "", "b"])
+        #expect(Git.fileLines("") == [])
+    }
+}
+
+/// A diff of a 30-line file, lines 15 and 16 changed to one: hunks of 5
+/// lines' context, the old file's lines as given.
+private func thirtyLineDiff(base: [String]? = (1...30).map { "line \($0)" }) -> FileDiff {
+    var diff = Git.parsePatch(
+        "@@ -10,12 +10,11 @@\n" + (10...14).map { " line \($0)\n" }.joined() + "-line 15\n-line 16\n+line 15-16\n"
+            + (17...21).map { " line \($0)\n" }.joined())
+    diff.base = base
+    return diff
+}
+
+/// P-15, P-16
+@Suite struct DiffGapTests {
+    @Test func theRunsBeforeAndAfterTheHunksAreHiddenRows() {
+        let diff = thirtyLineDiff()
+        #expect(
+            diff.gaps == [
+                FileDiff.Gap(index: 0, oldFirst: 1, count: 9, newOffset: 0), FileDiff.Gap(index: 1, oldFirst: 22, count: 9, newOffset: -1),
+            ])
+        let rows = diff.rows(revealed: [])
+        #expect(rows.first == .hidden(gap: 0, count: 9, revealable: true))
+        #expect(rows.last == .hidden(gap: 1, count: 9, revealable: true))
+        #expect(rows.count == 2 + 13)
+        #expect(diff.revealableGaps == [0, 1])
+    }
+
+    @Test func aRevealedRunIsItsLinesNumberedOnBothSides() {
+        let rows = thirtyLineDiff().rows(revealed: [1])
+        guard case .line(let first) = rows[rows.count - 9], case .line(let last) = rows[rows.count - 1] else {
+            Issue.record("the last run wasn't shown")
+            return
+        }
+        #expect(first == FileDiff.Line(kind: .context, text: "line 22", old: 22, new: 21))
+        #expect(last == FileDiff.Line(kind: .context, text: "line 30", old: 30, new: 29))
+        #expect(rows.first == .hidden(gap: 0, count: 9, revealable: true), "the other run stays hidden")
+    }
+
+    @Test func everyRunOpenIsTheWholeFile() {
+        let rows = thirtyLineDiff().rows(revealed: [0, 1])
+        let lines = rows.compactMap { row -> FileDiff.Line? in if case .line(let line) = row { line } else { nil } }
+        #expect(lines.count == rows.count, "nothing hidden")
+        #expect(lines.compactMap(\.old) == Array(1...30))
+        #expect(lines.compactMap(\.new) == Array(1...29))
+    }
+
+    @Test func withoutTheOldFileTheRunsBetweenHunksShowButCantOpenAndTheLastIsUnknown() {
+        let diff = thirtyLineDiff(base: nil)
+        #expect(diff.rows(revealed: [0]).first == .hidden(gap: 0, count: 9, revealable: false))
+        #expect(diff.gaps.count == 1, "the run after the last hunk needs the old file's length")
+        #expect(diff.revealableGaps.isEmpty)
+    }
+
+    @Test func aCutDiffHasNoRunAfterItsLastHunk() {
+        var diff = thirtyLineDiff()
+        diff.truncated = true
+        #expect(diff.gaps.map(\.index) == [0])
+    }
+
+    @Test func aRunBetweenTwoHunksIsNumberedByTheFirstHunksEnd() {
+        var diff = Git.parsePatch("@@ -1,2 +1,3 @@\n a\n+b\n c\n@@ -10,2 +11,1 @@\n j\n-k\n")
+        diff.base = ["a", "c", "3", "4", "5", "6", "7", "8", "9", "j", "k"]
+        #expect(diff.gaps.first == FileDiff.Gap(index: 1, oldFirst: 3, count: 7, newOffset: 1))
+        guard case .line(let line) = diff.rows(revealed: [1])[3] else {
+            Issue.record("the run between the hunks wasn't shown")
+            return
+        }
+        #expect(line == FileDiff.Line(kind: .context, text: "3", old: 3, new: 4))
+        #expect(diff.largestLineNumber == 11)
+    }
+
+    @Test func anOldFileShorterThanTheHeadersSayCantOpenTheRun() {
+        let diff = thirtyLineDiff(base: ["only", "three", "lines"])
+        #expect(diff.rows(revealed: [0]).first == .hidden(gap: 0, count: 9, revealable: false))
+        #expect(diff.revealableGaps.isEmpty)
+    }
+
+    @Test func anAddedFileHidesNothing() {
+        var diff = Git.parsePatch("@@ -0,0 +1,2 @@\n+a\n+b\n")
+        diff.base = nil
+        #expect(diff.gaps.isEmpty)
+        #expect(diff.rows(revealed: []).count == 2)
+    }
+}
+
+@Suite struct DiffTextTests {
+    @Test func tabsStopEveryFourColumns() {
+        #expect(CommitDetailLayout.expandTabs("\tx") == "    x")
+        #expect(CommitDetailLayout.expandTabs("ab\tx") == "ab  x")
+        #expect(CommitDetailLayout.expandTabs("none") == "none")
+    }
+
+    @Test func codeWrapsAfterASpaceButNeverInsideTheIndentation() {
+        let width = 10 * GitTreeMetrics.monoAdvance
+        #expect(CommitDetailLayout.wrapCode("short", width: width) == ["short"])
+        #expect(CommitDetailLayout.wrapCode("let a = b + c", width: width) == ["let a = b ", "+ c"])
+        #expect(CommitDetailLayout.wrapCode("let totals = b", width: width) == ["let ", "totals = b"])
+        #expect(CommitDetailLayout.wrapCode("        indented", width: width) == ["        in", "dented"])
+        #expect(CommitDetailLayout.wrapCode("abcdefghijklmnopqrstuvwxy", width: width) == ["abcdefghij", "klmnopqrst", "uvwxy"])
+    }
+
+    @Test func plainASCIIIsCountedAtMenlosAdvance() {
+        #expect(abs(CommitDetailLayout.codeWidth("abcdef") - GitText.mono11.width("abcdef")) < 0.01)
     }
 }

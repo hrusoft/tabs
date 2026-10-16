@@ -55,11 +55,41 @@ import Testing
     }
 
     @Suite struct SetActivePane {
-        @Test("clicking the root tab strip activates the wrapper pane, not its tab content")
-        func rootChrome() {
-            var window = window()
-            #expect(window.setActivePane(window.root.id) == true)
-            #expect(window.activePaneID == window.root.id)
+        @Test("a group or a split is never active: activating one leaves the active pane where it is")
+        func containers() {
+            let group = createTabs([createTab("B", createLeaf("stub", id: "b"))], id: "g")
+            var window = window(createSplit(.horizontal, [createLeaf("stub", id: "a"), group], id: "s"), active: "a")
+            let before = window
+
+            #expect(window.setActivePane(window.root.id) == false, "the window's own bar")
+            #expect(window.setActivePane("g") == false)
+            #expect(window.setActivePane("s") == false)
+            #expect(window == before)
+        }
+
+        @Test("activating a group in a floating window raises the window; focus stays where it is")
+        func containerRaisesItsWindow() {
+            let group = createTabs([createTab("B", createLeaf("stub"))], id: "g")
+            var window = window(
+                createLeaf("stub", id: "a"), floating: [float(group, "older"), float(createLeaf("stub"), "newer")], active: "a")
+
+            #expect(window.setActivePane("g") == true)
+            #expect(window.floating.map(\.id) == ["newer", "older"])
+            #expect(window.activePaneID == "a")
+        }
+
+        @Test("a container takes focus only from an active pane hidden behind a tab: the pane it shows does")
+        func hiddenActivePane() {
+            let tabs = [createTab("X", createLeaf("stub", id: "x"), id: "t-x"), createTab("Y", createLeaf("stub", id: "y"), id: "t-y")]
+            let other = createTabs([createTab("C", createLeaf("stub", id: "c"))], id: "h")
+            var window = window(createSplit(.horizontal, [createTabs(tabs, id: "g"), other]), active: "x")
+
+            // A spring-loaded tab, mid-drag: the active pane is still X, now hidden.
+            #expect(window.activateTab("g", "t-y", titles: titles) == true)
+            #expect(window.activePaneID == "x")
+
+            #expect(window.setActivePane("h") == true)
+            #expect(window.activePaneID == "c")
         }
 
         @Test("activating the active pane again, or an unknown one, changes nothing")
@@ -84,6 +114,29 @@ import Testing
         }
     }
 
+    @Suite struct FocusInto {
+        @Test("focus going into a tab lands on the pane it shows")
+        func entersByItsShownPane() {
+            let pair = createSplit(.horizontal, [createLeaf("stub", id: "p"), createLeaf("stub", id: "q")], id: "pair")
+            var window = window(
+                createSplit(.horizontal, [createLeaf("stub", id: "a"), createTabs([createTab("Pair", pair)])]), active: "a")
+
+            #expect(window.focus(into: "pair") == true)
+
+            #expect(window.activePaneID == "p")
+        }
+
+        @Test("focus going into a tab that already holds the active pane keeps it")
+        func keepsAnActivePaneInside() {
+            let pair = createSplit(.horizontal, [createLeaf("stub", id: "p"), createLeaf("stub", id: "q")], id: "pair")
+            var window = window(createTabs([createTab("Pair", pair)]), active: "q")
+
+            #expect(window.focus(into: "pair") == false)
+
+            #expect(window.activePaneID == "q")
+        }
+    }
+
     @Suite struct ActivateTab {
         @Test("switching a tab activates it without moving the active pane")
         func switches() {
@@ -99,6 +152,26 @@ import Testing
     }
 
     @Suite struct CloseTab {
+        @Test("closing the tab that holds the active pane hands focus to the tab beside it")
+        func holdingTheActivePane() {
+            let tabs = [createTab("X", createLeaf("stub", id: "x"), id: "t-x"), createTab("Y", createLeaf("stub", id: "y"), id: "t-y")]
+            var window = window(createSplit(.horizontal, [createLeaf("stub", id: "a"), createTabs(tabs, id: "g")]), active: "x")
+
+            #expect(window.closeTab("t-x", titles: titles) == true)
+
+            #expect(window.activePaneID == "y")
+        }
+
+        @Test("closing another tab leaves the active pane alone")
+        func notHoldingTheActivePane() {
+            let tabs = [createTab("X", createLeaf("stub", id: "x"), id: "t-x"), createTab("Y", createLeaf("stub", id: "y"), id: "t-y")]
+            var window = window(createSplit(.horizontal, [createLeaf("stub", id: "a"), createTabs(tabs, id: "g")]), active: "a")
+
+            #expect(window.closeTab("t-x", titles: titles) == true)
+
+            #expect(window.activePaneID == "a")
+        }
+
         @Test("closing the last tab of a converted pane empties it without collapsing the split")
         func emptiesSlot() {
             let e = createLeaf("empty")
@@ -156,7 +229,7 @@ import Testing
             let (moving, staying) = (createTab("A", createLeaf("stub")), createTab("B", createLeaf("stub")))
             let a = createTabs([moving], id: "a")
             let b = createTabs([staying], id: "b")
-            var window = window(createSplit(.horizontal, [a, b]))
+            var window = window(createSplit(.horizontal, [a, b]), active: staying.content.id)
 
             #expect(window.moveTab(moving.id, to: "b", at: 1, titles: titles) == true)
 
@@ -164,8 +237,20 @@ import Testing
             #expect(split?.childNodes[safe: 0]?.kind == "empty")
             #expect(split?.childNodes[safe: 1]?.tabItems.map(\.id) == [staying.id, moving.id])
             #expect(split?.childNodes[safe: 1]?.activeTabID == moving.id)
-            // Focus goes where the tab went.
-            #expect(window.activePaneID == "b")
+            // Focus goes into the tab where it went; the pane it covered gives it up.
+            #expect(window.activePaneID == moving.content.id)
+        }
+
+        @Test("a dragged tab that held the active pane keeps it wherever it lands")
+        func keepsItsActivePane() {
+            let pair = createSplit(.horizontal, [createLeaf("stub", id: "p"), createLeaf("stub", id: "q")])
+            let moving = createTab("Pair", pair)
+            var window = window(
+                createSplit(.horizontal, [createTabs([moving]), createTabs([createTab("B", createLeaf("stub"))], id: "b")]), active: "q")
+
+            #expect(window.moveTab(moving.id, to: "b", titles: titles) == true)
+
+            #expect(window.activePaneID == "q", "not the pane the tab enters by")
         }
 
         @Test("reordering a tab within its own tab bar via drag")
@@ -188,7 +273,7 @@ import Testing
 
             let landed = Tree.findNode(window.rootNode, "e")
             #expect(landed?.tabItems == [moving])
-            #expect(window.activePaneID == "e")
+            #expect(window.activePaneID == moving.content.id)
         }
     }
 
@@ -208,7 +293,7 @@ import Testing
             #expect(row?.childNodes[safe: 0] == second.content)
             #expect(row?.childNodes[safe: 1]?.tabItems == [first])
             #expect(row?.childNodes[safe: 2] == e)
-            #expect(window.activePaneID == row?.childNodes[safe: 1]?.id, "focus goes to the group now holding the tab")
+            #expect(window.activePaneID == first.content.id, "focus goes with the tab")
         }
 
         @Test("a tab dropped on the docked root's own edge is declined")
@@ -226,14 +311,15 @@ import Testing
         func center() {
             let moving = createTab("E", createLeaf("empty"))
             let existing = createTab("S", createLeaf("stub"))
-            var window = window(createSplit(.horizontal, [createTabs([moving]), createTabs([existing], id: "b")]))
+            var window = window(
+                createSplit(.horizontal, [createTabs([moving]), createTabs([existing], id: "b")]), active: existing.content.id)
 
             #expect(window.dockTab(moving.id, onto: "b", zone: .center, titles: titles) == true)
 
             let b = Tree.findNode(window.rootNode, "b")
             #expect(b?.tabItems.map(\.id) == [existing.id, moving.id])
             #expect(b?.activeTabID == moving.id)
-            #expect(window.activePaneID == "b")
+            #expect(window.activePaneID == moving.content.id, "the docked tab, not the pane it now hides")
         }
 
         @Test("a nested dock that collapses the root keeps the surviving tab's title, not \"Split\"")
@@ -515,6 +601,16 @@ import Testing
     }
 
     @Suite struct ClosePane {
+        @Test("closing a group that holds the active pane hands focus to its neighbour")
+        func groupHoldingTheActivePane() {
+            let group = createTabs([createTab("X", createLeaf("stub", id: "x"))], id: "g")
+            var window = window(createSplit(.horizontal, [createLeaf("stub", id: "a"), group]), active: "x")
+
+            #expect(window.closePane("g", titles: titles) == true)
+
+            #expect(window.activePaneID == "a")
+        }
+
         @Test("an empty split pane can be closed from its title bar, collapsing the split")
         func collapsesSplit() {
             let (e1, e2) = (createLeaf("empty"), createLeaf("empty"))
@@ -662,7 +758,7 @@ import Testing
     }
 
     @Suite struct WrapPaneInTabs {
-        @Test("the tab-group control wraps a pane into a group, which becomes active")
+        @Test("the tab-group control wraps a pane into a group; focus stays where it was")
         func wraps() {
             let (e, s) = (createLeaf("empty"), createLeaf("stub"))
             var window = window(createSplit(.horizontal, [e, s]))
@@ -672,7 +768,7 @@ import Testing
             let group = window.root.tabs.first?.content.childNodes[safe: 1]
             #expect(group?.titles == ["Stub"])
             #expect(group?.tabItems.first?.content == s)
-            #expect(window.activePaneID == group?.id)
+            #expect(window.activePaneID == e.id)
         }
 
         @Test("the tab-group control nests an existing group inside a new one")
@@ -698,7 +794,7 @@ import Testing
             #expect(window.root.id == rootID)
             let group = window.root.tabs.first?.content
             #expect(group?.tabItems.map(\.content) == [s])
-            #expect(window.activePaneID == group?.id)
+            #expect(window.activePaneID == s.id)
         }
     }
 
@@ -865,7 +961,7 @@ import Testing
     }
 
     @Suite struct Titles {
-        @Test("renaming a tab, a pane, and a pane's live title each edit their own tree")
+        @Test("renaming a tab and a pane each edit their own tree")
         func renames() throws {
             let (docked, floating) = (createLeaf("stub"), createLeaf("terminal"))
             var window = window(docked, floating: [float(floating, "f")])
@@ -876,11 +972,48 @@ import Testing
 
             #expect(window.renamePane(floating.id, "My server", titles: titles) == true)
             #expect(window.floating.first?.content.leaf?.title == "My server")
-            #expect(window.setLiveTitle(floating.id, "from the shell", titles: titles) == false, "a manual title sticks")
-
-            #expect(window.setLiveTitle(docked.id, "vim", titles: titles) == true)
-            #expect(window.findNode(docked.id)?.leaf?.title == "vim")
             #expect(window.renameTab(tab.id, "Deploy", titles: titles) == false, "the same title changes nothing")
+        }
+
+        @Test("a tab named with nil gets the title a new tab of its content gets, and is no longer the user's")  // TT-9
+        func resetsATabTitle() throws {
+            var window = window(
+                createTabs([createTab("Mine", createLeaf("stub"), titleIsManual: true), createTab("Two", createLeaf("empty"))]))
+            let (mine, two) = (try #require(window.root.tabs.first), try #require(window.root.tabs.last))
+
+            #expect(window.renameTab(mine.id, nil, titles: titles) == true)
+            #expect(window.root.tabs.first?.title == "Stub")
+            #expect(window.root.tabs.first?.titleIsManual == false)
+
+            #expect(window.renameTab(two.id, "Named", titles: titles) == true)
+            #expect(window.root.tabs.last?.titleIsManual == true)
+            #expect(window.renameTab(two.id, nil, titles: titles) == true)
+            #expect(window.root.tabs.last?.title == "Tabs", "an empty pane in the window's own strip")
+            #expect(window.renameTab(two.id, nil, titles: titles) == false, "already its default")
+        }
+
+        @Test("the user's name on a root tab outlives the root's rewrap when the other tab closes")  // TT-12
+        func manualSurvivesRewrap() {
+            let (kept, other) = (createTab("Work", createLeaf("stub"), titleIsManual: true), createTab("Other", createLeaf("stub")))
+            var window = window(createTabs([kept, other]), active: kept.content.id)
+
+            #expect(window.closeTab(other.id, titles: titles) == true)
+
+            #expect(window.root.tabs.map(\.title) == ["Work"])
+            #expect(window.root.tabs.map(\.titleIsManual) == [true])
+        }
+
+        @Test("the user's name on a root tab outlives a drop that nests its lone content")  // TT-12
+        func manualSurvivesPromotion() {
+            let (a, b) = (createLeaf("stub", id: "a"), createLeaf("stub", id: "b"))
+            let (tabA, tabB) = (createTab("Server", a, titleIsManual: true), createTab("B", b))
+            var window = window(createTabs([tabA, tabB], active: tabB.id))
+
+            #expect(window.dockTab(tabB.id, onto: "a", zone: .center, titles: titles) == true)
+
+            #expect(window.root.tabs.map(\.title) == ["Server"])
+            #expect(window.root.tabs.map(\.titleIsManual) == [true])
+            #expect(window.root.tabs.first?.content.tabItems.map(\.content.id) == ["a", "b"])
         }
 
         @Test("a pane header reads its title, else what it is")
@@ -906,6 +1039,85 @@ import Testing
             #expect(window.replaceLeaf(e.id, with: filled, titles: titles) == true)
             #expect(window.findNode(e.id) == .leaf(filled))
             #expect(window.replaceLeaf(window.root.id, with: filled, titles: titles) == false)
+        }
+    }
+
+    /// The pane each tab follows (docs/TAB-TITLES.md): the one most recently
+    /// active inside it, from the window's `recentPanes`.
+    @Suite struct FollowedPanes {
+        @Test("the active pane leads the recent panes; a pane that closes leaves them")
+        func recentPanes() {
+            let (a, b, c) = (createLeaf("stub", id: "a"), createLeaf("stub", id: "b"), createLeaf("stub", id: "c"))
+            var window = window(createSplit(.horizontal, [a, b, c]), active: "a")
+            #expect(window.recentPanes == ["a"])
+
+            #expect(window.setActivePane("b") == true)
+            #expect(window.setActivePane("c") == true)
+            #expect(window.setActivePane("a") == true)
+            #expect(window.recentPanes == ["a", "c", "b"])
+
+            #expect(window.closePane("c", titles: titles) == true)
+            #expect(window.recentPanes == ["a", "b"])
+        }
+
+        @Test("a window keeps the recent panes it's given where it still holds them, the active one first")  // TT-11
+        func given() {
+            let (a, b) = (createLeaf("stub", id: "a"), createLeaf("stub", id: "b"))
+            let window = WindowLayout(
+                root: createSplit(.horizontal, [a, b]), active: "a", recent: ["b", "gone", "a", "b"], titles: titles)
+            #expect(window.recentPanes == ["a", "b"])
+        }
+
+        @Test("a tab follows the pane last active in it, also once focus is in another tab")  // TT-4, TT-5
+        func lastActiveInTheTab() {
+            let (a, b, c) = (createLeaf("stub", id: "a"), createLeaf("stub", id: "b"), createLeaf("stub", id: "c"))
+            let (pair, other) = (createTab("Pair", createSplit(.horizontal, [a, b])), createTab("Other", c))
+            var window = window(createTabs([pair, other]), active: "a")
+            #expect(window.followedPane(of: pair) == "a")
+
+            #expect(window.setActivePane("b") == true)
+            #expect(window.followedPane(of: pair) == "b")
+
+            #expect(window.reveal("c", titles: titles) == true)
+            #expect(window.followedPane(of: pair) == "b", "in the background, still the pane last active in it")
+            #expect(window.followedPane(of: other) == "c")
+        }
+
+        @Test("nested tabs each follow the pane last active inside them")  // TT-5
+        func nested() {
+            let (x, y, z) = (createLeaf("stub", id: "x"), createLeaf("stub", id: "y"), createLeaf("stub", id: "z"))
+            let (tabX, tabY) = (createTab("X", x), createTab("Y", y))
+            let outer = createTab("Outer", createSplit(.vertical, [createTabs([tabX, tabY]), z]))
+            var window = window(createTabs([outer]), active: "x")
+
+            #expect(window.reveal("y", titles: titles) == true)
+            #expect(window.setActivePane("z") == true)
+
+            #expect(window.followedPane(of: outer) == "z")
+            #expect(window.followedPane(of: tabY) == "y")
+            #expect(window.followedPane(of: tabX) == "x")
+        }
+
+        @Test("a pane that leaves its tab hands the tab over to the next most recent one in it")  // TT-6
+        func paneLeaves() throws {
+            let (a, b, c) = (createLeaf("stub", id: "a"), createLeaf("stub", id: "b"), createLeaf("stub", id: "c"))
+            var window = window(
+                createTabs([createTab("Pair", createSplit(.horizontal, [a, b])), createTab("Other", c)], id: "g"), active: "a")
+            #expect(window.setActivePane("b") == true)
+
+            #expect(window.movePaneToTabs("b", to: "g", titles: titles) == true)
+
+            let pair = try #require(window.root.tabs.first { $0.title == "Pair" })
+            #expect(pair.content.id == "a")
+            #expect(window.followedPane(of: pair) == "a")
+        }
+
+        @Test("a tab none of whose panes has been active follows the pane it shows")
+        func noneYet() {
+            let (a, b) = (createLeaf("stub", id: "a"), createLeaf("stub", id: "b"))
+            let pair = createTab("Pair", createSplit(.horizontal, [a, b]))
+            let window = window(createTabs([createTab("Other", createLeaf("stub", id: "c")), pair]), active: "c")
+            #expect(window.followedPane(of: pair) == "a")
         }
     }
 
@@ -944,7 +1156,7 @@ import Testing
             window.activateTab("g", window.root.tabs[1].id, titles: titles)
             window.setActivePane("g")
 
-            #expect(window.activeLeafID == b.id)
+            #expect(window.activePaneID == b.id)
         }
     }
 
@@ -1057,6 +1269,166 @@ import Testing
 
             #expect(window.root.tabs.count == 1)
             #expect(window.root.tabs.first?.content.childNodes == [incoming, target])
+        }
+    }
+
+    /// Drops within a window, in the dragged subject's own tree, and the
+    /// chrome menus' rules: what the shell asks before it previews or offers.
+    @Suite struct Drops {
+        /// Root tabs "t-s" (a split of "a" and group "g": tabs "t-x" x, "t-y" y,
+        /// "t-e" an empty pane "e") and "t-c" (c); a floating window "f" holding
+        /// "fl" and an empty "fe".
+        static func sample() -> WindowLayout {
+            let group = createTabs(
+                [
+                    createTab("X", createLeaf("stub", id: "x"), id: "t-x"), createTab("Y", createLeaf("stub", id: "y"), id: "t-y"),
+                    createTab("E", createLeaf("empty", id: "e"), id: "t-e"),
+                ], id: "g")
+            let split = createSplit(.horizontal, [createLeaf("stub", id: "a"), group], id: "s")
+            let root = createTabs([createTab("S", split, id: "t-s"), createTab("C", createLeaf("stub", id: "c"), id: "t-c")], id: "root")
+            let floating = createSplit(.vertical, [createLeaf("stub", id: "fl"), createLeaf("empty", id: "fe")], id: "fs")
+            return WindowLayoutTests.window(root, floating: [float(floating, "f")], active: "a")
+        }
+
+        static let tabX = DragSubject.tab(tabID: "t-x", sourceGroupID: "g")
+        static let tabS = DragSubject.tab(tabID: "t-s", sourceGroupID: "root")
+        static let tabC = DragSubject.tab(tabID: "t-c", sourceGroupID: "root")
+
+        @Test("a tab bar takes a tab unless the bar is inside it, and a pane unless the move would change nothing")
+        func tabBar() {
+            let window = Self.sample()
+            #expect(window.canDrop(Self.tabX, at: .tabBar(groupID: "g", index: 0)), "its own bar: a reorder")
+            #expect(window.canDrop(Self.tabC, at: .tabBar(groupID: "g", index: 0)))
+            #expect(!window.canDrop(Self.tabS, at: .tabBar(groupID: "g", index: 0)), "the bar is inside the tab")
+            #expect(window.canDrop(.pane("a"), at: .tabBar(groupID: "g", index: 0)))
+            #expect(window.canDrop(.pane("x"), at: .tabBar(groupID: "g", index: 0)), "its own bar, where two other tabs stay")
+            #expect(!window.canDrop(.pane("s"), at: .tabBar(groupID: "g", index: 0)), "the bar is inside the pane")
+            #expect(!window.canDrop(.pane("a"), at: .tabBar(groupID: "s", index: 0)), "a split has no bar")
+
+            var dropped = window
+            #expect(dropped.drop(.pane("a"), at: .tabBar(groupID: "g", index: 1), titles: titles) == true)
+            #expect(dropped.findNode("g")?.tabItems.map(\.content.id) == ["x", "a", "y", "e"] as [NodeID])
+            #expect(dropped.activePaneID == "a")
+
+            dropped = window
+            #expect(dropped.drop(Self.tabX, at: .tabBar(groupID: "g", index: 2), titles: titles) == true)
+            #expect(dropped.findNode("g")?.tabItems.map(\.id) == ["t-y", "t-e", "t-x"] as [NodeID])
+        }
+
+        @Test("a pane's own group bar takes it only while two other tabs stay")
+        func ownBarOfTwo() {
+            let group = createTabs([createTab("X", createLeaf("stub", id: "x")), createTab("Y", createLeaf("stub", id: "y"))], id: "g")
+            let window = WindowLayoutTests.window(createTabs([createTab("G", group)], id: "root"))
+            #expect(!window.canDrop(.pane("x"), at: .tabBar(groupID: "g", index: 0)))
+        }
+
+        @Test("a dock zone takes a tab or a pane at a pane's edge or center, never the docked root's edge, a split or itself")
+        func dock() {
+            let window = Self.sample()
+            #expect(window.canDrop(.pane("a"), at: .dock(targetID: "c", zone: .left)))
+            #expect(window.canDrop(Self.tabX, at: .dock(targetID: "a", zone: .center)))
+            #expect(!window.canDrop(.pane("a"), at: .dock(targetID: "root", zone: .left)), "the docked root splitting out of itself")
+            #expect(!window.canDrop(Self.tabC, at: .dock(targetID: "root", zone: .bottom)))
+            #expect(!window.canDrop(Self.tabC, at: .dock(targetID: "root", zone: .center)), "its own group's center changes nothing")
+            #expect(!window.canDrop(.pane("a"), at: .dock(targetID: "s", zone: .left)), "a split")
+            #expect(!window.canDrop(.pane("a"), at: .dock(targetID: "a", zone: .left)), "itself")
+            #expect(!window.canDrop(Self.tabS, at: .dock(targetID: "x", zone: .top)), "inside the dragged tab")
+
+            var dropped = window
+            #expect(dropped.drop(.pane("a"), at: .dock(targetID: "c", zone: .left), titles: titles) == true)
+            #expect(Tree.findTab(dropped.rootNode, "t-c")?.tab.content.childIDs == ["a", "c"])
+            #expect(dropped.activePaneID == "a")
+
+            dropped = window
+            #expect(dropped.drop(Self.tabX, at: .dock(targetID: "a", zone: .bottom), titles: titles) == true)
+            #expect(Tree.findTab(dropped.rootNode, "t-x")?.group.tabs.count == 1, "a tab lands at an edge as a group of its own")
+            #expect(dropped.findNode("g")?.tabItems.map(\.id) == ["t-y", "t-e"] as [NodeID], "the tab left its group")
+        }
+
+        @Test("an empty pane takes content in its place, but not content it's inside, and not when it isn't empty")
+        func emptyPane() throws {
+            let window = Self.sample()
+            #expect(window.canDrop(.pane("a"), at: .emptyPane("e")))
+            #expect(window.canDrop(Self.tabC, at: .emptyPane("e")))
+            #expect(!window.canDrop(.pane("g"), at: .emptyPane("e")), "inside the dragged pane")
+            #expect(!window.canDrop(Self.tabS, at: .emptyPane("e")), "inside the dragged tab")
+            #expect(!window.canDrop(.pane("a"), at: .emptyPane("c")), "not an empty pane")
+
+            var dropped = window
+            #expect(dropped.drop(.pane("a"), at: .emptyPane("e"), titles: titles) == true)
+            #expect(dropped.findNode("e") == nil)
+            #expect(Tree.findTab(dropped.rootNode, "t-e")?.tab.content.id == "a", "in the empty pane's place")
+
+            dropped = window
+            #expect(dropped.drop(Self.tabC, at: .emptyPane("e"), titles: titles) == true)
+            #expect(dropped.root.tabs.count == 1, "the tab left the root")
+            #expect(try #require(Tree.findTab(dropped.rootNode, "t-c")).group.tabs.count == 1, "the tab, in a group of its own")
+        }
+
+        @Test("a drag stays in its tree: nothing crosses between the docked layout and a floating window")
+        func staysInItsTree() {
+            var window = Self.sample()
+            let before = window
+            #expect(!window.canDrop(.pane("fl"), at: .dock(targetID: "c", zone: .left)))
+            #expect(!window.canDrop(.pane("fl"), at: .tabBar(groupID: "g", index: 0)))
+            #expect(!window.canDrop(.pane("a"), at: .dock(targetID: "fl", zone: .left)))
+            #expect(!window.canDrop(.pane("a"), at: .emptyPane("fe")))
+            #expect(window.canDrop(.pane("fl"), at: .emptyPane("fe")), "within the floating window")
+            #expect(window.drop(.pane("a"), at: .emptyPane("fe"), titles: titles) == false, "a refused drop does nothing")
+            #expect(window == before)
+        }
+
+        @Test("a tab bar's drop index counts the tabs that stay: the dragged tab leaves its own bar first")
+        func departingIndex() {
+            let window = Self.sample()
+            /// Where `subject` lands on g's bar beside `tab`: its index.
+            func index(_ subject: DragSubject, beside tab: NodeID?, after: Bool = false) -> Int? {
+                guard case .tabBar("g", let index) = window.tabBarDrop(subject, on: "g", beside: tab, after: after) else { return nil }
+                return index
+            }
+            #expect(index(Self.tabX, beside: "t-y") == 0)
+            #expect(index(Self.tabX, beside: "t-y", after: true) == 1)
+            #expect(index(Self.tabX, beside: "t-x") == 2, "itself: the end")
+            #expect(index(Self.tabX, beside: nil) == 2, "no tab: the end")
+            #expect(index(.pane("y"), beside: "t-e") == 1, "a tab's own pane leaves it too")
+            #expect(index(.pane("a"), beside: "t-y") == 1, "from another bar, every tab stays")
+            #expect(index(.pane("a"), beside: nil) == 3)
+            #expect(index(.pane("elsewhere"), beside: "t-y") == 1, "from another window")
+        }
+
+        @Test("spring loading opens a tab of the drag's tree, never the one it leaves or one inside what's dragged")
+        func springLoad() {
+            let window = Self.sample()
+            #expect(window.canSpringLoad("t-y", during: Self.tabX))
+            #expect(window.canSpringLoad("t-c", during: .pane("a")))
+            #expect(window.canSpringLoad("t-c", during: Self.tabX), "another bar's tab")
+            #expect(!window.canSpringLoad("t-x", during: Self.tabX), "the tab the drag leaves")
+            #expect(!window.canSpringLoad("t-x", during: .pane("x")), "the tab holding the dragged pane")
+            #expect(!window.canSpringLoad("t-y", during: Self.tabS), "inside the dragged tab")
+            #expect(!window.canSpringLoad("t-c", during: .pane("fl")), "another tree")
+        }
+
+        @Test("Unpin, Ungroup and Clear pane are offered where they'd do something")
+        func menus() {
+            let one = createTabs([createTab("O", createLeaf("stub", id: "o"))], id: "one")
+            let two = createTabs([createTab("A", createLeaf("stub")), createTab("B", createLeaf("stub"))], id: "two")
+            let window = WindowLayoutTests.window(
+                createTabs(
+                    [createTab("One", one), createTab("Two", two), createTab("Empty", createLeaf("empty", id: "e"))], id: "root"),
+                floating: [float(createLeaf("stub", id: "fl"), "f")])
+            #expect(window.canUnpin("one") && window.canUnpin("o"))
+            #expect(!window.canUnpin("root"), "never the docked root")
+            #expect(!window.canUnpin("fl"), "a floating window's content is pinned back instead")
+            #expect(window.canUngroup("one"))
+            #expect(!window.canUngroup("root"), "never the docked root")
+            #expect(!window.canUngroup("two"), "a group of two tabs")
+            #expect(window.canClear("o") && window.canClear("one"))
+            #expect(!window.canClear("e"), "already empty")
+            #expect(window.canClear("root"), "the root means its shown tab")
+
+            var shownEmpty = window
+            shownEmpty.activateTab("root", window.root.tabs[2].id, titles: titles)
+            #expect(!shownEmpty.canClear("root"), "its shown tab is already empty")
         }
     }
 }

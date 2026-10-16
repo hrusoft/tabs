@@ -202,10 +202,49 @@ import Testing
             #expect(Tree.renameTab(root, "missing", "New") == root)
         }
 
-        @Test("is a no-op when the title is unchanged")
+        @Test("is a no-op when the user's own title is unchanged")
         func unchanged() {
-            let root = createTabs([welcomeTab("Same")])
+            let root = createTabs([createTab("Same", createLeaf("welcome"), titleIsManual: true)])
             #expect(Tree.renameTab(root, root.tabItems[0].id, "Same") == root)
+        }
+
+        @Test("marks the tab titleIsManual, even keeping the title it had")  // TT-8
+        func marksManual() {
+            let root = createTabs([welcomeTab("Welcome")])
+            let next = Tree.renameTab(root, root.tabItems[0].id, "Welcome")
+            #expect(next.tabItems[safe: 0]?.titleIsManual == true)
+            #expect(next.titles == ["Welcome"])
+        }
+
+        @Test("names only the tab it's given")  // TT-8
+        func onlyThatTab() {
+            let root = createTabs([welcomeTab("A"), welcomeTab("B")])
+            let next = Tree.renameTab(root, root.tabItems[0].id, "Mine")
+            #expect(next.tabItems.map(\.titleIsManual) == [true, false])
+        }
+    }
+
+    @Suite struct ResetTabTitle {
+        @Test("gives back the title a new tab holding the content gets, and un-marks it")  // TT-9
+        func resets() {
+            let tab = createTab("Mine", createLeaf("terminal"), titleIsManual: true)
+            let root = createTabs([welcomeTab(), tab])
+            var asked: NodeID?
+            let next = Tree.resetTabTitle(root, tab.id) { node, group in
+                asked = group
+                return node.kind
+            }
+            #expect(next.tabItems[safe: 1]?.title == "terminal")
+            #expect(next.tabItems[safe: 1]?.titleIsManual == false)
+            #expect(next.tabItems[safe: 1]?.content == tab.content)
+            #expect(asked == root.id, "titled as a tab of its own group")
+        }
+
+        @Test("is a no-op for an unknown tab, and for a default title already in place")
+        func noOps() {
+            let root = createTabs([createTab("terminal", createLeaf("terminal"))])
+            #expect(Tree.resetTabTitle(root, "missing", titleOf) == root)
+            #expect(Tree.resetTabTitle(root, root.tabItems[0].id, titleOf) == root)
         }
     }
 
@@ -260,62 +299,6 @@ import Testing
         func unmarksManual() {
             let leaf = createLeaf("terminal", title: "Custom", titleIsManual: true)
             #expect(Tree.renamePane(leaf, leaf.id, nil).leaf?.titleIsManual == false)
-        }
-    }
-
-    @Suite struct SetLiveTitle {
-        @Test("sets a title on a leaf with no existing title")
-        func sets() {
-            let leaf = createLeaf("terminal")
-
-            let next = Tree.setLiveTitle(leaf, leaf.id, "vim ~/notes.md")
-
-            #expect(next.leaf?.title == "vim ~/notes.md")
-            #expect(next.leaf?.titleIsManual == false)
-        }
-
-        @Test("updates an existing auto title")
-        func updates() {
-            let leaf = createLeaf("terminal", title: "old title")
-            #expect(Tree.setLiveTitle(leaf, leaf.id, "new title").leaf?.title == "new title")
-        }
-
-        @Test("is a no-op when the pane title was set manually")
-        func manual() {
-            let leaf = createLeaf("terminal", title: "Custom", titleIsManual: true)
-            #expect(Tree.setLiveTitle(leaf, leaf.id, "from the process") == leaf)
-        }
-
-        @Test("is a no-op when the title is unchanged")
-        func unchanged() {
-            let leaf = createLeaf("terminal", title: "Same")
-            #expect(Tree.setLiveTitle(leaf, leaf.id, "Same") == leaf)
-        }
-
-        @Test("treats an empty title the same as clearing it back to nil")
-        func emptyClears() {
-            let leaf = createLeaf("terminal", title: "Custom")
-            let next = Tree.setLiveTitle(leaf, leaf.id, "")
-            #expect(next.leaf != nil)
-            #expect(next.leaf?.title == nil)
-        }
-
-        @Test("is a no-op for an unknown id")
-        func unknown() {
-            let root = createLeaf("terminal")
-            #expect(Tree.setLiveTitle(root, "missing", "New") == root)
-        }
-
-        @Test("is a no-op on a tabs group (no header title of its own)")
-        func onTabs() {
-            let root = createTabs([welcomeTab("A")])
-            #expect(Tree.setLiveTitle(root, root.id, "New") == root)
-        }
-
-        @Test("is a no-op on a split (never rendered with a header)")
-        func onSplit() {
-            let root = createSplit(.horizontal, [createLeaf("terminal"), createLeaf("welcome")])
-            #expect(Tree.setLiveTitle(root, root.id, "New") == root)
         }
     }
 
@@ -1548,21 +1531,6 @@ import Testing
         @Test("falls back to an empty pane when the root collapses entirely")
         func collapses() {
             #expect(Tree.normalize(createSplit(.horizontal, [])).kind == "empty")
-        }
-    }
-
-    @Suite struct FirstPaneID {
-        @Test("returns a tabs/leaf root directly")
-        func direct() {
-            let root = createTabs([welcomeTab()])
-            #expect(Tree.firstPaneID(root) == root.id)
-        }
-
-        @Test("descends into the first child of nested splits")
-        func descends() {
-            let leaf = createLeaf("empty")
-            let root = createSplit(.horizontal, [createSplit(.vertical, [leaf, createLeaf("empty")]), createLeaf("empty")])
-            #expect(Tree.firstPaneID(root) == leaf.id)
         }
     }
 

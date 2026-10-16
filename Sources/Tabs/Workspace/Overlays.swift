@@ -155,11 +155,7 @@ final class HeaderDropdownView: FlippedView, NSViewToolTipOwner {
 
     override func layout() {
         super.layout()
-        // Set here, not in `init`: AppKit resets a view layer's shadow before the view is shown.
-        layer?.shadowColor = button.theme.shadow(0.4).cgColor
-        layer?.shadowOpacity = 1
-        layer?.shadowRadius = 24
-        layer?.shadowOffset = CGSize(width: 0, height: -8)
+        layer?.applyOverlayShadow(.menu, theme: button.theme)
     }
 
     var surface: NSColor {
@@ -180,7 +176,7 @@ final class HeaderDropdownView: FlippedView, NSViewToolTipOwner {
     }
 
     private func isDisabled(_ index: Int) -> Bool {
-        items[index].action == .clear && button.pane.node.isEmpty
+        items[index].action == .clear && !button.pane.host.layout.canClear(button.pane.nodeID)
     }
 
     /// The tool tip of the row under `point`: its label.
@@ -193,13 +189,9 @@ final class HeaderDropdownView: FlippedView, NSViewToolTipOwner {
         for index in items.indices {
             let rect = rowFrame(index)
             let disabled = isDisabled(index)
-            if index == hovered, !disabled {
-                theme.hover(0.12).setFill()
-                NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
-            }
-            let icon = Metrics.headerButtonIcon
+            if index == hovered, !disabled { ChromeWash.fill(rect, theme: theme) }
             items[index].icon.draw(
-                in: CGRect(x: rect.minX + 5, y: rect.minY + 2, width: icon, height: icon),
+                in: Metrics.headerButtonIconBox.offsetBy(dx: rect.minX, dy: rect.minY),
                 color: theme.text.withAlphaComponent(disabled ? 0.35 : 1))
         }
     }
@@ -300,7 +292,7 @@ enum ContextMenu {
 final class ContextMenuBackdrop: FlippedView {
     private let items: [ContextMenu.Item]
     private let theme: Theme
-    private let panel = ContextMenuPanel()
+    private let panel = OverlayPanel(passesClicksThrough: true)
     /// Runs once when the menu goes away, however it does.
     var onClose: (@MainActor () -> Void)?
     private var hovered: Int? { didSet { panel.needsDisplay = true } }
@@ -319,7 +311,7 @@ final class ContextMenuBackdrop: FlippedView {
         panel.layer?.masksToBounds = false
         addSubview(panel)
         panel.setAccessibilityIdentifier("context-menu")
-        panel.drawRows = { [unowned self] in self.drawRows() }
+        panel.drawContent = { [unowned self] in self.drawRows() }
     }
 
     /// Where the panel is laid out (content coordinates, unsnapped).
@@ -332,11 +324,7 @@ final class ContextMenuBackdrop: FlippedView {
             x: clampOverlay(point.x, size.width, bounds.width), y: clampOverlay(point.y, size.height, bounds.height), width: size.width,
             height: size.height)
         panel.frame = panelLayout.snapped
-        // Set here, not in `init`: AppKit resets a view layer's shadow before the view is shown.
-        panel.layer?.shadowColor = theme.shadow(0.4).cgColor
-        panel.layer?.shadowOpacity = 1
-        panel.layer?.shadowRadius = 24
-        panel.layer?.shadowOffset = CGSize(width: 0, height: -8)
+        panel.layer?.applyOverlayShadow(.menu, theme: theme)
     }
 
     private func rowRect(_ index: Int) -> CGRect {
@@ -366,10 +354,7 @@ final class ContextMenuBackdrop: FlippedView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        tracking = replaceTrackingArea(tracking, events: [.mouseMoved, .mouseEnteredAndExited])
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -412,57 +397,98 @@ final class ContextMenuBackdrop: FlippedView {
     }
 }
 
-/// The menu's panel: its background, border and shadow, and the rows over them.
+/// An overlay's box — a context menu's, the palette's, a dialog's card: its
+/// background, border and shadow are its layer's, and what it shows is drawn
+/// over them by its owner (`drawContent`). One that passes clicks through
+/// leaves them to the backdrop it sits on.
 @MainActor
-final class ContextMenuPanel: FlippedView {
-    var drawRows: (() -> Void)?
+final class OverlayPanel: FlippedView {
+    var drawContent: (() -> Void)?
+    private let passesClicksThrough: Bool
 
-    override func draw(_ dirtyRect: NSRect) { drawRows?() }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    init(passesClicksThrough: Bool) {
+        self.passesClicksThrough = passesClicksThrough
+        super.init(frame: .zero)
+    }
+
+    override func draw(_ dirtyRect: NSRect) { drawContent?() }
+    override func hitTest(_ point: NSPoint) -> NSView? { passesClicksThrough ? nil : super.hitTest(point) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// The drop shadows of what floats over the workspace: an overlay's layer's.
+/// Applied as the overlay is laid out or placed, never in `init`: AppKit
+/// resets a view layer's shadow before the view is shown.
+enum OverlayShadow {
+    /// A card over the window (the palette, a dialog): 16pt down, a 40pt blur.
+    case modal
+    /// A menu (a header's, a context menu): 8pt down, a 24pt blur.
+    case menu
+    /// The drag's ghost: 4pt down, a 12pt blur.
+    case ghost
+}
+
+extension CALayer {
+    @MainActor
+    func applyOverlayShadow(_ shadow: OverlayShadow, theme: Theme) {
+        let (alpha, radius, drop): (Double, CGFloat, CGFloat) =
+            switch shadow {
+            case .modal: (0.5, 40, 16)
+            case .menu: (0.4, 24, 8)
+            case .ghost: (0.35, 12, 4)
+            }
+        shadowColor = theme.shadow(alpha).cgColor
+        shadowOpacity = 1
+        shadowRadius = radius
+        shadowOffset = CGSize(width: 0, height: -drop)
+    }
 }
 
 // MARK: - Inline title editing
 
 /// Renaming a tab or a pane in place: a field over the title, saved on
-/// Return or when it loses focus, abandoned on Escape. A tab's emptied title
-/// is refused; a pane's clears its override.
+/// Return or when it loses focus, abandoned on Escape. What an unchanged or
+/// emptied title does is the engine's (`LayoutEngine.renameTab`, `renamePane`).
 @MainActor
 enum TitleEditor {
     static func begin(tab: NodeID?, pane: NodeID?, in controller: WorkspaceWindowController, from view: NSView) {
         let theme = controller.appearance.theme
         let layout = controller.layout
         if let tab, let tabView = view as? TabView, let current = layout.trees.lazy.compactMap({ Tree.findTab($0, tab) }).first {
+            let shown = controller.tabTitle(current.tab)
             let field = TitleField(
-                text: current.tab.title, color: theme.text, surface: theme.surfaceNext(depth: tabView.depth), theme: theme
+                text: shown, color: theme.text, surface: theme.surfaceNext(depth: tabView.depth), theme: theme
             ) { [weak controller, weak tabView] value in
                 tabView?.editor = nil
                 tabView?.needsDisplay = true
-                guard let value, let controller, !value.isEmpty, value != current.tab.title else { return }
-                controller.engine.perform(in: controller.windowID) { layout, titles in layout.renameTab(tab, value, titles: titles) }
+                guard let value, let controller else { return }
+                controller.engine.renameTab(tab, in: controller.windowID, to: value, from: shown)
             }
             tabView.editor = field
             let title = tabView.titleRect
-            field.frame = CGRect(x: title.minX, y: title.minY + (title.height - 15) / 2 - 1, width: max(title.width, 40), height: 15)
+            let height = Metrics.titleFieldHeight
+            field.frame = CGRect(
+                x: title.minX, y: title.minY + (title.height - height) / 2 - 1, width: max(title.width, 40), height: height)
             tabView.addSubview(field)
             field.focus()
             tabView.needsDisplay = true
         } else if let pane, let header = controller.paneView(pane)?.header, let node = layout.findNode(pane) {
+            let shown = controller.paneTitle(of: node)
             let field = TitleField(
-                text: controller.paneTitle(of: node), color: theme.textDim, surface: header.surface, theme: theme
+                text: shown, color: theme.textDim, surface: header.surface, theme: theme
             ) { [weak controller, weak header] value in
                 header?.editor = nil
                 header?.needsDisplay = true
                 guard let value, let controller else { return }
-                controller.engine.perform(in: controller.windowID) { layout, titles in
-                    layout.renamePane(pane, value.isEmpty ? nil : value, titles: titles)
-                }
+                controller.engine.renamePane(pane, in: controller.windowID, to: value, from: shown)
             }
             header.editor = field
             header.addSubview(field)
             header.needsLayout = true
             header.layoutSubtreeIfNeeded()
             let title = header.titleRect
-            field.frame = CGRect(x: title.minX, y: (title.height - 15) / 2, width: title.width, height: 15)
+            let height = Metrics.titleFieldHeight
+            field.frame = CGRect(x: title.minX, y: (title.height - height) / 2, width: title.width, height: height)
             field.focus()
             header.needsDisplay = true
         }
@@ -531,8 +557,6 @@ final class TitleField: FlippedView, NSTextFieldDelegate {
         removeFromSuperview()
         done(save ? value : nil)
     }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) }
 }
 
 // MARK: - The navigation flash

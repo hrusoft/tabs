@@ -36,9 +36,10 @@ public struct ControlVerbContribution: Contribution {
     public let name: String
     public var summary: String
     public var arguments: [ControlArgument]
-    /// What the verb acts on. `.pane(ofTypes:)`: core requires the request's
-    /// `paneId` to name an open pane of one of those (your own) types, and the
-    /// handler gets its controller from `invocation.pane(as:)`.
+    /// What the verb acts on. `.pane(ofTypes:)` (internal verbs): core
+    /// requires the request's `paneId` to name an open pane of one of those
+    /// (your own) types, and the handler gets its controller from
+    /// `invocation.pane(as:)`.
     /// `.ownedPane(ofTypes:)` (control-plane verbs): core requires the wire
     /// request's `targetPaneId` to name a pane the caller owns.
     public var target: ControlTarget
@@ -118,8 +119,9 @@ public enum ControlBudget {
     /// verb's own bounded answer always beats the deadline. A verb that waits
     /// for something (a page load) declares `wait + headroom` as its budget.
     public static let headroom: Duration = .seconds(5)
-    /// A `timeout` that means no deadline (`batch`: each step has its own).
-    public static let unbounded: Duration = .seconds(1 << 40)
+    /// A `timeout` that means no deadline: core's `batch`, each of whose steps
+    /// has its own.
+    package static let unbounded: Duration = .seconds(1 << 40)
 }
 
 /// What a control verb acts on.
@@ -127,8 +129,8 @@ public enum ControlTarget: Sendable, Equatable {
     /// Nothing in particular (the app, the plugin).
     case none
     /// An open pane of one of these types, all the plugin's own, named by the
-    /// request's `paneId`. (Internal verbs; a control-plane verb uses
-    /// `.ownedPane`.)
+    /// request's `paneId`. Internal verbs only: registration refuses it on a
+    /// control-plane verb, which uses `.ownedPane`.
     case pane(ofTypes: Set<ContentTypeID>)
     /// A pane the caller owns, named by the wire request's `targetPaneId` (the
     /// CLI's `--pane`, which core adds as a required flag). Before the handler
@@ -178,9 +180,6 @@ public struct ControlArgument: Sendable, Equatable {
     /// kebab-case (`retryOnRedirect` is `--retry-on-redirect` on its own):
     /// `timeoutMs` → `timeout`, `pollMs` → `poll`, `outPath` → `out`.
     public var flag: String?
-    /// For a `bool` flag: the wire value a *present* flag stands for, when it
-    /// isn't `true` (`--off` → `enabled: false`).
-    public var flagValue: JSONValue?
     /// The JSON Schema of the wire field, when the one derived from `kind`
     /// (and `enumValues`, `minimum`) isn't enough: `{type: array, items:
     /// {enum: […]}}`.
@@ -196,7 +195,6 @@ public struct ControlArgument: Sendable, Equatable {
         defaultValue: JSONValue? = nil,
         placeholder: String? = nil,
         flag: String? = nil,
-        flagValue: JSONValue? = nil,
         schema: JSONValue? = nil
     ) {
         self.name = name
@@ -208,12 +206,11 @@ public struct ControlArgument: Sendable, Equatable {
         self.defaultValue = defaultValue
         self.placeholder = placeholder
         self.flag = flag
-        self.flagValue = flagValue
         self.schema = schema
     }
 
     /// The CLI flag: `flag`, else the wire name in kebab-case.
-    public var flagName: String {
+    package var flagName: String {
         if let flag { return flag }
         var result = ""
         for character in name {
@@ -245,10 +242,6 @@ public struct ControlInvocation: Sendable {
     /// The caller's working directory, if it sent one.
     public let cwd: URL?
     private let ownPane: @MainActor @Sendable (PaneID) -> (any PaneController)?
-
-    public init(arguments: [String: JSONValue], targetPane: PaneID? = nil, callerPane: PaneID? = nil, cwd: URL? = nil) {
-        self.init(arguments: arguments, targetPane: targetPane, callerPane: callerPane, cwd: cwd) { _ in nil }
-    }
 
     package init(
         arguments: [String: JSONValue], targetPane: PaneID?, callerPane: PaneID?, cwd: URL?,

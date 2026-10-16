@@ -16,6 +16,7 @@ struct BrowserSettingsPage: View {
                     Text(
                         "Where a browser pane created by an agent (via the tabs skill's createBrowserPane) appears relative to the pane that created it."
                     )
+                    .foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("settings-browser-controlled-pane-placement-select")
             }

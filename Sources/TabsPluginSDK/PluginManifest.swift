@@ -16,7 +16,7 @@ import Foundation
 /// </dict>
 /// ```
 public struct PluginManifest: Codable, Hashable, Sendable {
-    public static let infoPlistKey = "TabsPlugin"
+    package static let infoPlistKey = "TabsPlugin"
 
     /// Equal to the bundle's name without `.tabsplugin`.
     public var id: PluginID
@@ -60,7 +60,7 @@ public struct PluginManifest: Codable, Hashable, Sendable {
     }
 
     /// Reads the manifest out of a bundle's Info.plist. Never loads code.
-    public init(infoDictionary: [String: Any]) throws {
+    package init(infoDictionary: [String: Any]) throws {
         guard let raw = infoDictionary[Self.infoPlistKey] else {
             throw ManifestError.missing
         }
@@ -76,7 +76,7 @@ public struct PluginManifest: Codable, Hashable, Sendable {
     }
 
     /// Every rule a manifest breaks, as human-readable sentences.
-    public func problems() -> [String] {
+    package func problems() -> [String] {
         var problems: [String] = []
         if !IdentifierRules.isValidPluginID(id.rawValue) {
             problems.append("id \"\(id)\" must be lowercase letters, digits and dashes, starting with a letter")
@@ -110,11 +110,11 @@ public struct PluginManifest: Codable, Hashable, Sendable {
     }
 }
 
-public enum ManifestError: Error, Equatable, CustomStringConvertible {
+package enum ManifestError: Error, Equatable, CustomStringConvertible {
     case missing
     case malformed(String)
 
-    public var description: String {
+    package var description: String {
         switch self {
         case .missing: "Info.plist has no \(PluginManifest.infoPlistKey) manifest"
         case .malformed(let detail): "malformed manifest: \(detail)"

@@ -45,7 +45,7 @@ extension UITests {
             let target = try ui.tabView("t-x")
             try ui.drag(tab, from: start, to: NSPoint(x: target.bounds.width * 0.25, y: target.bounds.midY), in: target)
             #expect(try ui.layout.tabIDs("g") == ["t-y", "t-x"])
-            #expect(ui.activeNode == "g", "the group it landed in is active")
+            #expect(ui.activePane == "y", "focus stays in the moved tab")
         }
 
         @Test func aTabMovesToAnotherBarAtTheSlotItWasDroppedIn() throws {
@@ -122,7 +122,7 @@ extension UITests {
             case .top: #expect(children.first?.splitNode?.children.map(\.id) == [docked, "a"])
             default: #expect(children.first?.splitNode?.children.map(\.id) == ["a", docked])
             }
-            #expect(ui.activeNode == docked, "its new group is active")
+            #expect(ui.activePane == "x", "focus goes into the docked tab")
         }
 
         @Test func aTabDockedAtAPanesCenterJoinsItInAGroup() throws {
@@ -286,7 +286,7 @@ extension UITests {
             try ui.drag(tab, from: start, to: NSPoint(x: target.bounds.width * 0.75, y: target.bounds.midY), in: target)
             #expect(ui.engine.model.window("v")?.root.tabs.map(\.content.id) == ["c", "b", "d"])
             #expect(ui.engine.model.window("w")?.leaves.map(\.id) == ["a"])
-            #expect(ui.engine.model.window("v")?.activeLeafID == "b")
+            #expect(ui.engine.model.window("v")?.activePaneID == "b")
         }
 
         @Test func aPaneDocksAtAnotherWindowsPaneEdge() throws {
@@ -580,7 +580,7 @@ extension UITests {
         @Test func aBackgroundTabsContentUnpinnedShows() throws {
             let ui = UIDriver(
                 layout: Fixture.saved(Fixture.tabsWindow("w", [Fixture.leaf("x", "inert"), Fixture.leaf("y", "inert")], active: 1)))
-            try ui.window.unpin("x", origin: "root-w")
+            try ui.window.unpin("x")
             #expect(try ui.layout.floating.first?.content.id == "x")
             #expect(!(try ui.paneView("x").isHiddenOrHasHiddenAncestor), "its floating window shows it")
             #expect(try ui.body("x").content != nil)

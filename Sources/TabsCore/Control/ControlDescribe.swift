@@ -46,7 +46,7 @@ package enum ControlDescribe {
         ]
         if verb.composition != nil {
             entry["target"] =
-                "Pass any of --role/--name/--selector (matched in the page, failing if ambiguous; --nth <n> is a 0-based pick among the matches); or --ref from read-page/find; or both --x and --y (CSS pixels). The three forms do not mix."
+                "Pass any of --role/--name/--selector (matched in the page, failing if ambiguous; --nth <n> is a 0-based pick among the matches); or --ref (an element ref an earlier command answered); or both --x and --y (CSS pixels). The three forms do not mix."
         }
         entry["wire"] = ControlSchema.wire(for: verb)
         if let result = verb.resultShape { entry["result"] = result }

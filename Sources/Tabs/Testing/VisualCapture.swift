@@ -293,17 +293,23 @@ enum VisualCapture {
         let data = FileManager.default.temporaryDirectory.appending(
             path: "tabs-visual-\(UUID().uuidString).noindex", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
-        if let plugins = scenario.settings?["plugins"] {
-            // The plugins' own settings, as the scenario gives them.
-            let settingsFile: JSONValue = ["version": 1, "plugins": plugins]
-            try settingsFile.encodedData().write(to: data.appending(path: "settings.json"))
-        }
+        // The scenario's settings, as settings.json holds them: core's pane settings
+        // (`core.panes`) and the plugins' own (`plugins`). `disabledContentTypes` is the
+        // capture's own (what empty panes offer, below).
+        var panes = scenario.settings ?? [:]
+        var settingsFile: [String: JSONValue] = ["version": 1]
+        if let plugins = panes.removeValue(forKey: "plugins") { settingsFile["plugins"] = plugins }
+        panes["disabledContentTypes"] = nil
+        settingsFile["core"] = ["panes": .object(panes)]
+        try JSONValue.object(settingsFile).encodedData().write(to: data.appending(path: "settings.json"))
         let runtime = CoreRuntime(paths: AppPaths(dataDirectory: data), readOnly: true)
         // The plugins, only when the scenario shows or offers a type of theirs.
         let required = SavedLayout(windows: [scenario.layout.window]).contentTypes
             .union((scenario.creationActions ?? []).map { ContentTypeID($0) })
         if !required.isEmpty { runtime.startBundledPlugins(of: .main, requiredContentTypes: required) }
         let engine = LayoutEngine(runtime: runtime)
+        // A staged title shows at once: the capture is a still, not a moment in time.
+        engine.titleSettleDelay = .zero
         let renderer = WorkspaceRenderer(runtime: runtime, engine: engine, presentsWindows: false)
         // Empty panes offer one stub content type ("▣"), after any type the
         // scenario asks for.
@@ -328,12 +334,10 @@ enum VisualCapture {
             creationActions.removeAll { disabled.contains($0.type.rawValue) }
         }
         renderer.creationActionsOverride = creationActions
+        // The look the app would draw with those settings, `system` taken as dark.
         var appearance = PaneAppearance()
-        let settings = scenario.settings ?? [:]
-        appearance.theme = Theme.resolve(settings["colorTheme"]?.stringValue ?? "dark", systemIsDark: true)
-        if case .bool(let dim)? = settings["dimInactivePanes"] { appearance.dimInactivePanes = dim }
-        if let intensity = settings["dimInactivePanesIntensity"]?.doubleValue { appearance.dimIntensity = intensity }
-        if case .bool(let snap)? = settings["snapResizeSeparators"] { appearance.snapResizeSeparators = snap }
+        let settings = runtime.settings.panes
+        appearance.apply(settings, theme: runtime.themes.catalog.resolve(settings.colorTheme, systemIsDark: true))
         // No window corner radius: the captures are square.
         appearance.cornerRadius = 0
         appearance.caffeinateRunning = scenario.caffeinate == true
@@ -354,16 +358,11 @@ enum VisualCapture {
         engine.reconcile()
         controller.root.layoutSubtreeIfNeeded()
         if let signals = scenario.signals {
-            // Raised while their switches are on; the scenario's settings may
-            // then hide them.
+            // A kind the settings switched off (`disabledSignals`) doesn't show.
             SignalFixtures.declare(in: runtime.signals)
             for (pane, kinds) in signals.sorted(by: { $0.key < $1.key }) {
                 for kind in kinds { runtime.signals.raise(PaneSignal(kind), on: PaneID(pane), by: nil) }
             }
-            var panes = runtime.settings.panes
-            if case .bool(false)? = settings["enableBellIndicator"] { panes.disabledSignals.append(SignalFixtures.bellID) }
-            if case .bool(false)? = settings["enableControlIndicator"] { panes.disabledSignals.append(SignalFixtures.controlledID) }
-            runtime.settings.setPanes(panes)
         }
         for (pane, spec) in (scenario.content ?? [:]).sorted(by: { $0.key < $1.key }) {
             guard let verb = staged.contentVerb("stage", of: pane) else {

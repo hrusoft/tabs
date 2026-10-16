@@ -6,9 +6,6 @@ import TabsPluginSDK
 ///
 ///     Tabs --plugin-report              JSON report of every plugin; exit 1 if any is broken
 ///     Tabs --control '<json request>'   dispatch one control request; exit 1 on error
-///
-/// Debug builds also accept `--plugins-dir <path>` to load plugins from
-/// somewhere other than the app's own PlugIns directory.
 struct HeadlessCommand {
     enum Mode {
         case pluginReport
@@ -16,8 +13,6 @@ struct HeadlessCommand {
     }
 
     let mode: Mode
-    /// Debug-only override; nil means the app's own bundled plugins.
-    let pluginsDirectory: URL?
 
     init?(arguments: [String]) {
         if arguments.contains("--plugin-report") {
@@ -27,13 +22,6 @@ struct HeadlessCommand {
         } else {
             return nil
         }
-        #if DEBUG
-        if let index = arguments.firstIndex(of: "--plugins-dir"), arguments.indices.contains(index + 1) {
-            pluginsDirectory = URL(filePath: arguments[index + 1], directoryHint: .isDirectory)
-            return
-        }
-        #endif
-        pluginsDirectory = nil
     }
 
     @MainActor
@@ -47,11 +35,7 @@ struct HeadlessCommand {
         // Headless modes only look: they never write, move or copy user files.
         let runtime = CoreRuntime(paths: paths, readOnly: true)
         let layout = runtime.loadLayout()
-        if let pluginsDirectory {
-            runtime.startPlugins(from: pluginsDirectory, requiredContentTypes: layout?.contentTypes ?? [])
-        } else {
-            runtime.startBundledPlugins(of: .main, requiredContentTypes: layout?.contentTypes ?? [])
-        }
+        runtime.startBundledPlugins(of: .main, requiredContentTypes: layout?.contentTypes ?? [])
         defer { runtime.host.stop() }
 
         switch mode {

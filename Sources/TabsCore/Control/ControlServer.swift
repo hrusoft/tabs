@@ -240,8 +240,9 @@ package final class ControlServer: @unchecked Sendable {
                 close(fd)
                 continue
             }
-            // Belt and braces with the process-wide SIG_IGN in start(): this
-            // fails (harmlessly) if the peer has already left.
+            // Belt and braces with the process-wide no-op SIGPIPE handler
+            // start() installs (`catchBrokenPipes`, deliberately not
+            // SIG_IGN): this fails (harmlessly) if the peer has already left.
             var one: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
             let connection = Connection(

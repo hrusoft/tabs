@@ -4,8 +4,9 @@ import TabsPluginSDK
 
 /// The flags a managed `caffeinate` process is launched with: one per
 /// `caffeinate(8)` assertion the dialog offers, plus an optional timer. See
-/// `argsFor` for the flag → argv mapping.
-package struct CaffeinateFlags: Equatable, Sendable {
+/// `argsFor` for the flag → argv mapping. Stored as the dialog's last Start
+/// (`SettingsStore.lastCaffeinate`).
+package struct CaffeinateFlags: Codable, Equatable, Sendable {
     /// `-d`: prevent display sleep.
     package var preventDisplaySleep = false
     /// `-i`: prevent idle system sleep.
@@ -83,8 +84,7 @@ package final class Caffeinate {
     /// and an old process's exit then ended the new one's state.
     private var currentLaunch = 0
     private var launches = 0
-    private var observers: [Int: @MainActor (Bool) -> Void] = [:]
-    private var nextObserver = 0
+    private let observers = ObserverList<Bool>()
 
     /// - Parameter binary: what to run; tests point it elsewhere to make a
     ///   launch fail or end at once.
@@ -102,10 +102,7 @@ package final class Caffeinate {
 
     /// Calls `handler` with the new state whenever it changes.
     package func observe(_ handler: @escaping @MainActor (Bool) -> Void) -> Subscription {
-        let token = nextObserver
-        nextObserver += 1
-        observers[token] = handler
-        return Subscription(onCancel: { [weak self] in self?.observers[token] = nil })
+        observers.add(handler)
     }
 
     /// Starts the managed process with `flags`, watching this app's own pid
@@ -160,7 +157,6 @@ package final class Caffeinate {
     }
 
     private func announce() {
-        let running = isRunning
-        for observer in observers.values { observer(running) }
+        observers.notify(isRunning)
     }
 }

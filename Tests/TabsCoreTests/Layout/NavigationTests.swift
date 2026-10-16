@@ -384,15 +384,6 @@ import Testing
             #expect(Navigation.navTarget(root, y.id, .down) == nil)
         }
 
-        @Test("cycles a focused tab group itself, the same as its content would")
-        func focusedGroup() {
-            let (a, b) = (welcomeTab("A"), welcomeTab("B"))
-            let root = createTabs([a, b], active: a.id)
-
-            #expect(Navigation.navTarget(root, root.id, .right)?.node == b.content)
-            #expect(Navigation.navTarget(root, root.id, .left)?.wrapped == true)
-        }
-
         @Test("returns nil when no ancestor can move in that direction")
         func none() {
             let leaf = createLeaf("welcome")

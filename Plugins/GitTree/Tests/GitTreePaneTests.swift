@@ -35,44 +35,11 @@ private func workingTreeDetail(_ path: String, insertions: Int = 1, deletions: I
         files: [ChangedFile(path: path, insertions: insertions, deletions: deletions)], filesTruncated: false)
 }
 
-/// Polls until `condition` holds (or `timeout` passes: generous, as tests
-/// share the main actor; it returns as soon as it holds). A wait that held
-/// only after more than 3 s is recorded as a warning, which fails nothing: a
-/// starved main actor shows up long before it costs a timeout.
-@MainActor
-func eventually(timeout: Duration = .seconds(10), sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async -> Bool
-{
-    let clock = ContinuousClock()
-    let start = clock.now
-    var held = condition()
-    while !held, clock.now < start + timeout {
-        try? await Task.sleep(for: .milliseconds(10))
-        held = condition()
-    }
-    let waited = start.duration(to: clock.now)
-    if held, waited > .seconds(3) {
-        let shown = String(format: "%.1f s", Double(waited.components.seconds) + Double(waited.components.attoseconds) / 1e18)
-        Issue.record("slow: held after \(shown)", severity: .warning, sourceLocation: sourceLocation)
-    }
-    return held
-}
-
 /// Lets scripted git answer what a test hopes was never asked: it answers
 /// within a few turns of the main actor, so a short wait shows nothing came.
 @MainActor
 func quietPeriod() async {
     try? await Task.sleep(for: .milliseconds(25))
-}
-
-@MainActor
-final class Box<Value> {
-    var value: Value
-    init(_ value: Value) { self.value = value }
-}
-
-struct TestFailure: Error, CustomStringConvertible {
-    let description: String
-    init(_ description: String) { self.description = description }
 }
 
 /// The git tree plugin in a harness with scripted git, its details read as
@@ -84,7 +51,7 @@ final class GitTreeTestBed {
     let git = ScriptedGitSource()
 
     init(alongside: [PluginCandidate] = [], testFile: String = #filePath) throws {
-        let made = Box<GitTreePlugin?>(nil)
+        let made = Ref<GitTreePlugin?>(nil)
         harness = try PluginHarness(alongside: alongside, testFile: testFile) {
             let plugin = GitTreePlugin()
             made.value = plugin
@@ -213,6 +180,23 @@ final class GitTreeTestBed {
         #expect(pane.selectedHash == onFeature)
     }
 
+    /// S-6: activation focuses the list while it has no rows too (still
+    /// reading, or a failure's notice in its place), and its keys move nothing.
+    @Test("takes the keyboard on activation with no rows, and its keys move nothing") func listFocusWithoutRows() async throws {
+        bed.git.failure = .notARepo(path: "/tmp/nowhere")
+        let (_, pane) = try #require(bed.open(config: ["cwd": "/tmp/nowhere"]))
+        #expect(await bed.settled(pane))
+        let view = bed.view(of: pane)
+        let window = hostWindow(view)
+        pane.focus()
+        #expect(window.firstResponder === view.list)
+        for key: NSEvent.SpecialKey in [.downArrow, .upArrow, .home, .end] { press(key, on: view.list) }
+        #expect(pane.selectedHash == nil)
+        #expect(view.state == .notice)
+        #expect(window.firstResponder === view.list)
+        window.orderOut(nil)
+    }
+
     /// S-5, P-1
     @Test("clicking a row selects it and swaps the detail panel") func clickSelects() async throws {
         let (_, pane) = try await bed.openRepo()
@@ -244,13 +228,46 @@ final class GitTreeTestBed {
         #expect(!texts.contains("+0"))
     }
 
-    /// P-4, P-5, P-7
+    /// P-19
+    @Test("the fields end with the lines added and deleted across the files, coloured as a file's stat") func totals() throws {
+        let detail = CommitDetail(
+            hash: onMain, parents: [root], author: "Ann", authorEmail: "ann@example.com", date: "2026-01-02T03:04:05Z", refs: ["main"],
+            message: "on main",
+            files: [
+                ChangedFile(path: "src/a.ts", insertions: 12, deletions: 3), ChangedFile(path: "logo.png", insertions: nil, deletions: nil),
+                ChangedFile(path: "src/b.ts", insertions: 8, deletions: 1),
+            ],
+            filesTruncated: false)
+        let layout = CommitDetailLayout(detail: detail, width: 600)
+        let totals = try #require(layout.totals)
+        let label = try #require(layout.runs.first { $0.text == "Lines" })
+        let plus = try #require(layout.runs.first { $0.text == "+20" })
+        let minus = try #require(layout.runs.first { $0.text == "−4" })
+        #expect(layout.fields.count == 6, "Commit, Author, Date, Parent, Refs, Lines")
+        #expect(layout.fields.last?.dt == label.box && layout.fields.last?.dd == plus.box.union(minus.box))
+        #expect(plus.box == totals.insertions && minus.box == totals.deletions)
+        #expect(plus.color == .fixed(GitTreeColors.insertions) && minus.color == .fixed(GitTreeColors.deletions))
+        #expect(minus.box.minY == plus.box.minY && minus.box.minX == plus.box.maxX + GitTreeMetrics.fileStatGap)
+        let border = try #require(layout.filesBorder)
+        #expect(layout.fields[4].dd.maxY < label.box.minY && minus.box.maxY < border.minY)
+
+        // Too narrow for both on a line: the deletions go under the insertions.
+        let narrow = try #require(CommitDetailLayout(detail: detail, width: 90).totals)
+        #expect(narrow.deletions.minX == narrow.insertions.minX && narrow.deletions.minY == narrow.insertions.maxY)
+    }
+
+    /// P-4, P-5, P-7, P-19
     @Test func theDetailPanelsDimLinesSayWhatsMissing() {
         #expect(CommitDetailLayout(detail: nil, width: 600).runs.map(\.text) == ["Select a commit."])
         var empty = CommitDetail(
             hash: onMain, parents: [root], author: "A", authorEmail: "a@b", date: "", refs: [], message: "m", files: [],
             filesTruncated: false)
         #expect(CommitDetailLayout(detail: empty, width: 600).runs.map(\.text).contains("No files changed against the first parent."))
+        // No counts to total, no Lines.
+        #expect(CommitDetailLayout(detail: empty, width: 600).totals == nil)
+        var binaries = empty
+        binaries.files = [ChangedFile(path: "logo.png", insertions: nil, deletions: nil)]
+        #expect(!CommitDetailLayout(detail: binaries, width: 600).runs.map(\.text).contains("Lines"))
         empty.hash = ""
         #expect(CommitDetailLayout(detail: empty, width: 600).runs.map(\.text).contains("No uncommitted changes."))
         empty.filesTruncated = true
@@ -311,7 +328,7 @@ final class GitTreeTestBed {
         #expect(pane.selectedHash == merge, "the default selection stays on real history")
     }
 
-    /// P-6
+    /// P-6, P-19
     @Test("selecting the working-tree row shows its own changed files, like a commit") func selectWorkingTree() async throws {
         bed.git.workingTreeDetail = workingTreeDetail("src/a.ts", insertions: 4, deletions: 1)
         let (_, pane) = try await bed.openRepo(dirty: true)
@@ -321,6 +338,8 @@ final class GitTreeTestBed {
         #expect(texts.contains("Uncommitted changes") && texts.contains("src/a.ts") && texts.contains("+4") && texts.contains("−1"))
         #expect(!texts.contains("Commit"))
         #expect(texts.contains("Parent") && texts.contains(String(merge.prefix(7))))
+        // Lines totals the listed files: the one file's counts, twice.
+        #expect(texts.contains("Lines") && texts.filter { $0 == "+4" }.count == 2 && texts.filter { $0 == "−1" }.count == 2)
     }
 
     /// P-9
@@ -659,21 +678,21 @@ final class GitTreeTestBed {
     @Test func theViewsPaintWithTheThemeCoreTellsThePane() async throws {
         let (id, pane) = try await bed.openRepo()
         let view = bed.view(of: pane)
-        #expect(view.theme == .dark, "before core says anything: the dark tokens")
-        bed.harness.runtime.panes.appearanceDidChange(id, theme: .light, depth: 1)
-        #expect(view.theme == .light)
-        #expect(view.list.theme == .light && view.detail.theme == .light && view.divider.theme == .light)
-        #expect(pane.toolbar.theme == .light)
-        #expect(pane.pane.theme == .light && pane.pane.depth == 1)
-        bed.harness.runtime.panes.appearanceDidChange(id, theme: .dark, depth: 1)
-        #expect(pane.toolbar.theme == .dark && view.theme == .dark)
+        #expect(view.theme == .placeholder, "before core says anything: the placeholder")
+        bed.harness.runtime.panes.appearanceDidChange(id, theme: .standInLight, depth: 1)
+        #expect(view.theme == .standInLight)
+        #expect(view.list.theme == .standInLight && view.detail.theme == .standInLight && view.divider.theme == .standInLight)
+        #expect(pane.toolbar.theme == .standInLight)
+        #expect(pane.pane.theme == .standInLight && pane.pane.depth == 1)
+        bed.harness.runtime.panes.appearanceDidChange(id, theme: .standInDark, depth: 1)
+        #expect(pane.toolbar.theme == .standInDark && view.theme == .standInDark)
     }
 
     @Test func aViewBuiltAfterTheThemeWasToldStartsWithIt() async throws {
         let opened = try #require(bed.open(config: ["cwd": "/repo"]))
-        bed.harness.runtime.panes.appearanceDidChange(opened.id, theme: .light, depth: 0)
+        bed.harness.runtime.panes.appearanceDidChange(opened.id, theme: .standInLight, depth: 0)
         let view = bed.view(of: opened.pane)
-        #expect(view.theme == .light && view.list.theme == .light && opened.pane.toolbar.theme == .light)
+        #expect(view.theme == .standInLight && view.list.theme == .standInLight && opened.pane.toolbar.theme == .standInLight)
     }
 
     /// PS-1: a config that isn't an object is refused, not replaced.
@@ -958,17 +977,17 @@ final class GitTreeTestBed {
     func inFlight() async throws {
         let (_, pane) = try await bed.openRepo()
         bed.git.branchesAtCommitAnswers[onFeature] = BranchesAtCommit(local: ["feature"], remotes: [], allLocalBranches: ["feature"])
-        bed.git.holdCheckouts = true
+        bed.git.checkoutGate.isHeld = true
         let first = Task { await pane.checkout(onFeature) }
         #expect(await eventually { bed.git.checkoutCalls.count == 1 })
         let reads = bed.git.branchesAtCommitCalls.count
         await pane.checkout(onFeature)
         #expect(bed.git.checkoutCalls.count == 1)
         #expect(bed.git.branchesAtCommitCalls.count == reads)
-        bed.git.releaseCheckouts()
+        bed.git.checkoutGate.release()
         await first.value
         #expect(await eventually { pane.head == .branch(name: "feature") })
-        bed.git.holdCheckouts = false
+        bed.git.checkoutGate.isHeld = false
         bed.git.branchesAtCommitAnswers[onMain] = BranchesAtCommit(local: ["main"], remotes: [], allLocalBranches: ["main"])
         await pane.checkout(onMain)
         #expect(bed.git.checkoutCalls.count == 2)
@@ -1144,10 +1163,10 @@ final class GitTreeTestBed {
 @MainActor
 @Suite(.serialized) struct GitTreeInheritanceTests {
     let bed: GitTreeTestBed
-    let offered: Box<URL?>
+    let offered: Ref<URL?>
 
     init() throws {
-        let offered = Box<URL?>(URL(filePath: "/origin/repo", directoryHint: .isDirectory))
+        let offered = Ref<URL?>(URL(filePath: "/origin/repo", directoryHint: .isDirectory))
         self.offered = offered
         let standIn = TestSupport.candidate(TestSupport.manifest("stand-in", contentTypes: ["stand-in", "stand-in.plain"])) { context in
             context.register(
@@ -1210,6 +1229,274 @@ final class GitTreeTestBed {
         #expect(contribution.value.initialConfig(PaneCreation(origin: nil)) == .emptyObject)
         let origin = try #require(bed.harness.runtime.panes.openPane(PaneRequest(type: "stand-in")))
         #expect(contribution.value.initialConfig(PaneCreation(origin: origin)) == ["cwd": "/origin/repo"])
+    }
+}
+
+// MARK: - Expanded files
+
+private let fileA = ChangedFile(path: "src/a.swift", insertions: 1, deletions: 2)
+private let fileB = ChangedFile(path: "README.md", insertions: 1, deletions: 0)
+
+/// A 30-line file with lines 15 and 16 changed to one: 9 unchanged lines
+/// hidden before the hunk and 9 after, the old file's lines there to show.
+private func thirtyLineDiff() -> FileDiff {
+    var diff = Git.parsePatch(
+        "@@ -10,12 +10,11 @@\n" + (10...14).map { " line \($0)\n" }.joined() + "-line 15\n-line 16\n+line 15-16\n"
+            + (17...21).map { " line \($0)\n" }.joined())
+    diff.base = (1...30).map { "line \($0)" }
+    return diff
+}
+
+/// A one-line file with a line added: nothing hidden, no old file.
+private let smallDiff = Git.parsePatch("@@ -1 +1,2 @@\n x\n+y\n")
+
+@MainActor
+@Suite(.serialized) struct GitTreeFileDiffTests {
+    let bed: GitTreeTestBed
+
+    init() throws { bed = try GitTreeTestBed() }
+
+    private func detail(_ hash: String, files: [ChangedFile]) -> CommitDetail {
+        CommitDetail(
+            hash: hash, parents: hash == uncommittedChangesHash ? [merge] : [onMain, onFeature], author: "Ann",
+            authorEmail: "ann@example.com", date: "2026-01-02T03:04:05Z", refs: [],
+            message: hash == uncommittedChangesHash ? "Uncommitted changes" : "merge feature", files: files, filesTruncated: false)
+    }
+
+    /// A pane on `cwd` (root `/repo`) whose newest commit, selected, lists
+    /// `fileA` and `fileB`, each with a diff.
+    private func openWithFiles(cwd: String = "/repo", root: String = "/repo") async throws -> GitTreePane {
+        bed.git.details[merge] = detail(merge, files: [fileA, fileB])
+        bed.git.fileDiffs[merge] = [fileA.path: thirtyLineDiff(), fileB.path: smallDiff]
+        bed.git.setLog(history, root: root)
+        let opened = try #require(bed.open(config: .object(["cwd": .string(cwd)])))
+        #expect(await bed.settled(opened.pane))
+        #expect(opened.pane.detail?.hash == merge)
+        return opened.pane
+    }
+
+    private func read(_ pane: GitTreePane, _ path: String) async -> Bool {
+        await eventually { if case .read = pane.expandedFiles[path]?.diff { true } else { false } }
+    }
+
+    /// P-11, P-12
+    @Test("clicking a file row opens its diff, read from the repository's root; clicking again closes it") func toggle() async throws {
+        let pane = try await openWithFiles(cwd: "/repo/sub")
+        pane.toggleFile(fileA)
+        #expect(await read(pane, fileA.path))
+        let asked = try #require(bed.git.fileDiffReads.last)
+        #expect(asked.root == "/repo", "pathspecs and the files' paths are the root's")
+        #expect(asked.hash == merge && asked.file == fileA)
+        #expect(pane.expandedFiles[fileA.path]?.shown == thirtyLineDiff())
+        pane.toggleFile(fileA)
+        #expect(pane.expandedFiles.isEmpty)
+    }
+
+    /// P-11
+    @Test("several files stay open at once") func several() async throws {
+        let pane = try await openWithFiles()
+        pane.toggleFile(fileA)
+        pane.toggleFile(fileB)
+        #expect(await read(pane, fileA.path))
+        #expect(await read(pane, fileB.path))
+        #expect(pane.expandedFiles.keys.sorted() == [fileB.path, fileA.path].sorted())
+    }
+
+    /// P-13
+    @Test("a file being read says so in its box; one that failed shows why") func readingAndFailed() async throws {
+        let pane = try await openWithFiles()
+        let view = bed.view(of: pane)
+        bed.git.fileDiffGate.isHeld = true
+        pane.toggleFile(fileA)
+        #expect(await eventually { bed.git.fileDiffReads.count == 1 })
+        #expect(view.detail.layout(width: 600).runs.map(\.text).contains("Reading diff…"))
+        #expect(view.detail.layout(width: 600).files[0].diff?.rows.isEmpty == true)
+        bed.git.fileDiffGate.isHeld = false
+        bed.git.fileDiffGate.release()
+        #expect(await read(pane, fileA.path))
+        #expect(!view.detail.layout(width: 600).runs.map(\.text).contains("Reading diff…"))
+
+        bed.git.fileDiffs[merge]?[fileB.path] = nil
+        pane.toggleFile(fileB)
+        #expect(await eventually { pane.expandedFiles[fileB.path]?.diff == .failed("no diff for README.md") })
+        #expect(view.detail.layout(width: 600).runs.map(\.text).contains("no diff for README.md"))
+    }
+
+    /// P-17
+    @Test("another selection closes every open file, and a read still under way lands nowhere") func selectionCloses() async throws {
+        let pane = try await openWithFiles()
+        pane.toggleFile(fileB)
+        #expect(await read(pane, fileB.path))
+        bed.git.fileDiffGate.isHeld = true
+        pane.toggleFile(fileA)
+        #expect(await eventually { bed.git.fileDiffReads.count == 2 })
+        pane.select(onMain)
+        #expect(pane.expandedFiles.isEmpty)
+        bed.git.fileDiffGate.isHeld = false
+        bed.git.fileDiffGate.release()
+        await quietPeriod()
+        #expect(pane.expandedFiles.isEmpty)
+        pane.select(merge)
+        #expect(await eventually { pane.detail?.hash == merge })
+        #expect(pane.expandedFiles.isEmpty, "coming back opens nothing by itself")
+    }
+
+    /// P-17
+    @Test("a commit's open files stay open across a refresh, not read again") func commitRefreshKeeps() async throws {
+        let pane = try await openWithFiles()
+        pane.toggleFile(fileA)
+        #expect(await read(pane, fileA.path))
+        pane.revealGap(fileA.path, 0)
+        let reads = bed.git.fileDiffReads.count
+        pane.refresh()
+        #expect(await bed.settled(pane))
+        await quietPeriod()
+        #expect(bed.git.fileDiffReads.count == reads)
+        #expect(pane.expandedFiles[fileA.path]?.revealed == [0])
+    }
+
+    /// P-17, P-9
+    @Test("⌘R on the working tree reads its open files again, the old diff shown meanwhile, and closes those it no longer lists")
+    func workingTreeRefresh() async throws {
+        bed.git.workingTreeDetail = detail(uncommittedChangesHash, files: [fileA, fileB])
+        bed.git.fileDiffs[uncommittedChangesHash] = [fileA.path: thirtyLineDiff(), fileB.path: smallDiff]
+        let (_, pane) = try await bed.openRepo(dirty: true)
+        pane.select(uncommittedChangesHash)
+        #expect(await eventually { pane.detail?.hash == uncommittedChangesHash })
+        pane.toggleFile(fileA)
+        pane.toggleFile(fileB)
+        #expect(await read(pane, fileA.path))
+        #expect(await read(pane, fileB.path))
+        pane.revealGap(fileA.path, 0)
+
+        bed.git.workingTreeDetail.files = [fileA]
+        bed.git.fileDiffGate.isHeld = true
+        pane.refresh()
+        #expect(await eventually { pane.expandedFiles[fileB.path] == nil })
+        #expect(pane.expandedFiles[fileA.path]?.diff == .reading(previous: thirtyLineDiff()))
+        #expect(pane.expandedFiles[fileA.path]?.shown == thirtyLineDiff(), "the old diff stays up")
+        bed.git.fileDiffGate.isHeld = false
+        bed.git.fileDiffGate.release()
+        #expect(await read(pane, fileA.path))
+        #expect(pane.expandedFiles[fileA.path]?.revealed == [], "a partly open file closes its runs: they may have moved")
+
+        pane.toggleFullFile(fileA.path)
+        pane.refresh()
+        #expect(await eventually { bed.git.fileDiffReads.count == 4 })
+        #expect(await read(pane, fileA.path))
+        #expect(pane.expandedFiles[fileA.path]?.showsFullFile == true, "everything open stays open")
+    }
+
+    /// P-15, P-16
+    @Test("a hidden run opens on a click; Show full file opens them all and Show changes only closes them") func hiddenRuns() async throws {
+        let pane = try await openWithFiles()
+        let view = bed.view(of: pane)
+        pane.toggleFile(fileA)
+        pane.toggleFile(fileB)
+        #expect(await read(pane, fileA.path))
+        #expect(await read(pane, fileB.path))
+        var block = try #require(view.detail.layout(width: 600).files[0].diff)
+        #expect(block.rows.first?.kind == .hidden)
+        #expect(block.rows.first?.label == "9 unchanged lines")
+        #expect(block.rows.last?.label == "9 unchanged lines")
+        #expect(block.fullFile?.label == "Show full file")
+        let hidden = try #require(block.rows.first?.rect)
+        let point = CGPoint(x: hidden.midX, y: hidden.midY + view.detail.fractionalOffset)
+        #expect(view.detail.target(at: point) == .gap(file: 0, row: 0))
+        #expect(view.detail.fileIndex(at: point) == nil, "a right-click on the diff opens no menu")
+        view.detail.activate(.gap(file: 0, row: 0))
+        #expect(pane.expandedFiles[fileA.path]?.revealed == [0])
+        block = try #require(view.detail.layout(width: 600).files[0].diff)
+        #expect(block.rows.first?.kind == .context)
+        #expect(block.rows.filter { $0.kind == .hidden }.count == 1)
+
+        view.detail.activate(.fullFile(0))
+        block = try #require(view.detail.layout(width: 600).files[0].diff)
+        #expect(block.rows.allSatisfy { $0.kind != .hidden })
+        #expect(block.rows.count == 9 + 13 + 9)
+        #expect(block.fullFile?.label == "Show changes only")
+        view.detail.activate(.fullFile(0))
+        #expect(pane.expandedFiles[fileA.path]?.revealed == [])
+        #expect(view.detail.layout(width: 600).files[0].diff?.rows.filter { $0.kind == .hidden }.count == 2)
+
+        #expect(view.detail.layout(width: 600).files[1].diff?.fullFile == nil, "nothing hidden to show: no Show full file")
+    }
+
+    /// P-11, L-27, L-29, L-30
+    @Test("an open file's diff sits under its row and pushes the rows after it down; the chevron's column moves the stat") func layout()
+        async throws
+    {
+        let pane = try await openWithFiles()
+        let closed = CommitDetailLayout(detail: pane.detail, width: 600)
+        let row = closed.files[0].row
+        #expect(closed.files[0].disclosure == CGRect(x: 10, y: row.minY, width: 14, height: 17))
+        #expect(closed.files[0].stat.minX == 24)
+        #expect(!closed.files[0].expanded)
+        pane.toggleFile(fileA)
+        #expect(await read(pane, fileA.path))
+        let open = CommitDetailLayout(detail: pane.detail, expanded: pane.expandedFiles, width: 600)
+        let diff = try #require(open.files[0].diff)
+        #expect(open.files[0].expanded)
+        #expect(diff.box.minY == open.files[0].row.maxY + 2)
+        #expect(diff.box.minX == 10 && diff.box.width == 580)
+        #expect(open.files[1].row.minY == diff.box.maxY + 6)
+        #expect(open.height > closed.height)
+        let removed = try #require(diff.rows.first { $0.kind == .removed })
+        #expect(removed.old != nil && removed.new == nil)
+        let added = try #require(diff.rows.first { $0.kind == .added })
+        #expect(added.old == nil && added.new != nil)
+        #expect(removed.rect.height == 15)
+    }
+
+    /// P-18
+    @Test("a renamed file's row reads as git prints it") func renameRow() async throws {
+        let renamed = ChangedFile(path: "src/new/a.txt", insertions: 1, deletions: 1, oldPath: "src/old/a.txt")
+        let layout = CommitDetailLayout(detail: detail(merge, files: [renamed]), width: 600)
+        #expect(layout.runs.map(\.text).contains("src/{old => new}/a.txt"))
+    }
+
+    /// P-11, S-6
+    @Test("a click on a file row opens it and leaves the keyboard on the list") func clickKeepsTheKeyboard() async throws {
+        let pane = try await openWithFiles()
+        let view = bed.view(of: pane)
+        let window = hostWindow(view)
+        view.focusList()
+        let row = view.detail.layout(width: view.detail.bounds.width).files[0].row
+        let point = CGPoint(x: 300, y: row.midY + view.detail.fractionalOffset)
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown, location: view.detail.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        view.detail.mouseDown(with: event)
+        #expect(pane.expandedFiles[fileA.path] != nil)
+        #expect(window.firstResponder === view.list)
+    }
+
+    /// X-4, X-5
+    @Test("right-click on a file row: Show in Finder, then Open, on the file under the root as it is now; both disabled when it's gone")
+    func menu() async throws {
+        let dir = TestTemporary.directory("git-tree-menu").path
+        try FileManager.default.createDirectory(atPath: dir + "/src", withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: dir + "/src/a.swift", contents: Data())
+        let pane = try await openWithFiles(cwd: dir, root: dir)
+        var actions: [(action: GitTreeServices.FileAction, url: URL)] = []
+        bed.services.fileActionOverride = { actions.append(($0, $1)) }
+        let view = bed.view(of: pane)
+        view.detail.openMenu(forFile: 0, at: CGPoint(x: 4, y: 5))
+        let menu = try #require(bed.harness.renderer.contextMenus.first)
+        #expect(menu.items.map(\.title) == ["Show in Finder", "Open"])
+        #expect(menu.items.map(\.isEnabled) == [true, true])
+        menu.items[0].action()
+        menu.items[1].action()
+        #expect(actions.map(\.action) == [.reveal, .open])
+        #expect(actions.map(\.url.path) == [dir + "/src/a.swift", dir + "/src/a.swift"])
+
+        let gone = view.detail.fileItems(for: fileB)
+        #expect(gone.map(\.title) == ["Show in Finder", "Open"])
+        #expect(gone.map(\.isEnabled) == [false, false], "README.md isn't on disk")
+        gone[0].action()
+        gone[1].action()
+        #expect(actions.count == 2)
     }
 }
 

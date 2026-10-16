@@ -42,15 +42,19 @@ extension UITests {
             #expect(try ui.tabView("t-x").editor == nil)
         }
 
-        @Test func escapeAbandonsARenameAndAnEmptyTitleIsRefused() throws {
+        @Test func escapeAbandonsARenameAndAnEmptyTitleGivesTheDefaultBack() throws {  // TT-9
             let ui = UIDriver(layout: Self.splitWithGroup)
             try ui.click(tab: "t-x", count: 2)
             try ui.type("Nope")
             try ui.press(KeyChord(.escape, []))
             #expect(try ui.layout.tabTitles("g") == ["New Tab", "New Tab"])
             try ui.click(tab: "t-x", count: 2)
+            try ui.type("Mine\n")
+            #expect(try ui.layout.tabTitles("g") == ["Mine", "New Tab"])
+            try ui.click(tab: "t-x", count: 2)
             try ui.type("   \n")
-            #expect(try ui.layout.tabTitles("g") == ["New Tab", "New Tab"], "a tab always has a title")
+            #expect(try ui.layout.tabTitles("g") == ["New Tab", "New Tab"], "a tab always has a title: its default")
+            #expect(try ui.layout.findTab("t-x")?.tab.titleIsManual == false)
         }
 
         @Test func editTitleFromTheTabsMenu() throws {
@@ -146,11 +150,12 @@ extension UITests {
             #expect(group.group?.tabs.count == 2)
 
             let other = try #require(try ui.layout.shownContent?.splitNode?.children.last?.id)
+            let active = ui.activePane
             try ui.choose(.wrapInTabGroup, of: other)
             let wrapped = try #require(try ui.layout.shownContent?.splitNode?.children.last)
             #expect(wrapped.group?.tabs.map(\.content.id) == [other])
             #expect(wrapped.group?.tabs.first?.title == "Inert", "titled after its content")
-            #expect(ui.activeNode == wrapped.id, "the new group is active")
+            #expect(ui.activePane == active, "focus stays where it was: a group is never active")
         }
 
         /// A pane closed another way (⌘W, `close-pane`) while its menu is open takes the menu with
@@ -255,6 +260,36 @@ extension UITests {
             controller.windowDidExitFullScreen(Notification(name: NSWindow.didExitFullScreenNotification))
             ui.layoutAll()
             #expect(bar.layoutFrame.height == 31)
+        }
+
+        /// In full screen AppKit moves the title bar into a short window of its own: placed for
+        /// the root bar there, the traffic lights fell out of it and full screen couldn't be left.
+        /// They're AppKit's until full screen has been left (or failed to start).
+        @Test func fullScreenLeavesTheTrafficLightsToAppKit() throws {
+            let ui = UIDriver()
+            let controller = try ui.window
+            let window = try #require(controller.window as? WorkspaceWindow)
+            let close = try #require(window.standardWindowButton(.closeButton))
+            let appKits = CGPoint(x: 3, y: 4)
+            func inTheRootBar() -> Bool {
+                let frame = close.convert(close.bounds, to: nil)
+                return frame.minX == 14 && window.frame.height - frame.maxY == 9
+            }
+
+            controller.windowWillEnterFullScreen(Notification(name: NSWindow.willEnterFullScreenNotification))
+            close.setFrameOrigin(appKits)
+            window.placeTrafficLights()
+            #expect(close.frame.origin == appKits, "AppKit's placement stands in full screen")
+            controller.windowWillExitFullScreen(Notification(name: NSWindow.willExitFullScreenNotification))
+            window.placeTrafficLights()
+            #expect(close.frame.origin == appKits, "and while leaving it")
+            controller.windowDidExitFullScreen(Notification(name: NSWindow.didExitFullScreenNotification))
+            #expect(inTheRootBar(), "back in the root bar once it's left")
+
+            controller.windowWillEnterFullScreen(Notification(name: NSWindow.willEnterFullScreenNotification))
+            close.setFrameOrigin(appKits)
+            controller.windowDidFailToEnterFullScreen(window)
+            #expect(inTheRootBar(), "and when it fails to start")
         }
 
         @Test func onlyInactivePanesBodiesDim() throws {

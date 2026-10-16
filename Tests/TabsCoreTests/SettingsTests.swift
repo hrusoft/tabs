@@ -79,6 +79,43 @@ import Testing
         #expect(SettingsStore(file: file).panes.persistLayoutOnExit, "undecodable: the default, the other fields kept")
     }
 
+    @Test func tabTitlesFollowPanesByDefault() {  // TAB-TITLES.md TT-1
+        let file = TestSupport.temporaryDirectory().appending(path: "settings.json")
+        #expect(SettingsStore(file: file).panes.tabTitlesFollowPanes)
+        TestSupport.writeJSON(["core": ["panes": ["colorTheme": "light"]]], to: file)
+        #expect(SettingsStore(file: file).panes.tabTitlesFollowPanes, "absent from an older file: the default")
+        TestSupport.writeJSON(["core": ["panes": ["tabTitlesFollowPanes": "nope", "colorTheme": "light"]]], to: file)
+        let store = SettingsStore(file: file)
+        #expect(store.panes.tabTitlesFollowPanes, "undecodable: the default")
+        #expect(store.panes.colorTheme == "light", "the other fields kept")
+
+        var off = store.panes
+        off.tabTitlesFollowPanes = false
+        store.setPanes(off)
+        #expect(SettingsStore(file: file).panes.tabTitlesFollowPanes == false, "saved")
+    }
+
+    @Test func lastCaffeinateIsAbsentUntilRecordedAndPersists() {  // CAFFEINATE.md D-10, D-17
+        let file = TestSupport.temporaryDirectory().appending(path: "settings.json")
+        let store = SettingsStore(file: file)
+        #expect(store.lastCaffeinate == nil, "never started: the dialog shows its current defaults")
+
+        let started = CaffeinateFlags(preventDisplaySleep: true, preventDiskSleep: true, timerSeconds: 420)
+        store.setLastCaffeinate(started)
+        #expect(store.lastCaffeinate == started)
+        #expect(SettingsStore(file: file).lastCaffeinate == started, "saved: the next launch reads it")
+
+        store.setLastCaffeinate(CaffeinateFlags(preventIdleSleep: true))
+        #expect(TestSupport.readJSON(file)?["core"]?["lastCaffeinate"]?["timerSeconds"] == nil, "no timer, no key")
+        #expect(SettingsStore(file: file).lastCaffeinate == CaffeinateFlags(preventIdleSleep: true))
+
+        TestSupport.writeJSON(["core": ["lastCaffeinate": ["preventIdleSleep": "yes"], "disabledPlugins": ["x"]]], to: file)
+        let reread = SettingsStore(file: file)
+        #expect(reread.lastCaffeinate == nil, "undecodable: as if never started")
+        #expect(reread.loadNotes == ["lastCaffeinate did not decode and was reset"])
+        #expect(reread.disabledPlugins == ["x"], "the other fields kept")
+    }
+
     @Test func coreFieldsFromANewerBuildSurviveASave() {
         let file = TestSupport.temporaryDirectory().appending(path: "settings.json")
         TestSupport.writeJSON(["version": 1, "core": ["disabledPlugins": [], "addedLater": [1, 2]], "alsoLater": true], to: file)
@@ -88,6 +125,33 @@ import Testing
         #expect(reread?["core"]?["addedLater"] == [1, 2])
         #expect(reread?["alsoLater"] == true)
         #expect(reread?["core"]?["disabledPlugins"] == ["x"])
+    }
+
+    /// A newer build added a pane setting without a new `version`: nothing is copied aside, so
+    /// an older build's save must not erase it.
+    @Test func paneFieldsFromANewerBuildSurviveASave() {
+        let file = TestSupport.temporaryDirectory().appending(path: "settings.json")
+        TestSupport.writeJSON(["version": 1, "core": ["panes": ["colorTheme": "light", "addedLater": ["deep": true]]]], to: file)
+        let store = SettingsStore(file: file)
+        #expect(store.loadNotes.isEmpty, "nothing dropped, so nothing is copied aside")
+        var panes = store.panes
+        panes.showNavFlash = false
+        store.setPanes(panes)
+        store.setDisabled(true, for: "x")
+        let reread = TestSupport.readJSON(file)
+        #expect(reread?["core"]?["panes"]?["addedLater"] == ["deep": true])
+        #expect(reread?["core"]?["panes"]?["showNavFlash"] == false)
+        #expect(reread?["core"]?["panes"]?["colorTheme"] == "light")
+    }
+
+    /// `PaneSettings` encodes by hand (to carry those fields): every field it stores is written.
+    @Test func everyPaneSettingIsSaved() throws {
+        let fields = Mirror(reflecting: SettingsStore.PaneSettings()).children.compactMap(\.label).filter { $0 != "unknown" }
+        guard case .object(let encoded) = try JSONValue(encoding: SettingsStore.PaneSettings()) else {
+            Issue.record("pane settings encode as an object")
+            return
+        }
+        #expect(Set(encoded.keys) == Set(fields))
     }
 
     @Test func settingsFileKeepsBlobsOfPluginsThatArentLoaded() {

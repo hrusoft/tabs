@@ -99,7 +99,7 @@ import Testing
         #expect(waitFor["result"]?["elapsedMs"] == "number")
         let save = try #require(command("save-resource"))
         #expect(save["flags"]?["out"]?["doc"]?.stringValue?.hasPrefix("Where to write it") == true)
-        #expect(save["wire"]?["properties"]?["outPath"] == .emptyObject, "a path is a string or true: no type check")
+        #expect(save["wire"]?["properties"]?["outPath"] == ["anyOf": [["type": "string"], ["const": true]]], "a path is a string or true")
         let execute = try #require(command("execute-js"))
         #expect(execute["flags"]?["code"]?["required"] == true)
         #expect(execute["result"]?["truncated"] == "boolean")

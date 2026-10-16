@@ -38,8 +38,12 @@ enum TestSupport {
         TestTemporary.directory("scratch")
     }
 
-    static func runtime(dataDirectory: URL? = nil) -> CoreRuntime {
-        CoreRuntime(paths: AppPaths(dataDirectory: dataDirectory ?? temporaryDirectory()))
+    /// A runtime of its own; its themes are the running app's (none in an unhosted bundle) unless
+    /// `themes` names a directory of theme files.
+    static func runtime(dataDirectory: URL? = nil, themes: URL? = nil) -> CoreRuntime {
+        CoreRuntime(
+            paths: AppPaths(dataDirectory: dataDirectory ?? temporaryDirectory()),
+            themesDirectory: themes ?? ThemeCatalog.bundledDirectory())
     }
 
     /// Deletes, when this process exits, every web data store `runtime`'s plugins were given

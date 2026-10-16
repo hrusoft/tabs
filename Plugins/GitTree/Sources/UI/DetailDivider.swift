@@ -13,7 +13,7 @@ import TabsPluginSDK
 @MainActor
 final class DetailDivider: GitFlippedView {
     unowned let pane: GitTreePane
-    var theme = PaneTheme.dark { didSet { needsDisplay = true } }
+    var theme = PaneTheme.placeholder { didSet { needsDisplay = true } }
     var collapsed = false { didSet { needsDisplay = true } }
     /// The divider's own box (0 tall while open), and the body it divides, in
     /// the pane view's coordinates.

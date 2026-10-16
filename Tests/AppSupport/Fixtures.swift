@@ -7,8 +7,8 @@ import TabsPluginSDK
 /// a test can name, tabs have ids of their own (`t-<content id>` unless given).
 @MainActor
 enum Fixture {
-    static func leaf(_ id: PaneID, _ type: ContentTypeID? = nil, config: JSONValue = .emptyObject, title: String? = nil) -> LayoutNode {
-        .leaf(LayoutLeaf(id: id, type: type, config: config, title: title))
+    static func leaf(_ id: PaneID, _ type: ContentTypeID? = nil, config: JSONValue = .emptyObject) -> LayoutNode {
+        .leaf(LayoutLeaf(id: id, type: type, config: config))
     }
 
     static func tab(_ content: LayoutNode, id: NodeID? = nil, title: String = "New Tab") -> Tab {

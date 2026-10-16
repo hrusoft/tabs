@@ -208,6 +208,28 @@ import Testing
             #expect(rebuilt?.tabItems[safe: 1]?.id == kept.id)
         }
 
+        @Test("puts a tab back still named by the user, in its group or a rebuilt one")  // TT-12
+        func keepsTheUsersNames() throws {
+            let (a, b) = (createLeaf("terminal"), createLeaf("browser"))
+            let tabs = createTabs([createTab("Mine", a, titleIsManual: true), createTab("Two", b), createTab("Three", createLeaf("stub"))])
+            let lifted = try detach(tabs, a.id)
+            let back = Floating.restoreFloating(lifted.root, lifted.floating, titleOf, fallbackTarget: b.id)
+            #expect(back.titles == ["Mine", "Two", "Three"])
+            #expect(back.tabItems.map(\.titleIsManual) == [true, false, false])
+
+            // Both tabs of a group its departure collapsed: the one that left and the one that stayed.
+            let (left, x, y) = (createLeaf("terminal"), createLeaf("browser"), createLeaf("terminal"))
+            let group = createTabs([createTab("Moved", x, titleIsManual: true), createTab("Kept", y, titleIsManual: true)])
+            let detached = try detach(createSplit(.horizontal, [left, group]), x.id)
+            #expect(Tree.findNode(detached.root, group.id) == nil)
+
+            let rebuilt = Floating.restoreFloating(detached.root, detached.floating, titleOf, fallbackTarget: left.id).childNodes[safe: 1]
+
+            #expect(rebuilt?.id == group.id)
+            #expect(rebuilt?.titles == ["Moved", "Kept"])
+            #expect(rebuilt?.tabItems.map(\.titleIsManual) == [true, true])
+        }
+
         @Test("puts back a group its only tab took with it, at the place the group sat")
         func rebuildsLoneGroup() throws {
             let (left, x) = (createLeaf("terminal"), createLeaf("browser"))

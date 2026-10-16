@@ -30,7 +30,7 @@ extension UITests {
                 let runtime = TestSupport.runtime()
                 controller = makeSettingsWindow(
                     pages: runtime.settingsPages(), settings: runtime.settings, signals: runtime.signals.settingKinds,
-                    shortcuts: runtime.shortcuts, skills: installer)
+                    shortcuts: runtime.shortcuts, themes: runtime.themes, skills: installer)
                 let tabs = try #require(controller.contentViewController as? NSTabViewController)
                 tabs.selectedTabViewItemIndex = tabs.tabViewItems.count - 1
                 controller.window?.layoutIfNeeded()
@@ -44,8 +44,10 @@ extension UITests {
             var page: NSView? { controller.window?.contentView }
 
             /// The AI page, and the model behind it.
-            var hosting: NSHostingView<AiSettingsView>? { page?.allSubviews.lazy.compactMap { $0 as? NSHostingView<AiSettingsView> }.first }
-            var model: AiSettingsModel? { hosting?.rootView.model }
+            var hosting: NSHostingView<ThemedRoot<AiSettingsView>>? {
+                page?.allSubviews.lazy.compactMap { $0 as? NSHostingView<ThemedRoot<AiSettingsView>> }.first
+            }
+            var model: AiSettingsModel? { hosting?.rootView.content.model }
 
             /// The page's buttons, top to bottom, left to right.
             var buttons: [NSButton] {

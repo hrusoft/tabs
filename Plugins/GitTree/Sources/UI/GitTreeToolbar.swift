@@ -240,7 +240,7 @@ final class PathTextField: NSTextField {
 @MainActor
 final class BrowseButton: GitFlippedView {
     unowned let pane: GitTreePane
-    var theme: PaneTheme { (superview as? GitTreeToolbar)?.theme ?? .dark }
+    var theme: PaneTheme { (superview as? GitTreeToolbar)?.theme ?? .placeholder }
 
     static let icon = 13.0
     static let size = CGSize(width: 23, height: 17)
@@ -271,10 +271,7 @@ final class BrowseButton: GitFlippedView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        tracking = replaceTrackingArea(tracking, events: .mouseEnteredAndExited)
     }
 
     override func mouseEntered(with event: NSEvent) { hovered = true }
@@ -304,7 +301,7 @@ final class BrowseButton: GitFlippedView {
 @MainActor
 final class BranchScopeSelect: GitFlippedView {
     unowned let pane: GitTreePane
-    var theme: PaneTheme { (superview as? GitTreeToolbar)?.theme ?? .dark }
+    var theme: PaneTheme { (superview as? GitTreeToolbar)?.theme ?? .placeholder }
 
     /// Sized to its widest option.
     static var size: CGSize {

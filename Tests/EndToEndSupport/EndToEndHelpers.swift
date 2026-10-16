@@ -29,11 +29,10 @@ extension LaunchedApp {
 /// pane no shipped plugin owns — a text view whose config is its text, with
 /// Edit ▸ Insert Marker (⇧⌘D) for it.
 extension LaunchedApp {
-    /// Fills an empty pane (the active one by default) with a fixture-text pane, as its creation button does; returns its id.
+    /// Fills the active pane, an empty one, with a fixture-text pane, as its creation button does; returns its id.
     @discardableResult
-    func newFixturePane(in pane: String? = nil) async throws -> String {
-        let target: String
-        if let pane { target = pane } else { target = try await activePane() }
+    func newFixturePane() async throws -> String {
+        let target = try await activePane()
         try await call("tabs.test.click", ["create": "fixture-text", "paneId": .string(target)])
         return target
     }

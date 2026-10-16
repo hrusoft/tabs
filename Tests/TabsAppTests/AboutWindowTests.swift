@@ -46,6 +46,8 @@ extension UITests {
 
             /// A credit of the window's own, whatever the build links (`AboutContentTests` holds the real list).
             static let credits = [Attribution(name: "Example", license: "MIT", url: "https://example.com/example")]
+            /// The app's themes, on Dark.
+            static var themes: Themes { Themes(catalog: ThemeCatalog(directory: ThemeCatalog.bundledDirectory())) }
 
             init(version: String = "9.8.7", credits: [Attribution] = Box.credits) {
                 let gate = gate
@@ -53,7 +55,7 @@ extension UITests {
                 model = AboutModel(
                     version: version, credits: credits, opener: { recorder.opened.append($0) },
                     pasteboard: { recorder.copied.append($0) }, sleep: { try await gate.sleep($0) })
-                controller = AboutWindowController(model: model)
+                controller = AboutWindowController(model: model, themes: Box.themes)
             }
 
             var body: AboutBodyView { controller.body }
@@ -115,7 +117,7 @@ extension UITests {
         }
 
         @Test func presentingItTwiceGivesTheOneWindow() {  // A-1, A-2, A-9
-            let presenter = AboutPresenter(presentsWindows: false)
+            let presenter = AboutPresenter(presentsWindows: false) { AboutWindowController(themes: Box.themes) }
             #expect(presenter.controller == nil)
             let first = presenter.show()
             defer { presenter.dismiss() }
@@ -124,7 +126,9 @@ extension UITests {
         }
 
         @Test func closingDropsTheWindowAndTheNextOneIsFresh() throws {  // A-6
-            let presenter = AboutPresenter(presentsWindows: false) { AboutWindowController(model: AboutModel(credits: Box.credits)) }
+            let presenter = AboutPresenter(presentsWindows: false) {
+                AboutWindowController(model: AboutModel(credits: Box.credits), themes: Box.themes)
+            }
             let first = presenter.show()
             first.body.scrollToTop(of: try #require(first.body.sections["about-attributions"]))
             first.window?.close()
@@ -136,12 +140,13 @@ extension UITests {
         }
 
         @Test func aStaleWindowClosingLeavesANewerOneInPlace() {  // A-6: the slot is the newer window's
-            let presenter = AboutPresenter(presentsWindows: false)
+            let presenter = AboutPresenter(presentsWindows: false) { AboutWindowController(themes: Box.themes) }
             let first = presenter.show()
             presenter.dismiss()
             let second = presenter.show()
             defer { presenter.dismiss() }
-            first.onClose?()
+            // The first window's close, heard late.
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: first.window)
             #expect(presenter.controller === second)
         }
 
@@ -257,12 +262,12 @@ extension UITests {
             let hover = try pixel(true)
             #expect(tier.isHovered)
             #expect(hover.border != rest.border, "the border changes")
-            #expect(tier.borderColor == NSColor.controlAccentColor, "and is the accent")
-            #expect(tier.washColor == NSColor.labelColor.withAlphaComponent(0.06), "over the 6% wash")
+            #expect(tier.borderColor == box.body.theme.accent, "and is the theme's accent")
+            #expect(tier.washColor == box.body.theme.hover(0.06), "over the 6% wash")
             #expect(hover.fill != rest.fill, "the background takes the wash")
             tier.setHovered(false)
             #expect(!tier.isHovered)
-            #expect(tier.borderColor == NSColor.separatorColor && tier.washColor == .clear, "and back")
+            #expect(tier.borderColor == box.body.theme.border && tier.washColor == .clear, "and back")
         }
 
         @Test func everyTiersNameStartsAtTheSameX() throws {  // C-5
@@ -391,7 +396,7 @@ extension UITests {
             let name = try #require(box.body.creditButtons[entry.name])
             func attributes() -> [NSAttributedString.Key: Any] { name.attributedTitle.attributes(at: 0, effectiveRange: nil) }
             #expect(attributes()[.underlineStyle] == nil)
-            #expect(attributes()[.foregroundColor] as? NSColor == .controlAccentColor)
+            #expect(attributes()[.foregroundColor] as? NSColor == box.body.theme.accent)
             name.setHovered(true)
             #expect(attributes()[.underlineStyle] as? Int == NSUnderlineStyle.single.rawValue)
             name.setHovered(false)

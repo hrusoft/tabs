@@ -12,16 +12,17 @@ struct GitTreeSettingsPage: View {
                 Toggle(isOn: settings.binding(\.autoRefreshOnFocus)) {
                     Text("Auto-refresh on focus")
                     Text("Re-read a git tree pane's history whenever it becomes active while the window is focused.")
+                        .foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("settings-auto-refresh-checkbox")
                 Toggle(isOn: settings.binding(\.showAuthorColumn)) {
                     Text("Show author column")
-                    Text("Show who authored each commit in the commit list, alongside its hash and message.")
+                    Text("Show who authored each commit in the commit list, alongside its hash and message.").foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("settings-show-author-column-checkbox")
                 Toggle(isOn: settings.binding(\.showDateColumn)) {
                     Text("Show date column")
-                    Text("Show each commit's date in the commit list, alongside its hash and message.")
+                    Text("Show each commit's date in the commit list, alongside its hash and message.").foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("settings-show-date-column-checkbox")
             }

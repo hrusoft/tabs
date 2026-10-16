@@ -3,9 +3,8 @@ import Foundation
 
 /// Where a test process keeps its files: a folder of its own, `tabs-tests.noindex/<pid>` in the
 /// user's temporary directory, made on first use and removed as the process exits. Every test
-/// folder and file goes under it, so none outlives its run: a full run makes about a thousand,
-/// and they piled up in the hundred thousands, each one indexed. Spotlight skips a `.noindex`
-/// folder; `Scripts/test-lanes.py` removes what a process that died before exiting left behind.
+/// folder and file goes under it, so none outlives its run (why, and why `.noindex`:
+/// `Scripts/test-lanes.py`, which also removes what a process that died before exiting left).
 enum TestTemporary {
     /// This process's folder.
     static let root: URL = {

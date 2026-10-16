@@ -1,4 +1,6 @@
 import AppKit
+import TabsCore
+import TabsPluginSDK
 
 /// The About window's behaviour: what a press does, and which Copy buttons say "Copied".
 ///
@@ -126,20 +128,21 @@ enum AboutMetrics {
 // MARK: - Window
 
 /// The About window: a standard titled window, never resizable, zoomable or full screen, holding
-/// the scrolling body. Dropped by whoever holds it when it closes.
+/// the scrolling body. Dropped by its presenter when it closes (`AboutPresenter`).
 @MainActor
 final class AboutWindowController: NSWindowController, NSWindowDelegate {
     let model: AboutModel
     let body: AboutBodyView
-    /// Told when the window closes.
-    var onClose: (() -> Void)?
 
-    init(model: AboutModel = AboutModel()) {
+    /// - Parameter themes: the app's, which the window is painted in, live.
+    init(model: AboutModel = AboutModel(), themes: Themes) {
         self.model = model
-        body = AboutBodyView(model: model)
+        body = AboutBodyView(model: model, theme: themes.current)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: AboutMetrics.bodySize), styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false)
+        window.paint(with: themes)
+        themes.observe(body) { body, theme in body.theme = theme }
         window.title = AboutCopy.windowTitle
         window.isReleasedWhenClosed = false
         // Not maximizable, not fullscreenable: its content is a fixed column of prose.
@@ -158,53 +161,12 @@ final class AboutWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         model.stop()
-        onClose?()
     }
 }
 
 /// The one About window of the app: opened on demand, brought forward if already open, dropped
 /// when it closes so the next one is fresh.
-@MainActor
-final class AboutPresenter {
-    private(set) var controller: AboutWindowController?
-    private let makeController: () -> AboutWindowController
-    /// False under the end-to-end hidden mode: the window is built but never shown or focused.
-    private let presentsWindows: Bool
-
-    init(presentsWindows: Bool, makeController: @escaping () -> AboutWindowController = { AboutWindowController() }) {
-        self.presentsWindows = presentsWindows
-        self.makeController = makeController
-    }
-
-    /// Shows and focuses the window, creating it if there isn't one yet.
-    @discardableResult
-    func show() -> AboutWindowController {
-        let controller = controller ?? make()
-        if presentsWindows {
-            controller.showWindow(nil)
-            controller.window?.makeKeyAndOrderFront(nil)
-        }
-        return controller
-    }
-
-    private func make() -> AboutWindowController {
-        let controller = makeController()
-        controller.onClose = { [weak self, weak controller] in
-            // A newer window may already hold the slot.
-            if self?.controller === controller { self?.controller = nil }
-        }
-        self.controller = controller
-        return controller
-    }
-
-    /// Closes it without a trace (a test reset).
-    func dismiss() {
-        let controller = controller
-        self.controller = nil
-        controller?.model.stop()
-        controller?.window?.close()
-    }
-}
+typealias AboutPresenter = WindowPresenter<AboutWindowController>
 
 // MARK: - Body
 
@@ -213,6 +175,10 @@ final class AboutPresenter {
 @MainActor
 final class AboutBodyView: NSView {
     let model: AboutModel
+    /// The app's theme, which every color on the page is: text, dim text, hairlines, the accent.
+    var theme: PaneTheme { didSet { if theme != oldValue { for paint in painters { paint(theme) } } } }
+    /// What repaints each colored part when the theme changes.
+    private var painters: [@MainActor (PaneTheme) -> Void] = []
     let scrollView = NSScrollView()
     private let column = NSStackView()
     private var copyButtons: [String: CopyButton] = [:]
@@ -222,8 +188,9 @@ final class AboutBodyView: NSView {
     private(set) var versionLabel = NSTextField()
     private(set) var sections: [String: NSView] = [:]
 
-    init(model: AboutModel) {
+    init(model: AboutModel, theme: PaneTheme) {
         self.model = model
+        self.theme = theme
         super.init(frame: NSRect(origin: .zero, size: AboutMetrics.bodySize))
         setAccessibilityIdentifier("about-window")
         build()
@@ -307,12 +274,12 @@ final class AboutBodyView: NSView {
         name.setAccessibilityIdentifier("about-name")
         // The version is the one thing here anyone ever needs to quote into a bug report, so it
         // is selectable even though the rest of the block reads as chrome.
-        versionLabel = label(AboutCopy.version(model.version), size: 12, color: .secondaryLabelColor)
+        versionLabel = label(AboutCopy.version(model.version), size: 12, color: \.textDim)
         versionLabel.isSelectable = true
         versionLabel.setAccessibilityIdentifier("about-version")
-        let tagline = label(AboutCopy.tagline, size: 12.5, color: .secondaryLabelColor)
+        let tagline = label(AboutCopy.tagline, size: 12.5, color: \.textDim)
         tagline.setAccessibilityIdentifier("about-tagline")
-        let copyright = label(AboutCopy.copyright, size: 11.5, color: .secondaryLabelColor)
+        let copyright = label(AboutCopy.copyright, size: 11.5, color: \.textDim)
         copyright.setAccessibilityIdentifier("about-copyright")
 
         let stack = NSStackView(views: [icon, name, versionLabel, tagline, copyright])
@@ -331,14 +298,14 @@ final class AboutBodyView: NSView {
         let rule = NSBox()
         rule.boxType = .custom
         rule.borderWidth = 0
-        rule.fillColor = .separatorColor
+        paint { [weak rule] theme in rule?.fillColor = theme.border }
         rule.titlePosition = .noTitle
         rule.translatesAutoresizingMaskIntoConstraints = false
         rule.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
         let titleLabel = label(title, size: 13, weight: .semibold)
         let descriptionLabel = label(
-            description, size: 12, color: .secondaryLabelColor, wraps: true, lineHeight: AboutMetrics.descriptionLine)
+            description, size: 12, color: \.textDim, wraps: true, lineHeight: AboutMetrics.descriptionLine)
 
         let stack = NSStackView(views: [rule, titleLabel, descriptionLabel, content])
         stack.orientation = .vertical
@@ -361,6 +328,7 @@ final class AboutBodyView: NSView {
         tiers.spacing = AboutMetrics.tierGap
         for tier in Donations.tiers {
             let button = TierButton(tier: tier) { [model] in model.open(tier.url) }
+            paint { [weak button] theme in button?.theme = theme }
             tierButtons[tier.id] = button
             tiers.addArrangedSubview(button)
             button.widthAnchor.constraint(equalTo: tiers.widthAnchor).isActive = true
@@ -386,24 +354,29 @@ final class AboutBodyView: NSView {
     /// One address row: the chain's label and ticker, its address in full (wrapped, never
     /// truncated), and the Copy button beside them both.
     private func makeAddressRow(_ entry: CryptoAddress) -> NSView {
-        let title = NSMutableAttributedString(
-            string: entry.label + " ",
-            attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor])
-        title.append(
-            NSAttributedString(
-                string: entry.symbol, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor]))
-        let name = NSTextField(labelWithAttributedString: title)
+        func title(_ theme: PaneTheme) -> NSAttributedString {
+            let title = NSMutableAttributedString(
+                string: entry.label + " ",
+                attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: theme.text])
+            title.append(
+                NSAttributedString(
+                    string: entry.symbol, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: theme.textDim]))
+            return title
+        }
+        let name = NSTextField(labelWithAttributedString: title(theme))
+        paint { [weak name] theme in name?.attributedStringValue = title(theme) }
         name.setAccessibilityIdentifier("about-address-label-\(entry.id)")
 
         // Wrapped rather than truncated: an address the user can read in full is what makes the copy
         // button trustworthy. No break opportunities of its own, so any character may end a line.
-        let address = label(entry.address, size: 11, color: .secondaryLabelColor, wraps: true, mono: true)
+        let address = label(entry.address, size: 11, color: \.textDim, wraps: true, mono: true)
         address.lineBreakMode = .byCharWrapping
         address.isSelectable = true
         address.setAccessibilityIdentifier("about-address-\(entry.id)")
         addressLabels[entry.id] = address
 
         let copy = CopyButton(entry: entry) { [model] in model.copy(entry) }
+        paint { [weak copy] theme in copy?.theme = theme }
         copyButtons[entry.id] = copy
 
         let text = NSStackView(views: [name, address])
@@ -443,8 +416,9 @@ final class AboutBodyView: NSView {
         list.spacing = 0
         for entry in model.credits {
             let name = LinkButton(title: entry.name, id: "about-credit-\(entry.name)") { [model] in model.open(entry.url) }
+            paint { [weak name] theme in name?.theme = theme }
             creditButtons[entry.name] = name
-            let license = label(entry.license, size: 11, color: .secondaryLabelColor, digits: true)
+            let license = label(entry.license, size: 11, color: \.textDim, digits: true)
             license.setAccessibilityIdentifier("about-credit-license-\(entry.name)")
             // A row is two columns, baseline-aligned: the license lines up down the right edge.
             let row = NSView()
@@ -494,10 +468,17 @@ final class AboutBodyView: NSView {
 
     // MARK: Labels
 
-    /// A label in the page's type: `size` pt, never selectable unless the caller says so.
+    /// Paints a part in the theme now and again on every change.
+    private func paint(_ painter: @escaping @MainActor (PaneTheme) -> Void) {
+        painter(theme)
+        painters.append(painter)
+    }
+
+    /// A label in the page's type: `size` pt, in the theme's `color`, never selectable unless the
+    /// caller says so.
     private func label(
-        _ string: String, size: CGFloat, weight: NSFont.Weight = .regular, color: NSColor = .labelColor, wraps: Bool = false,
-        lineHeight: CGFloat? = nil, mono: Bool = false, digits: Bool = false
+        _ string: String, size: CGFloat, weight: NSFont.Weight = .regular, color: KeyPath<PaneTheme, NSColor> = \.text,
+        wraps: Bool = false, lineHeight: CGFloat? = nil, mono: Bool = false, digits: Bool = false
     ) -> NSTextField {
         let font: NSFont =
             mono
@@ -506,13 +487,16 @@ final class AboutBodyView: NSView {
         let field = wraps ? NSTextField(wrappingLabelWithString: string) : NSTextField(labelWithString: string)
         field.isSelectable = false
         field.font = font
-        field.textColor = color
         if let lineHeight {
             let style = NSMutableParagraphStyle()
             style.minimumLineHeight = lineHeight
             style.maximumLineHeight = lineHeight
-            field.attributedStringValue = NSAttributedString(
-                string: string, attributes: [.font: font, .foregroundColor: color, .paragraphStyle: style])
+            paint { [weak field] theme in
+                field?.attributedStringValue = NSAttributedString(
+                    string: string, attributes: [.font: font, .foregroundColor: theme[keyPath: color], .paragraphStyle: style])
+            }
+        } else {
+            paint { [weak field] theme in field?.textColor = theme[keyPath: color] }
         }
         if wraps { field.preferredMaxLayoutWidth = AboutMetrics.contentWidth }
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -530,9 +514,26 @@ private final class FlippedContainer: NSView {
 /// An `NSButton` that acts when the mouse comes up inside it, rather than running AppKit's tracking
 /// loop: the same thing for a real click, and the only thing a synthesized one (a window that is
 /// never shown, the tests') can reach. Pressed while the button is down; keyboard and `performClick`
-/// are the stock button's.
+/// are the stock button's. A press runs `action`; over the button the pointer is the pointing
+/// hand, and `isHovered` holds while it is there (`hoverDidChange()` redraws what shows it).
 @MainActor
 class PressButton: NSButton {
+    private(set) var isHovered = false
+    private let handler: () -> Void
+    private var tracking: NSTrackingArea?
+
+    init(action: @escaping () -> Void) {
+        handler = action
+        super.init(frame: .zero)
+        target = self
+        self.action = #selector(pressed(_:))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    @objc private func pressed(_ sender: Any?) { handler() }
+
     override func mouseDown(with event: NSEvent) { highlight(true) }
 
     override func mouseUp(with event: NSEvent) {
@@ -542,6 +543,26 @@ class PressButton: NSButton {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        tracking = replaceTrackingArea(tracking)
+    }
+
+    override func mouseEntered(with event: NSEvent) { setHovered(true) }
+    override func mouseExited(with event: NSEvent) { setHovered(false) }
+
+    func setHovered(_ hovered: Bool) {
+        guard hovered != isHovered else { return }
+        isHovered = hovered
+        hoverDidChange()
+    }
+
+    /// `isHovered` changed: a subclass that shows it redraws.
+    func hoverDidChange() {}
+
+    /// The pointing hand.
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
 }
 
 /// A donation tier: a full-width bordered button holding the amount, the name and the flavor
@@ -549,33 +570,35 @@ class PressButton: NSButton {
 @MainActor
 final class TierButton: PressButton {
     let tier: DonationTier
-    private(set) var isHovered = false
-    private var tracking: NSTrackingArea?
-    private var handler: () -> Void
+    /// The app's theme: the amount in its accent, the name in its text, the flavor dim.
+    var theme = PaneTheme.placeholder {
+        didSet {
+            amountLabel.textColor = theme.accent
+            nameLabel.textColor = theme.text
+            flavorLabel.textColor = theme.textDim
+            needsDisplay = true
+        }
+    }
     let amountLabel: NSTextField
     let nameLabel: NSTextField
     let flavorLabel: NSTextField
 
     init(tier: DonationTier, action: @escaping () -> Void) {
         self.tier = tier
-        handler = action
-        func text(_ string: String, _ size: CGFloat, _ weight: NSFont.Weight, _ color: NSColor, digits: Bool = false) -> NSTextField {
+        func text(_ string: String, _ size: CGFloat, _ weight: NSFont.Weight, digits: Bool = false) -> NSTextField {
             let field = NSTextField(labelWithString: string)
             field.font = digits ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
-            field.textColor = color
             field.isSelectable = false
             field.translatesAutoresizingMaskIntoConstraints = false
             return field
         }
-        amountLabel = text(Donations.formatAmount(tier), 15, .semibold, .controlAccentColor, digits: true)
-        nameLabel = text(tier.label, 12.5, .medium, .labelColor)
-        flavorLabel = text(tier.flavor, 11.5, .regular, .secondaryLabelColor)
-        super.init(frame: .zero)
+        amountLabel = text(Donations.formatAmount(tier), 15, .semibold, digits: true)
+        nameLabel = text(tier.label, 12.5, .medium)
+        flavorLabel = text(tier.flavor, 11.5, .regular)
+        super.init(action: action)
         title = ""
         isBordered = false
         focusRingType = .exterior
-        target = self
-        self.action = #selector(pressed(_:))
         setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityIdentifier("about-tier-\(tier.id)")
@@ -605,17 +628,15 @@ final class TierButton: PressButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    @objc private func pressed(_ sender: Any?) { handler() }
-
     /// What a press on any part of the tier means: children never take the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(convert(point, from: superview)) ? self : nil
     }
 
-    /// The border: the separator color, the accent while hovered.
-    var borderColor: NSColor { isHovered ? .controlAccentColor : .separatorColor }
-    /// The hover wash (the label color at 6%), clear at rest.
-    var washColor: NSColor { isHovered ? NSColor.labelColor.withAlphaComponent(0.06) : .clear }
+    /// The border: the theme's `border`, its accent while hovered.
+    var borderColor: NSColor { isHovered ? theme.accent : theme.border }
+    /// The hover wash (the theme's `hover` at 6%), clear at rest.
+    var washColor: NSColor { isHovered ? theme.hover(0.06) : .clear }
 
     override func draw(_ dirtyRect: NSRect) {
         // A 1pt border, radius 8.
@@ -634,43 +655,21 @@ final class TierButton: PressButton {
 
     override var focusRingMaskBounds: NSRect { bounds }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { setHovered(true) }
-    override func mouseExited(with event: NSEvent) { setHovered(false) }
-
-    func setHovered(_ hovered: Bool) {
-        guard hovered != isHovered else { return }
-        isHovered = hovered
-        needsDisplay = true
-    }
-
-    /// The pointing hand.
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func hoverDidChange() { needsDisplay = true }
 }
 
 /// A credit's name: a button styled as a link, because that is what it does.
 @MainActor
 final class LinkButton: PressButton {
-    private(set) var isHovered = false
-    private var tracking: NSTrackingArea?
-    private var handler: () -> Void
+    /// The app's theme: a link is in its accent.
+    var theme = PaneTheme.placeholder { didSet { render() } }
     private let text: String
 
     init(title: String, id: String, action: @escaping () -> Void) {
         text = title
-        handler = action
-        super.init(frame: .zero)
+        super.init(action: action)
         isBordered = false
         focusRingType = .exterior
-        target = self
-        self.action = #selector(pressed(_:))
         setButtonType(.momentaryChange)
         alignment = .left
         setAccessibilityIdentifier(id)
@@ -681,35 +680,14 @@ final class LinkButton: PressButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    @objc private func pressed(_ sender: Any?) { handler() }
-
     /// Accent-colored; underlined while hovered.
     private func render() {
-        var attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.controlAccentColor,
-        ]
+        var attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: theme.accent]
         if isHovered { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
         attributedTitle = NSAttributedString(string: text, attributes: attributes)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { setHovered(true) }
-    override func mouseExited(with event: NSEvent) { setHovered(false) }
-
-    func setHovered(_ hovered: Bool) {
-        guard hovered != isHovered else { return }
-        isHovered = hovered
-        render()
-    }
-
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func hoverDidChange() { render() }
 }
 
 /// A Copy button: says "Copied" for a moment after being pressed, so the user knows the long
@@ -717,18 +695,16 @@ final class LinkButton: PressButton {
 /// address column.
 @MainActor
 final class CopyButton: PressButton {
-    private let handler: () -> Void
     /// "Copied" instead of "Copy": accent title.
     var showsCopied = false { didSet { if showsCopied != oldValue { render() } } }
+    /// The app's theme: the title in its text, "Copied" in its accent.
+    var theme = PaneTheme.placeholder { didSet { render() } }
 
     init(entry: CryptoAddress, action: @escaping () -> Void) {
-        handler = action
-        super.init(frame: .zero)
+        super.init(action: action)
         bezelStyle = .rounded
         controlSize = .small
         setButtonType(.momentaryPushIn)
-        target = self
-        self.action = #selector(pressed(_:))
         setAccessibilityIdentifier("about-copy-\(entry.id)")
         setAccessibilityLabel(AboutCopy.copyAddressLabel(entry))
         render()
@@ -737,17 +713,10 @@ final class CopyButton: PressButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    @objc private func pressed(_ sender: Any?) { handler() }
-
     private func render() {
         let font = NSFont.systemFont(ofSize: 11.5)
-        if showsCopied {
-            attributedTitle = NSAttributedString(
-                string: AboutCopy.copiedLabel, attributes: [.font: font, .foregroundColor: NSColor.controlAccentColor])
-        } else {
-            attributedTitle = NSAttributedString(string: AboutCopy.copyLabel, attributes: [.font: font])
-        }
+        attributedTitle = NSAttributedString(
+            string: showsCopied ? AboutCopy.copiedLabel : AboutCopy.copyLabel,
+            attributes: [.font: font, .foregroundColor: showsCopied ? theme.accent : theme.text])
     }
-
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
 }

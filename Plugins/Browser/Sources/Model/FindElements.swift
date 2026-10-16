@@ -13,14 +13,12 @@ import Foundation
 /// `find`, so it lives where a unit test can reach it.
 
 /// What scoring reads off an element: its accessible name, role and tag, the
-/// part of a `PageElement` that exists before any ref is minted.
+/// part of a `read-page` element that exists before any ref is minted.
 protocol Scorable {
     var name: String { get }
     var role: String { get }
     var tag: String { get }
 }
-
-extension PageElement: Scorable {}
 
 /// A match, carrying the element plus why it scored. Score is 0–1, higher is better.
 struct ElementMatch<Element: Scorable> {

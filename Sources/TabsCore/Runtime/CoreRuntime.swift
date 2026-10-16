@@ -25,6 +25,8 @@ package final class CoreRuntime {
     package let commands: CommandCenter
     /// The app's one managed caffeinate process (File ▸ Caffeinate…).
     package let caffeinate = Caffeinate()
+    /// The themes the app ships, and the one everything is drawn with now (docs/THEMES.md).
+    package let themes: Themes
     /// The loaded SDK's fingerprint: what every plugin must match.
     package let sharedFingerprint: String?
     /// What loading saved state had to recover from, for the user and the report.
@@ -39,12 +41,14 @@ package final class CoreRuntime {
     /// - Parameter controlSocketPath: where the control socket will listen,
     ///   known before anything starts, so every pane — restored ones
     ///   included — hands it to the processes it spawns.
+    /// - Parameter themesDirectory: the theme files (the running app's own).
     package init(
         paths: AppPaths, readOnly: Bool = false, controlSocketPath: String? = nil,
-        sharedFingerprint: String? = BuildStamp.loadedFingerprint
+        sharedFingerprint: String? = BuildStamp.loadedFingerprint, themesDirectory: URL = ThemeCatalog.bundledDirectory()
     ) {
         self.paths = paths
         self.sharedFingerprint = sharedFingerprint
+        themes = Themes(catalog: ThemeCatalog(directory: themesDirectory))
         settings = SettingsStore(file: paths.settingsFile, readOnly: readOnly)
         layoutStore = LayoutStore(file: paths.layoutFile, readOnly: readOnly)
         persistenceNotes = settings.loadNotes.map { "settings.json: \($0)" }
@@ -67,74 +71,11 @@ package final class CoreRuntime {
         commands = CommandCenter(registry: registry, panes: panes)
         panes.shortcuts = shortcuts
         host.notesProvider = { [unowned shortcuts] owner in shortcuts.notes(for: owner) }
-        control.addCoreVerb(
-            ControlVerbContribution(name: "tabs.info", summary: "This process: pid, data directory, control socket, build") {
-                [unowned self] _ in
-                let stamp = BuildStamp(of: .main)
-                return [
-                    "pid": .int(Int64(getpid())),
-                    "dataDirectory": .string(self.paths.dataDirectory.path),
-                    "controlSocket": self.controlSocketPath.map(JSONValue.string) ?? .null,
-                    "configuration": stamp.map { .string($0.configuration) } ?? .null,
-                    "sharedFingerprint": self.sharedFingerprint.map(JSONValue.string) ?? .null,
-                ]
-            })
-        control.addCoreVerb(
-            ControlVerbContribution(name: "tabs.plugins", summary: "Every discovered plugin and its state") { [unowned self] _ in
-                self.report()
-            })
-        addShortcutVerbs()
-    }
-
-    private func addShortcutVerbs() {
-        control.addCoreVerb(
-            ControlVerbContribution(
-                name: "tabs.shortcuts", summary: "Every command's shortcut: default, effective, where it came from, and why if unbound"
-            ) { [unowned self] _ in
-                .array(
-                    self.shortcuts.bindings.map { binding in
-                        [
-                            "command": .string(binding.command.rawValue), "owner": .string(binding.owner.rawValue),
-                            "title": .string(binding.title), "appliesTo": binding.scope.map { .string($0.rawValue) } ?? .null,
-                            "default": binding.defaultChord.map { .string($0.stringValue) } ?? .null,
-                            "chord": binding.chord.map { .string($0.stringValue) } ?? .null,
-                            "source": binding.source.map { .string($0.rawValue) } ?? .null,
-                            "fixed": .bool(binding.isFixed),
-                            "note": binding.note.map(JSONValue.string) ?? .null,
-                        ]
-                    })
-            })
-        control.addCoreVerb(
-            ControlVerbContribution(
-                name: "tabs.setShortcut", summary: "Rebind a command for the user: a chord (cmd+shift+k), none to unbind, default to reset",
-                arguments: [
-                    ControlArgument("command", .string, required: true),
-                    ControlArgument("chord", .string, required: true, summary: "e.g. cmd+shift+k, ctrl+f5; none; default"),
-                ]
-            ) { [unowned self] invocation in
-                let command = CommandID(invocation["command"]?.stringValue ?? "")
-                let chord = invocation["chord"]?.stringValue ?? ""
-                do {
-                    switch chord {
-                    case "default": try self.shortcuts.reset(command)
-                    case "none": try self.shortcuts.bind(command, to: nil)
-                    default:
-                        guard let parsed = KeyChord(string: chord) else { throw Shortcuts.Refusal("\"\(chord)\" is not a shortcut") }
-                        try self.shortcuts.bind(command, to: parsed)
-                    }
-                } catch {
-                    throw ControlVerbError(String(describing: error))
-                }
-                let binding = self.shortcuts.binding(for: command)
-                return [
-                    "chord": binding?.chord.map { .string($0.stringValue) } ?? .null,
-                    "note": binding?.note.map(JSONValue.string) ?? .null,
-                ]
-            })
+        addRuntimeVerbs()
     }
 
     /// Starts the plugins an app bundle ships: its PlugIns directory,
-    /// reconciled against its `TabsBundledPlugins` list. `fixtures`: a
+    /// reconciled against its build stamp's `bundledPlugins`. `fixtures`: a
     /// directory of test plugin bundles started beside them, unreconciled (the
     /// end-to-end tests' `TABS_E2E_PLUGINS`).
     package func startBundledPlugins(of appBundle: Bundle, alongside fixtures: URL? = nil, requiredContentTypes: Set<ContentTypeID> = []) {

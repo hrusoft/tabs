@@ -23,18 +23,21 @@ import Testing
     let targetPane = JSONValue.string("target-1")
     let cwd = URL(filePath: "/Users/agent/project", directoryHint: .isDirectory)
 
+    /// What `command`'s flags `args` build, the way `handle` builds them: an
+    /// unknown command never gets this far (`ControlPlaneTests`).
     private func build(_ command: String, _ args: [String: JSONValue]) -> ControlEnvelope.Built {
-        fixture.runtime.control.buildRequest(command: command, args: args, paneId: pane, cwd: cwd)
-    }
-
-    @Test func namesTheCommandWhenItIsUnknown() {
-        #expect(build("nonsense", [:]).error?.contains("unknown command: nonsense") == true)
+        guard case .found(let verb, _) = fixture.runtime.control.resolve(command: command) else {
+            Issue.record("\(command) doesn't resolve")
+            return .failed("\(command) doesn't resolve")
+        }
+        return ControlEnvelope.build(verb, command: command, args: args, paneId: pane, cwd: cwd)
     }
 
     @Test func namesTheValidFlagsWhenOneIsMisspelled() {
         let error = build("click", ["panee": "x"]).error
-        #expect(error?.contains("unknown flag --panee") == true)
-        #expect(error?.contains("--ref") == true)
+        #expect(error == "unknown flag --panee for click; accepts: --pane, --ref, --x, --y, --role, --name, --selector, --nth")
+        let typed = build("type", ["panee": "x"]).error
+        #expect(typed?.hasSuffix("accepts: --pane, --ref, --x, --y, --role, --name, --selector, --nth, --text, --submit") == true)
     }
 
     @Test func rejectsAValueOutsideAFlagsEnum() {
@@ -45,6 +48,14 @@ import Testing
     @Test func rejectsANonNumericValueForANumericFlag() {
         let built = build("get-page-text", ["pane": targetPane, "max-length": "abc"])
         #expect(built.error?.contains("must be a number") == true)
+    }
+
+    /// An unset shell variable (`--x "$X"`) arrives blank: not a number, never 0.
+    @Test func aBlankValueIsNotANumber() {  // H-7
+        #expect(build("click", ["pane": targetPane, "x": "", "y": " "]).error == "--x and --y must be numbers (got ,  )")
+        #expect(build("click", ["pane": targetPane, "role": "button", "nth": ""]).error == "--nth must be a non-negative integer (got )")
+        #expect(build("wait-for", ["pane": targetPane, "text": "x", "timeout": ""]).error == "--timeout must be a number (got )")
+        #expect(build("scroll", ["pane": targetPane, "direction": "up", "amount": "\n"]).error == "--amount must be a number (got \n)")
     }
 
     @Test func reportsAMissingRequiredFlag() {
@@ -80,15 +91,6 @@ import Testing
     @Test func splitsACsvFlagOnCommas() {
         let built = build("key", ["pane": targetPane, "key": "a", "modifiers": "meta,shift"])
         #expect(matches(built.request, ["modifiers": ["meta", "shift"]]))
-    }
-
-    @Test func mapsABareBooleanFlagToTrueAndAnInvertingFlagToItsDeclaredValue() {
-        let on = build("capture-bodies", ["pane": targetPane])
-        #expect(matches(on.request, ["type": "captureNetworkBodies"]))
-        #expect(on.request?["enabled"] == nil)
-
-        let off = build("capture-bodies", ["pane": targetPane, "off": true])
-        #expect(matches(off.request, ["enabled": false]))
     }
 
     @Test func resolvesAPathFlagAgainstTheCallersCwdAndPassesBareTrueThroughUnresolved() {

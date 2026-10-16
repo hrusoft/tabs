@@ -75,6 +75,8 @@ final class GitTreeServices {
     var sourceOverride: (any GitSource)?
     /// What Copy SHA-1 copied, in tests instead of the pasteboard.
     var copiedOverride: ((String) -> Void)?
+    /// What a file row's menu asked of Finder, in tests instead of it.
+    var fileActionOverride: ((FileAction, URL) -> Void)?
     /// The detail read's debounce, in tests instead of
     /// `GitTreePane.detailDebounce` (`.zero`: read at once).
     var detailDebounceOverride: Duration?
@@ -129,5 +131,22 @@ final class GitTreeServices {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+
+    enum FileAction: Equatable { case reveal, open }
+
+    /// A file row's Show in Finder (a Finder window with the file selected)
+    /// or Open (its default app, as Finder's Open).
+    func fileAction(_ action: FileAction, _ url: URL) {
+        #if DEBUG
+        if let fileActionOverride {
+            fileActionOverride(action, url)
+            return
+        }
+        #endif
+        switch action {
+        case .reveal: NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .open: NSWorkspace.shared.open(url)
+        }
     }
 }

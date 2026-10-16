@@ -85,7 +85,7 @@ final class SwiftTermSurface: NSObject, TerminalSurface, @MainActor TerminalView
         terminal.registerOscHandler(code: 9) { _ in }
         if metal { try? terminalView.setUseMetal(true) }
         applyColors(appearance)
-        terminalView.lineSpacing = CGFloat(appearance.lineHeight)
+        terminalView.lineSpacing = Self.lineSpacing(appearance)
     }
 
     var view: NSView { container }
@@ -115,7 +115,7 @@ final class SwiftTermSurface: NSObject, TerminalSurface, @MainActor TerminalView
             // frame it skips that, and setting the frame back resizes plainly.
             let size = terminalView.frame.size
             terminalView.setFrameSize(.zero)
-            terminalView.lineSpacing = CGFloat(appearance.lineHeight)
+            terminalView.lineSpacing = Self.lineSpacing(appearance)
             terminalView.font = font
             terminalView.setFrameSize(size)
         }
@@ -181,9 +181,22 @@ final class SwiftTermSurface: NSObject, TerminalSurface, @MainActor TerminalView
     /// The appearance's font; the system monospaced font when the family
     /// isn't installed (the default, JetBrains Mono NL, may not be).
     static func font(_ appearance: TerminalAppearance) -> NSFont {
-        let size = CGFloat(min(max(appearance.fontSize, TerminalAppearance.fontSizes.lowerBound), TerminalAppearance.fontSizes.upperBound))
+        let size = CGFloat(clamped(appearance.fontSize, to: TerminalAppearance.fontSizes))
         return NSFontManager.shared.font(withFamily: appearance.fontFamily, traits: [], weight: 5, size: size)
             ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    /// The appearance's line height, as SwiftTerm's `lineSpacing`. Clamped
+    /// like the font size: the stored value is anyone's (a hand-edited file),
+    /// and SwiftTerm takes any multiplier, only keeping a cell between 1 and
+    /// 8192 pt tall: at 0 or below every row is 1 pt, a huge one leaves a
+    /// single row.
+    static func lineSpacing(_ appearance: TerminalAppearance) -> CGFloat {
+        CGFloat(clamped(appearance.lineHeight, to: TerminalAppearance.lineHeights))
+    }
+
+    private static func clamped(_ value: Double, to range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 
     static func cursorStyle(_ appearance: TerminalAppearance) -> CursorStyle {

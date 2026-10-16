@@ -14,6 +14,7 @@ process) and `Sources/Tabs/Caffeinate` (the dialog, a window of its own).
 | `Sources/Tabs/UI/MainMenu.swift` (`CommandRouter.caffeinate`) | File ▸ Caffeinate… / Decaf |
 | `Sources/Tabs/Workspace/PaneViews.swift` (`TabBarView.caffeinateButton`, `RootIconButton`), `Chrome.swift` (`ChromeIcon.coffeeCup`) | Title-bar cup |
 | `Sources/Tabs/Caffeinate/CaffeinateWindow.swift` | The dialog |
+| `SettingsStore.CoreSettings.lastCaffeinate` (`core.lastCaffeinate` in settings.json) | What the dialog last started it with; absent until the first Start |
 | `Sources/Tabs/Testing/TestControlVerbs.swift` (`tabs.test.caffeinate`, `tabs.test.caffeinateDialog`) | Debug-only e2e hooks |
 
 ## Cases
@@ -75,12 +76,14 @@ process) and `Sources/Tabs/Caffeinate` (the dialog, a window of its own).
 | D-7 | Timer text trimmed; only a positive whole number of minutes counts, anything else (`1.5`, `0`) silently means none: runs until Decaf | `CaffeinateDialogModelTests/timerTextParsesAsAPositiveWholeNumberOfMinutes` |
 | D-8 | Cancel, Escape, close button: dismiss, start nothing | `UITests.CaffeinateDialog/cancelEscapeAndCloseStartNothing` |
 | D-9 | One at a time: asking again brings the open one forward, typed values kept | `UITests.CaffeinateDialog/askingAgainKeepsTheOpenDialogAndWhatWasTyped` |
-| D-10 | Each new dialog starts from the defaults | `UITests.CaffeinateDialog/eachNewDialogStartsFromTheDefaults` |
+| D-10 | Each new dialog starts from the options the dialog last started Caffeinate with: the switches, and the timer as its whole minutes (empty if there was none). Before any Start, from the defaults as they are now (D-3) | `UITests.CaffeinateDialog/eachNewDialogStartsFromTheLastStart`, `CaffeinateDialogModelTests/aRememberedStartFillsTheFields`, `SettingsTests/lastCaffeinateIsAbsentUntilRecordedAndPersists` |
 | D-11 | Tab cycles within the dialog | — (AppKit key view loop) |
 | D-12 | Return presses Start (the default button) | `UITests.CaffeinateDialog/returnPressesStart` |
 | D-13 | Start while already running changes nothing (unreachable from the menu) | `CaffeinateTests/startWhileRunningIsANoOp` |
 | D-14 | Test reset closes an open dialog | `CaffeinateEndToEndTests/aResetStopsTheProcess` |
 | D-15 | Own standard window: fixed size, not resizable/zoomable, centered; never shown or focused in hidden mode | `EndToEndTests/hiddenModeShowsNoWindowNotEvenSettingsPluginsAboutOrCaffeinate`, `UITests.CaffeinateDialog/itIsTitledCaffeinate` |
+| D-16 | Start records its options (`core.lastCaffeinate`); Cancel, Escape and the close button record nothing, nor does a start that bypasses the dialog (`tabs.test.startCaffeinate`) | `UITests.CaffeinateDialog/onlyStartRecordsTheOptions` |
+| D-17 | The recorded options outlive a relaunch. One that doesn't decode is reported (the file is copied aside before the next save) and read as never started | `RelaunchTests/theCaffeinateDialogStartsFromTheLastStartAfterARelaunch`, `UITests.CaffeinateDialog/eachNewDialogStartsFromTheLastStart`, `SettingsTests/lastCaffeinateIsAbsentUntilRecordedAndPersists` |
 
 ## Look
 
@@ -98,8 +101,8 @@ Lengths in pt; colors dark / light (`PaneTheme`).
 
 Standard titled window, 440pt wide, like Settings: grouped `Form`; one section with the five
 switches (title + hint per row), one with "Stop after" (field 56pt wide) + "minutes"; Cancel and
-Start (default) bottom right, 8pt apart. System fonts and colors; follows the app's theme like
-Settings.
+Start (default) bottom right, 8pt apart. System fonts; painted in the app's theme like Settings
+(Start filled with its accent, [THEMES.md](THEMES.md)).
 
 ## Implementation notes
 
@@ -107,6 +110,9 @@ Settings.
   it (M-6) and has the system's look and keys (D-12, D-15).
 - **State**: the shell reads and observes core's `Caffeinate` directly, so the menu item and
   every window's cup follow the process (P-17, B-5).
+- **The last Start**: the presenter records it in core's settings, not the process, so only the
+  dialog's choice is remembered (D-16). It's stored only once there is one, so a never-started
+  dialog follows `dialogDefaults` if a later build changes them (D-10).
 
 ## Checking the look
 

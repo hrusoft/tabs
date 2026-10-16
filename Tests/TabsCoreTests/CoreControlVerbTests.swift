@@ -26,12 +26,12 @@ import Testing
         // The user goes back to their terminal's tab.
         fixture.engine.perform(in: "w") { layout, titles in layout.reveal("t1", titles: titles) }
         #expect(!window().isShowing(pane))
-        #expect(window().activeLeafID == "t1")
+        #expect(window().activePaneID == "t1")
 
         let focusRequests = fixture.renderer.focused.count
         #expect(await fixture.ctl("activate-pane", ["pane": id(pane)]) == ["ok": true])
         #expect(window().isShowing(pane), "brought to the front")
-        #expect(window().activeLeafID == "t1", "the user's active pane is untouched")
+        #expect(window().activePaneID == "t1", "the user's active pane is untouched")
         #expect(fixture.renderer.focused.count == focusRequests, "and the keyboard is not stolen")
     }
 
@@ -51,7 +51,7 @@ import Testing
         let pane = try await fixture.createPane()
         #expect(await fixture.ctl("close-pane", ["pane": id(pane)]) == ["ok": true])
         #expect(fixture.web(pane) == nil)
-        #expect(!fixture.runtime.panes.ownership.isOwned(pane))
+        #expect(!fixture.runtime.panes.ownership.isControlled(pane))
         #expect(await listed().isEmpty)
     }
 
@@ -62,7 +62,7 @@ import Testing
         let response = await fixture.ctl("close-pane", ["pane": id(pane)])
         #expect(response == ControlDispatcher.failure("the pane was not closed"))
         #expect(fixture.web(pane) != nil)
-        #expect(fixture.runtime.panes.ownership.owner(of: pane) == "t1", "a failed close must not strand a live pane as unownable")
+        #expect(fixture.runtime.panes.ownership.controller(of: pane) == "t1", "a failed close must not strand a live pane as unownable")
         #expect(fixture.runtime.signals.raised(on: pane).map(\.id) == ["controlled"])
     }
 
@@ -123,9 +123,9 @@ import Testing
     }
 
     @Test func aTypeThatCannotBeInspectedSaysSo() async {
-        fixture.runtime.panes.grantOwnership(of: "t2", to: "t1")
+        fixture.runtime.panes.ownership.enableControl(of: "t2", from: "t1")
         #expect(
-            await fixture.ctl("pane-info", ["pane": "t2"]) == ControlDispatcher.failure("term panes cannot be inspected with getPaneInfo"))
+            await fixture.ctl("pane-info", ["pane": "t2"]) == ControlDispatcher.failure("term panes cannot be inspected with pane-info"))
     }
 
     @Test func paneInfoForAClosedPaneIsGone() async throws {
@@ -150,9 +150,15 @@ import Testing
             #expect(control.verb(named: verb.name)?.verb.name == verb.name)
             #expect(control.verb(wireType: try #require(verb.wireType))?.verb.name == verb.name)
         }
-        // A wire type is core's or a plugin's, never both: core's are the reserved ones.
-        let core = Set(control.verbs().filter { $0.owner == "tabs" }.compactMap(\.verb.wireType))
-        #expect(core == CoreExtensionPoints.coreWireTypes)
+        // A wire type is core's or a plugin's, never both: core's are the
+        // reserved ones (ControlVerbRulesTests), in the order core lists them.
+        #expect(
+            control.coreCommands.compactMap(\.wireType) == [
+                "ping", "activatePane", "closePane", "listOwnedPanes", "getPaneInfo", "batch", "capabilities", "describe",
+            ])
+        #expect(
+            Set(control.verbs().filter { $0.owner == "tabs" }.compactMap(\.verb.wireType))
+                == Set(control.coreCommands.compactMap(\.wireType)))
     }
 
     @Test func capabilitiesListsCoreThenEveryPluginWithItsCommands() async throws {
@@ -170,7 +176,7 @@ import Testing
         #expect(core.first?.stringValue == "tabs-ctl ping — Check that the control socket is reachable.")
         #expect(
             core.contains(
-                "tabs-ctl activate-pane --pane <pane> — Bring a pane you own to the front of its tab group without capturing it. screenshot does this itself when needed."
+                "tabs-ctl activate-pane --pane <pane> — Bring a pane you own to the front of its tab group, without taking the keyboard from the pane the user is in."
             ))
         #expect(
             core.contains(

@@ -26,8 +26,14 @@ final class FakeRenderer: LayoutRenderer {
     var signalChangesRendered: [Bool] = []
     /// How many times the Dock icon would have bounced.
     var attentionRequests = 0
+    /// Called with every model the engine renders, after it is recorded: a test's own stand-in for drawing it (a
+    /// plugin's tests putting the views of the panes it shows into windows, say).
+    var onRender: (@MainActor (LayoutModel) -> Void)?
 
-    func render(_ model: LayoutModel) { rendered = model }
+    func render(_ model: LayoutModel) {
+        rendered = model
+        onRender?(model)
+    }
     func focus(_ pane: PaneID) { focused.append(pane) }
     var frontmostWindowID: WindowID? { front }
     func bringToFront(_ window: WindowID) { broughtToFront.append(window) }

@@ -16,16 +16,6 @@ extension LaunchedApp {
         guard let pid = try await caffeinate()["pid"]?.intValue, pid > 0 else { throw Failure(description: "no caffeinate running") }
         return Int32(pid)
     }
-
-    /// Polls until `condition` holds.
-    func eventually(_ seconds: Double = 5, _ condition: () async throws -> Bool) async rethrows -> Bool {
-        let deadline = ContinuousClock.now + .seconds(seconds)
-        while ContinuousClock.now < deadline {
-            if try await condition() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return try await condition()
-    }
 }
 
 /// The OS's view of a pid: alive, and its argv.
@@ -52,11 +42,11 @@ enum OSProcess {
         try await app.call("tabs.test.startCaffeinate")
         let pid = try await app.caffeinatePid()
         try await app.call("tabs.test.menu", ["title": "Decaf"])  // (stops it) then a fresh one…
-        #expect(await app.eventually { !OSProcess.isAlive(pid) })
+        #expect(await eventually(timeout: .seconds(5)) { !OSProcess.isAlive(pid) })
         try await app.call("tabs.test.startCaffeinate")
         let second = try await app.caffeinatePid()
         try await app.call("tabs.test.reset")
-        #expect(await app.eventually { !OSProcess.isAlive(second) }, "nothing left running from the last test")
+        #expect(await eventually(timeout: .seconds(5)) { !OSProcess.isAlive(second) }, "nothing left running from the last test")
         #expect(try await app.caffeinate()["running"] == false)
 
         try await app.call("tabs.test.menu", ["title": "Caffeinate…"])

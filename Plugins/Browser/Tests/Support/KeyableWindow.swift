@@ -6,7 +6,7 @@ import AppKit
 /// when the window says it became key, which is how its own tests do it
 /// (`TestWKWebViewHostWindow`).
 @MainActor
-final class KeyableWindow: NSWindow {
+class KeyableWindow: NSWindow {
     private var forcedKey = false
 
     override var isKeyWindow: Bool { forcedKey || super.isKeyWindow }

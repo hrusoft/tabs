@@ -7,7 +7,7 @@ import Foundation
 /// (ids, nanosecond timestamps) survive exactly: an integral JSON number that
 /// fits in `Int64` decodes as `.int`, anything else as `.double`. Non-finite
 /// doubles have no JSON form: encoding one throws, and core refuses to store a
-/// value that contains one (see `isRepresentableInJSON`).
+/// value that contains one (its own check, `isRepresentableInJSON`).
 public enum JSONValue: Hashable, Sendable {
     case null
     case bool(Bool)
@@ -102,7 +102,7 @@ public extension JSONValue {
 
     /// Whether this value can be written as JSON: false if it contains a NaN
     /// or an infinity anywhere.
-    var isRepresentableInJSON: Bool {
+    package var isRepresentableInJSON: Bool {
         switch self {
         case .double(let value): value.isFinite
         case .array(let values): values.allSatisfy(\.isRepresentableInJSON)
@@ -127,7 +127,7 @@ public extension JSONValue {
     /// else in `self` replaces `base` wholesale. This is how stored settings
     /// are laid over defaults, so a key added in a later build gets its
     /// default instead of failing to decode.
-    func merged(over base: JSONValue) -> JSONValue {
+    package func merged(over base: JSONValue) -> JSONValue {
         guard case .object(let top) = self, case .object(var result) = base else { return self }
         for (key, value) in top {
             result[key] = result[key].map { value.merged(over: $0) } ?? value

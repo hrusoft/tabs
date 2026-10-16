@@ -31,7 +31,7 @@ struct CommitRowLayout {
 
     static let ellipsis = "…"
 
-    init(row: GraphRow, laneCount: Int, width: Double, showAuthor: Bool, showDate: Bool, isHead: Bool) {
+    init(row: GraphRow, laneCount: Int, width: Double, showAuthor: Bool, showDate: Bool) {
         let height = GitTreeMetrics.rowHeight
         let content = width - GitTreeMetrics.rowPaddingLeft - GitTreeMetrics.rowPaddingRight
         let phantom = row.commit.hash == uncommittedChangesHash
@@ -132,11 +132,7 @@ final class CommitListView: GitFlippedView {
     private var hoveredRow: Int?
     private var hoveringLoadMore = false
     private var trackingArea: NSTrackingArea?
-    /// Where the rows sit in the pane view's coordinates, before scrolling
-    /// (fractional origin for text baselines).
-    var theme = PaneTheme.dark { didSet { needsDisplay = true } }
-    /// Tells the pane view to redraw its focus ring.
-    var onFocusChange: (() -> Void)?
+    var theme = PaneTheme.placeholder { didSet { needsDisplay = true } }
 
     init(pane: GitTreePane) {
         self.pane = pane
@@ -179,8 +175,7 @@ final class CommitListView: GitFlippedView {
     func layout(ofRow index: Int) -> CommitRowLayout {
         let row = pane.graph.rows[index]
         return CommitRowLayout(
-            row: row, laneCount: pane.graph.laneCount, width: bounds.width, showAuthor: pane.showAuthor, showDate: pane.showDate,
-            isHead: row.commit.refs.contains("HEAD"))
+            row: row, laneCount: pane.graph.laneCount, width: bounds.width, showAuthor: pane.showAuthor, showDate: pane.showDate)
     }
 
     // MARK: Drawing
@@ -220,9 +215,9 @@ final class CommitListView: GitFlippedView {
             theme.hover(0.08).setFill()
             box.fill()
         }
-        drawGutter(row, in: layout.gutter, selected: selected, isHead: row.commit.refs.contains("HEAD"), context: context)
-        GitText.mono11.draw(layout.hashText, at: CGPoint(x: layout.hash.minX, y: layout.hashBaseline), color: theme.textDim)
         let isHead = row.commit.refs.contains("HEAD")
+        drawGutter(row, in: layout.gutter, selected: selected, isHead: isHead, context: context)
+        GitText.mono11.draw(layout.hashText, at: CGPoint(x: layout.hash.minX, y: layout.hashBaseline), color: theme.textDim)
         for pill in layout.pills {
             let rect = snapped(pill.rect)
             let path = NSBezierPath(
@@ -314,21 +309,6 @@ final class CommitListView: GitFlippedView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    /// Whether the list shows its focus ring: focused from the keyboard (pane
-    /// navigation), not by a click.
-    private(set) var showsFocusRing = false
-
-    override func becomeFirstResponder() -> Bool {
-        showsFocusRing = NSApplication.shared.currentEvent?.type == .keyDown
-        onFocusChange?()
-        return true
-    }
-
-    override func resignFirstResponder() -> Bool {
-        onFocusChange?()
-        return true
-    }
-
     func rowIndex(at point: CGPoint) -> Int? {
         let index = Int((point.y / GitTreeMetrics.rowHeight).rounded(.down))
         return point.y >= 0 && index < rowCount ? index : nil
@@ -402,10 +382,7 @@ final class CommitListView: GitFlippedView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
+        trackingArea = replaceTrackingArea(trackingArea, events: [.mouseMoved, .mouseEnteredAndExited])
     }
 
     override func mouseMoved(with event: NSEvent) { hover(at: convert(event.locationInWindow, from: nil)) }

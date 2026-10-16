@@ -5,10 +5,10 @@ a standard window of its own. Code: `Sources/Tabs/About`.
 
 ## Scope
 
-- The look is the system's (titled window, AppKit controls, semantic colors); no `Visual/`
-  scenario or golden.
-- Theme: follows the app's Theme setting like every window (inherits `NSApp.appearance`), in
-  system semantic colors (G-1).
+- The look is a standard titled window with AppKit controls, its colors the theme's tokens; no
+  `Visual/` scenario or golden.
+- Theme: follows the app's Theme setting like every window, painted from its tokens (G-1,
+  [THEMES.md](THEMES.md)).
 - Credits: the linked packages, each with its license; no versions. Core credits what `project.yml`
   links (nothing today); each plugin credits what its `plugin.yml` links, in its Info.plist
   (`TabsCredits`), so the credits ship with the plugin carrying the code (Terminal: SwiftTerm).
@@ -21,7 +21,7 @@ a standard window of its own. Code: `Sources/Tabs/About`.
 
 | File | What |
 |---|---|
-| `Sources/Tabs/About/AboutWindow.swift` (`AboutWindowController`, `AboutPresenter`, `AboutBodyView`, `AboutMetrics`) | Window, singleton, page |
+| `Sources/Tabs/About/AboutWindow.swift` (`AboutWindowController`, `AboutPresenter`: a `WindowPresenter`, `Sources/Tabs/UI/WindowPresenter.swift`; `AboutBodyView`, `AboutMetrics`) | Window, singleton, page |
 | `AboutWindow.swift` (`AboutModel`; `PressButton`, `TierButton`, `LinkButton`, `CopyButton`) | What a press does; OS calls (`NSWorkspace`, `NSPasteboard`, `Bundle.main`) |
 | `Sources/Tabs/UI/MainMenu.swift` (About item, `CommandRouter.close(keyWindow:)`), `AppDelegate.showAbout` | Opening; ⌘W |
 | `Sources/Tabs/About/AboutContent.swift` (`Attributions`, `Donations`, `AboutCopy`, `ExternalURL`) | Credits, tiers, copy, URL vetting |
@@ -46,7 +46,7 @@ app over the control socket).
 | A-4 | System title bar and buttons | `UITests.About/theWindowIsAStandardFixedSizeWindow` |
 | A-5 | ⌘W / File ▸ Close Pane with About key closes About; workspace untouched (router: a key non-workspace window gets `performClose`) | `UITests/closeWithAnotherWindowKeyClosesThatWindowNotAPane` (the router), `UITests.About/closingDropsTheWindowAndTheNextOneIsFresh` (the window closed, the singleton dropped) |
 | A-6 | Closing (or a test reset) drops the singleton → next open is a fresh window, scrolled to the top. A stale window's close never clears a newer one | `UITests.About/closingDropsTheWindowAndTheNextOneIsFresh`, `UITests.About/aStaleWindowClosingLeavesANewerOneInPlace`, `AboutEndToEndTests/theApplicationMenuOpensARealAboutWindowThatAResetCloses` |
-| A-7 | System window background | — |
+| A-7 | Window background, title bar included: the theme's `bg` (G-1) | `UITests.ThemeReach/aThemesTokensReachEveryWindowAndFollowAChange` |
 | A-9 | Hidden mode (`TABS_E2E_HIDDEN=1`): built, never shown or focused | `UITests.About/presentingItTwiceGivesTheOneWindow`, `AboutEndToEndTests/theApplicationMenuOpensARealAboutWindowThatAResetCloses`, `EndToEndTests/hiddenModeShowsNoWindowNotEvenSettingsPluginsAboutOrCaffeinate` |
 
 ### Identity
@@ -109,7 +109,7 @@ app over the control socket).
 
 | Id | Case | Test |
 |---|---|---|
-| G-1 | Follows the app's Theme setting (dark, light, system), live, in system semantic colors: inherits `NSApp.appearance`, pinned by `AppShell.applyPaneSettings` | `UITests.About/rendersInBothAppearancesWithoutClipping`; mechanism: `UITests.Appearance/everyWindowFollowsTheSettingNotTheOS` (About not in it) |
+| G-1 | Follows the app's Theme setting, live, in its tokens: the window's background and title bar `bg`, text `text`, secondary text `textDim`, hairlines and tier borders `border`, amounts, links, a hovered tier's border and "Copied" `accent`, the hover wash `hover` at 6%; its controls' bezels are macOS's, in the theme's dark or light Aqua ([THEMES.md](THEMES.md)) | `UITests.About/rendersInBothAppearancesWithoutClipping`; mechanism: `UITests.ThemeReach/aThemesTokensReachEveryWindowAndFollowAChange` |
 
 ### Persistence and control
 
@@ -146,29 +146,30 @@ app over the control socket).
 
 ## Look
 
-Lengths in pt (`AboutMetrics`, the labels' fonts); colors are system semantic ones.
+Lengths in pt (`AboutMetrics`, the labels' fonts); colors are the theme's tokens (G-1,
+[THEMES.md](THEMES.md)).
 
 | Id | Element | Box | Text | Colors | States |
 |---|---|---|---|---|---|
-| L-1 | Window | titled, closable, miniaturizable; body 460×630 | — | system window background | — |
-| L-2 | Title bar | the system's; "About Tabs" | system | system | — |
+| L-1 | Window | titled, closable, miniaturizable; body 460×630 | — | `bg` | — |
+| L-2 | Title bar | the system's, transparent; "About Tabs" | system | the window's `bg`; title and buttons macOS's, in the theme's Aqua | — |
 | L-3 | Body | vertical scroll view, overlay scroller (column always 460 wide); padding 24 28 28 | — | — | scrolled |
 | L-4 | Identity | centered column; icon→name 12, name→version 2, version→tagline 10, tagline→copyright 12 | centered | — | — |
 | L-5 | Icon | 72×72 | — | — | — |
-| L-6 | Name | — | 22 semibold | label | — |
-| L-7 | Version | — | 12, selectable | secondary label | — |
-| L-8 | Tagline | — | 12.5 | secondary label | — |
-| L-9 | Copyright | — | 11.5 | secondary label | — |
-| L-10 | Section | 26 above, 1pt rule, 20 below it | — | separator | — |
-| L-11 | Section title | 4 below | 13 semibold | label | — |
-| L-12 | Section description | 12 below; 18pt lines; wraps at 404 | 12 | secondary label | — |
+| L-6 | Name | — | 22 semibold | `text` | — |
+| L-7 | Version | — | 12, selectable | `textDim` | — |
+| L-8 | Tagline | — | 12.5 | `textDim` | — |
+| L-9 | Copyright | — | 11.5 | `textDim` | — |
+| L-10 | Section | 26 above, 1pt rule, 20 below it | — | rule `border` | — |
+| L-11 | Section title | 4 below | 13 semibold | `text` | — |
+| L-12 | Section description | 12 below; 18pt lines; wraps at 404 | 12 | `textDim` | — |
 | L-13 | Tier list | column, gap 8 | — | — | — |
-| L-14 | Tier | full width; padding 10 12; 1pt border, radius 8; amount (≥ 86 wide), 12, then name over flavor | amount 15 semibold monospaced digits; name 12.5 medium; flavor 11.5 | amount accent; flavor secondary label; border separator | hover: 6% label-color wash, accent border; focus: system ring |
+| L-14 | Tier | full width; padding 10 12; 1pt border, radius 8; amount (≥ 86 wide), 12, then name over flavor | amount 15 semibold monospaced digits; name 12.5 medium; flavor 11.5 | amount `accent`; name `text`; flavor `textDim`; border `border` | hover: `hover` wash at 6%, `accent` border; focus: system ring |
 | L-15 | Address list | column, gap 10 | — | — | — |
-| L-16 | Address row | label + ticker over the address (gap 4), Copy 10 to the right, vertically centered | label 12 medium, ticker 12; address 11 monospaced, wraps at any character | ticker, address: secondary label | — |
-| L-17 | Copy button | small push button, ≥ 58 wide | 11.5 | "Copy": stock; "Copied": accent | pressed: AppKit's |
+| L-16 | Address row | label + ticker over the address (gap 4), Copy 10 to the right, vertically centered | label 12 medium, ticker 12; address 11 monospaced, wraps at any character | label `text`; ticker, address `textDim` | — |
+| L-17 | Copy button | small push button, ≥ 58 wide | 11.5 | "Copy" `text`, "Copied" `accent`; the bezel AppKit's | pressed: AppKit's |
 | L-18 | Credits list | column, no gap | — | — | — |
-| L-19 | Credit row | name left, license at the right edge (≥ 8 apart), baseline-aligned; 3 above and below | name 12; license 11 monospaced digits | name accent; license secondary label | name hover: underline |
+| L-19 | Credit row | name left, license at the right edge (≥ 8 apart), baseline-aligned; 3 above and below | name 12; license 11 monospaced digits | name `accent`; license `textDim` | name hover: underline |
 | L-20 | Focus | every button takes AppKit's focus ring under full keyboard access | — | — | keyboard focus |
 
 ## Implementation notes
@@ -180,7 +181,7 @@ Lengths in pt (`AboutMetrics`, the labels' fonts); colors are system semantic on
   found, and every control here is one a test presses.
 - **`NSButton` mouse tracking**: the three button classes act on mouse-up inside
   (`PressButton`) instead of AppKit's tracking loop, which a synthesized click never runs; a real
-  click behaves the same.
+  click behaves the same. `PressButton` also holds their action, hover tracking and pointing hand.
 
 ## Checking the look
 

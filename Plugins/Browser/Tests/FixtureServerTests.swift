@@ -5,7 +5,7 @@ import Testing
 
 @testable import TabsCore
 
-/// The standard pages (`Tests/Support/FixtureServer+Standard.swift`), each loaded into a real page: one
+/// The standard pages (`Tests/Shared/FixtureServer+Standard.swift`), each loaded into a real page: one
 /// distinctive fact per route, so a page that drifted is named here and not in a verb test three files away.
 @MainActor
 @Suite struct FixtureServerTests {
@@ -76,6 +76,12 @@ import Testing
         #expect(await bed.value("document.getElementById('status').textContent") == "target-clicked")
     }
 
+    /// The churn is the page's own 100 ms timer, on time only on a page someone can see, as every test's is
+    /// (`OnScreenWindow`): on a hidden page in a full gate on a busy machine, WebKit stopped holding off App Nap for it
+    /// and readied its process for suspension after every script call, and the churn's next tick stayed held for the
+    /// 10 s this test polled (WebKit's log). This polls for the next tick rather than sleeping a fixed time, and the churn
+    /// outlasts the poll: a short one could end before the first read came back (a busy main thread), leaving it the
+    /// last value, which nothing changes again.
     @Test func waityChangesOnlyWhenTheTestDrivesIt() async throws {
         let bed = try await standardBed()
         await bed.load("/waity")
@@ -87,11 +93,12 @@ import Testing
         #expect(await bed.value("getComputedStyle(document.getElementById('spinner')).display") == "none")
         await bed.value("window.appendReady('ready now')")
         #expect(await bed.value("document.body.lastElementChild.textContent") == "ready now")
-        await bed.value("window.churn(300)")
+        await bed.value("window.churn(15000)")
         let first = await bed.value("document.getElementById('churn-target').textContent")
         #expect(first.stringValue?.hasPrefix("churn ") == true)
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(await bed.value("document.getElementById('churn-target').textContent") != first, "the DOM keeps changing while it churns")
+        #expect(
+            await eventually { await bed.value("document.getElementById('churn-target').textContent") != first },
+            "the DOM keeps changing while it churns")
     }
 
     @Test func nestedHoldsAFrameAndAnOpenShadowRoot() async throws {

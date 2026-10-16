@@ -47,9 +47,10 @@ package enum PluginDiscovery {
 
     /// - Parameters:
     ///   - expectedFingerprint: the loaded SDK's shared-ABI fingerprint.
-    ///   - bundled: the ids the app says it ships (`TabsBundledPlugins`). When
-    ///     given, discovery reconciles in both directions: a listed plugin that
-    ///     is absent, and a present bundle that isn't listed, are both rejected.
+    ///   - bundled: the ids the app says it ships (its build stamp's
+    ///     `bundledPlugins`). When given, discovery reconciles in both
+    ///     directions: a listed plugin that is absent, and a present bundle
+    ///     that isn't listed, are both rejected.
     ///     nil (a test fixture directory) skips the reconciliation.
     package static func discover(in directory: URL, expectedFingerprint: String?, bundled: [PluginID]? = nil) -> Result {
         let urls =
@@ -143,8 +144,9 @@ package enum PluginDiscovery {
 
     /// Two plugins with one id (a bundle and an in-process plugin) is a
     /// packaging error with no right winner: every claimant is rejected.
-    /// Everything else a plugin owns is namespaced by its id, so this is the
-    /// only clash possible.
+    /// Everything else a plugin owns is namespaced by its id, but for a
+    /// control-plane `wireType`, which is global: that clash fails the later
+    /// plugin when it activates (`CoreExtensionPoints`), not here.
     package static func rejectDuplicateIDs(_ result: inout Result) {
         let counts = Dictionary(result.candidates.map { ($0.manifest.id, 1) }, uniquingKeysWith: +)
         result.candidates.removeAll { candidate in

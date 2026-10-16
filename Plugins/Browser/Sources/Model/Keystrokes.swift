@@ -57,6 +57,15 @@ func keystrokeEvents(_ key: String, modifiers: [KeyModifier] = []) -> [Keystroke
     return [KeystrokeEvent(.keyDown, name, held), KeystrokeEvent(.keyUp, name, held)]
 }
 
+/// Whether every event of `keystrokeEvents(key)` reaches the page: text always
+/// does, a key only when the keyboard has it (`PageInput` sends nothing for a
+/// key `physicalKey` can't build). So a name spelled otherwise than the keyboard
+/// knows it (`enter`, `Esc`) or several characters (`ab`) can't be sent, while
+/// any single character can (`é` as text).
+func canSendKeystroke(_ key: String) -> Bool {
+    keystrokeEvents(key).allSatisfy { $0.kind == .text || USKeyboard.physicalKey(for: $0.key) != nil }
+}
+
 /// The events for typing `text`, character by character: a full keystroke for
 /// printable ASCII, text alone for anything else. Control characters never
 /// reach here — `type` refuses them first.
@@ -120,32 +129,47 @@ enum USKeyboard {
     /// A function key's private-use character, as AppKit reports it.
     private static func functionCharacter(_ code: Int) -> String { String(UnicodeScalar(UInt32(code))!) }
 
-    private static let namedKeys: [String: PhysicalKey] = {
-        var keys: [String: PhysicalKey] = [
-            "Enter": PhysicalKey(keyCode: 36, characters: "\r", charactersIgnoringModifiers: "\r"),
-            "Tab": PhysicalKey(keyCode: 48, characters: "\t", charactersIgnoringModifiers: "\t"),
-            "Escape": PhysicalKey(keyCode: 53, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}"),
-            "Backspace": PhysicalKey(keyCode: 51, characters: "\u{7f}", charactersIgnoringModifiers: "\u{7f}"),
-        ]
+    /// The named keys but F1–F20, in the order `keyNames` lists them (the
+    /// guide's: the common ones first).
+    private static let plainNamedKeys: [(name: String, key: PhysicalKey)] = {
         let function: NSEvent.ModifierFlags = [.function]
         let arrow: NSEvent.ModifierFlags = [.function, .numericPad]
-        for (name, code, character, flags) in [
-            ("ArrowUp", 126, NSUpArrowFunctionKey, arrow), ("ArrowDown", 125, NSDownArrowFunctionKey, arrow),
-            ("ArrowLeft", 123, NSLeftArrowFunctionKey, arrow), ("ArrowRight", 124, NSRightArrowFunctionKey, arrow),
-            ("Delete", 117, NSDeleteFunctionKey, function), ("Home", 115, NSHomeFunctionKey, function),
-            ("End", 119, NSEndFunctionKey, function), ("PageUp", 116, NSPageUpFunctionKey, function),
-            ("PageDown", 121, NSPageDownFunctionKey, function),
-        ] {
+        func special(_ name: String, _ code: UInt16, _ character: Int, _ flags: NSEvent.ModifierFlags) -> (name: String, key: PhysicalKey) {
             let text = functionCharacter(character)
-            keys[name] = PhysicalKey(keyCode: UInt16(code), characters: text, charactersIgnoringModifiers: text, flags: flags)
+            return (name, PhysicalKey(keyCode: code, characters: text, charactersIgnoringModifiers: text, flags: flags))
         }
-        let functionKeyCodes: [UInt16] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90]
+        return [
+            ("Enter", PhysicalKey(keyCode: 36, characters: "\r", charactersIgnoringModifiers: "\r")),
+            ("Escape", PhysicalKey(keyCode: 53, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}")),
+            ("Tab", PhysicalKey(keyCode: 48, characters: "\t", charactersIgnoringModifiers: "\t")),
+            ("Backspace", PhysicalKey(keyCode: 51, characters: "\u{7f}", charactersIgnoringModifiers: "\u{7f}")),
+            special("Delete", 117, NSDeleteFunctionKey, function),
+            special("ArrowLeft", 123, NSLeftArrowFunctionKey, arrow), special("ArrowRight", 124, NSRightArrowFunctionKey, arrow),
+            special("ArrowUp", 126, NSUpArrowFunctionKey, arrow), special("ArrowDown", 125, NSDownArrowFunctionKey, arrow),
+            special("Home", 115, NSHomeFunctionKey, function), special("End", 119, NSEndFunctionKey, function),
+            special("PageUp", 116, NSPageUpFunctionKey, function), special("PageDown", 121, NSPageDownFunctionKey, function),
+        ]
+    }()
+
+    /// F1, F2, … F20's key codes.
+    private static let functionKeyCodes: [UInt16] = [
+        122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90,
+    ]
+
+    private static let namedKeys: [String: PhysicalKey] = {
+        var keys = Dictionary(uniqueKeysWithValues: plainNamedKeys.map { ($0.name, $0.key) })
         for (index, code) in functionKeyCodes.enumerated() {
             let text = functionCharacter(NSF1FunctionKey + index)
-            keys["F\(index + 1)"] = PhysicalKey(keyCode: code, characters: text, charactersIgnoringModifiers: text, flags: function)
+            keys["F\(index + 1)"] = PhysicalKey(keyCode: code, characters: text, charactersIgnoringModifiers: text, flags: [.function])
         }
         return keys
     }()
+
+    /// Every key name this keyboard takes, for a refusal to list: the named
+    /// keys (the function keys as one range), then the two other names
+    /// `canonicalName` answers to.
+    static let keyNames: String =
+        (plainNamedKeys.map(\.name) + ["F1–F\(functionKeyCodes.count)", "Space", "Return"]).joined(separator: ", ")
 
     /// The key event data for a DOM key name or a printable ASCII character, or
     /// nil for a name this keyboard doesn't have.
@@ -156,7 +180,4 @@ enum USKeyboard {
         guard let code = characterKeyCodes[base] else { return nil }
         return PhysicalKey(keyCode: code, characters: key, charactersIgnoringModifiers: String(base))
     }
-
-    /// Whether `key` is a key name or character this keyboard can press.
-    static func isKnown(_ key: String) -> Bool { physicalKey(for: canonicalName(key)) != nil }
 }

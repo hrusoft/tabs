@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import TabsPluginSDK
 
 /// The chrome's lengths, in points.
 enum Metrics {
@@ -35,12 +36,25 @@ enum Metrics {
     /// A header button: padding 2pt 5pt around a 13pt icon.
     static let headerButtonIcon: CGFloat = 13
     static let headerButtonSize = CGSize(width: 23, height: 17)
+    static let headerButtonIconBox = CGRect(x: 5, y: 2, width: headerButtonIcon, height: headerButtonIcon)
     static let headerControlsGap: CGFloat = 2
+    /// The 1pt rule between a header's button groups: 2pt clear on each side,
+    /// 3pt short of the buttons' top and bottom.
+    static let headerSeparatorMargin: CGFloat = 2
+    static let headerSeparatorInset: CGFloat = 3
+    /// The rule's whole slot: a margin, the rule, a margin.
+    static let headerSeparatorSlot: CGFloat = headerSeparatorMargin * 2 + 1
+    /// The field that renames a tab or a pane in place.
+    static let titleFieldHeight: CGFloat = 15
     /// The new-tab "+" after the last tab: a 10pt icon in the same padding.
     static let newTabButtonSize = CGSize(width: 20, height: 14)
+    static let newTabButtonIconBox = CGRect(x: 5, y: 2, width: 10, height: 10)
     /// The root bar's Settings button: 15pt icon, 4pt padding, 6pt margin right.
     static let rootIconButtonSize = CGSize(width: 23, height: 23)
+    static let rootIconButtonIconBox = CGRect(x: 4, y: 4, width: 15, height: 15)
     static let rootIconButtonMarginRight: CGFloat = 6
+    /// A hovered button's wash (the theme's `hover` at 0.12): its corner radius.
+    static let washRadius: CGFloat = 3
 
     static let dropIndicatorSize = CGSize(width: 2, height: 15)
     static let emptyButtonSize: CGFloat = 32
@@ -309,6 +323,121 @@ class FlippedView: NSView {
 
     /// The whole of this view, in its layout coordinates.
     var layoutBounds: CGRect { CGRect(origin: .zero, size: layoutFrame.size) }
+}
+
+extension NSView {
+    /// `updateTrackingAreas`' usual work: `old` replaced by an area over the
+    /// visible rect that reports `events` whether or not the window is key.
+    func replaceTrackingArea(_ old: NSTrackingArea?, events: NSTrackingArea.Options = .mouseEnteredAndExited) -> NSTrackingArea {
+        if let old { removeTrackingArea(old) }
+        let area = NSTrackingArea(rect: .zero, options: events.union([.activeAlways, .inVisibleRect]), owner: self)
+        addTrackingArea(area)
+        return area
+    }
+}
+
+/// What every chrome button shares: it hears the pointer come and go
+/// (`pointerHover`, as the rest of the chrome does), takes the first click
+/// even in an inactive window, never moves the window, and is pressed by a
+/// release inside it or through accessibility, where it's a button named by
+/// its label.
+@MainActor
+class ChromeControl: FlippedView, PointerHover {
+    /// Its accessibility label.
+    var label: String { didSet { setAccessibilityLabel(label) } }
+    /// What a press does.
+    var onPress: (() -> Void)?
+    private(set) var isHovered = false
+    private var tracking: NSTrackingArea?
+
+    init(label: String) {
+        self.label = label
+        super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(label)
+    }
+
+    /// A press: `onPress`, unless a subclass does more.
+    func press() { onPress?() }
+
+    /// The pointer came or went (`isHovered` says which); it's redrawn either way.
+    func hoverDidChange() {}
+
+    func pointerHover(at point: CGPoint?) {
+        guard (point != nil) != isHovered else { return }
+        isHovered = point != nil
+        needsDisplay = true
+        hoverDidChange()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        tracking = replaceTrackingArea(tracking)
+    }
+
+    override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
+    override func mouseExited(with event: NSEvent) { pointerHover(at: nil) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func mouseDown(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { press() }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        press()
+        return true
+    }
+}
+
+/// An icon a chrome button draws: core's own, or a plugin's.
+@MainActor
+protocol ChromeGlyph {
+    func draw(in rect: CGRect, color: NSColor)
+}
+
+extension ChromeIcon: ChromeGlyph {}
+extension PaneIcon: ChromeGlyph {}
+
+/// A pane's chrome button: its icon in its box, dim text color (the text
+/// color while hovered, for one that brightens), over the theme's wash while
+/// hovered. Its tooltip is its label.
+@MainActor
+class ChromeIconButton: ChromeControl {
+    unowned let pane: PaneView
+    var icon: any ChromeGlyph { didSet { needsDisplay = true } }
+    /// The icon's box, in the button's layout coordinates.
+    let iconBox: CGRect
+    let brightensOnHover: Bool
+
+    init(pane: PaneView, icon: any ChromeGlyph, iconBox: CGRect, label: String, brightensOnHover: Bool = false) {
+        self.pane = pane
+        self.icon = icon
+        self.iconBox = iconBox
+        self.brightensOnHover = brightensOnHover
+        super.init(label: label)
+        toolTip = label
+    }
+
+    override var label: String { didSet { toolTip = label } }
+
+    var theme: Theme { pane.host.appearance.theme }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if isHovered { ChromeWash.fill(bounds, theme: theme) }
+        icon.draw(in: drawn(iconBox), color: isHovered && brightensOnHover ? theme.text : theme.textDim)
+    }
+}
+
+/// The wash under a hovered chrome button (or a header menu's row).
+@MainActor
+enum ChromeWash {
+    static func fill(_ rect: CGRect, theme: Theme) {
+        theme.hover(0.12).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: Metrics.washRadius, yRadius: Metrics.washRadius).fill()
+    }
 }
 
 /// The chrome's hover fades: a header's or bar's controls, and the bar's "+".

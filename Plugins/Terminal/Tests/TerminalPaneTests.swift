@@ -295,6 +295,49 @@ import Testing
         await bed.end(terminal)
     }
 
+    /// T-114, T-115: a stored line height or font size outside its range (a
+    /// hand-edited settings file) reaches the emulator clamped to it, when the
+    /// pane is made and live. SwiftTerm takes any line height, keeping a cell
+    /// only between 1 and 8192 pt tall: unclamped, 0 or below drew 1 pt rows
+    /// (496 of them here) and a huge one a single row.
+    @Test func anOutOfRangeLineHeightOrFontSizeIsClamped() async throws {
+        let lineHeights = TerminalAppearance.lineHeights
+        let fontSizes = TerminalAppearance.fontSizes
+        bed.settings.update {
+            $0.appearance.lineHeight = 0
+            $0.appearance.fontSize = 0
+        }
+        let terminal = try #require(bed.openTerminal())
+        let view = try #require(terminal.pane.view as? TerminalContainerView)
+        terminal.pane.paneDidShow()
+        view.frame = CGRect(x: 0, y: 0, width: 900, height: 500)
+        view.layoutSubtreeIfNeeded()
+        // Rows a 496 pt grid can hold at any height in range (about 62 at the
+        // smallest, 6 at the largest).
+        let readable = 2...100
+        #expect(view.terminal.lineSpacing == CGFloat(lineHeights.lowerBound))
+        #expect(view.terminal.font.pointSize == CGFloat(fontSizes.lowerBound))
+        #expect(readable.contains(terminal.pane.surfaceForTests.rows), "\(terminal.pane.surfaceForTests.rows) rows")
+        let stored: [(lineHeight: Double, fontSize: Double, drawn: (lineHeight: Double, fontSize: Double))] = [
+            (-3, -12, (lineHeights.lowerBound, fontSizes.lowerBound)),
+            (1e9, 1e9, (lineHeights.upperBound, fontSizes.upperBound)),
+            (1.5, 20, (1.5, 20)),
+        ]
+        for value in stored {
+            bed.settings.update {
+                $0.appearance.lineHeight = value.lineHeight
+                $0.appearance.fontSize = value.fontSize
+            }
+            view.layoutSubtreeIfNeeded()
+            #expect(view.terminal.lineSpacing == CGFloat(value.drawn.lineHeight), "stored \(value.lineHeight)")
+            #expect(view.terminal.font.pointSize == CGFloat(value.drawn.fontSize), "stored \(value.fontSize)")
+            #expect(
+                readable.contains(terminal.pane.surfaceForTests.rows),
+                "stored \(value.lineHeight): \(terminal.pane.surfaceForTests.rows) rows")
+        }
+        await bed.end(terminal)
+    }
+
     /// T-100, T-106: a new terminal made from a terminal starts in its live
     /// directory, and the saved config is the live directory.
     @Test func aNewTerminalFromATerminalStartsInItsLiveDirectory() async throws {

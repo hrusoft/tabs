@@ -1,0 +1,16 @@
+{
+  "name": "Light",
+  "appearance": "light",
+  "bg": "#ffffff",
+  "bgElevated": "#eff0f3",
+  "border": "#d2d3da",
+  "text": "#1c1d22",
+  "textDim": "#63646e",
+  "accent": "#2f6fe4",
+  "onAccent": "#ffffff",
+  "bellAlert": "#d70015",
+  "agent": "#7b45d8",
+  "hover": "#000000",
+  "shadow": "#000000",
+  "shadowStrength": 0.45
+}

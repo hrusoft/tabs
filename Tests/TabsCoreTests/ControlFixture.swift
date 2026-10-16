@@ -39,6 +39,8 @@ final class ControlFixture {
     final class Log {
         var invocations: [(command: String, invocation: ControlInvocation)] = []
         var openedPanes: [PaneID] = []
+        /// Web panes the plugin built, opened or not.
+        var builtPanes = 0
         /// Handlers that saw their cancellation.
         var cancellations = 0
         var refusedOpen = 0
@@ -51,8 +53,8 @@ final class ControlFixture {
 
     static let wireTypes: [String: String] = [
         "navigate": "navigate", "reload": "reload", "click": "click", "type": "type", "scroll": "scroll",
-        "get-page-text": "getPageText", "read-console": "readConsoleMessages", "key": "key", "capture-bodies": "captureNetworkBodies",
-        "read-network": "readNetworkRequests", "execute-js": "executeJavaScript", "save-resource": "saveResource", "wait-for": "waitFor",
+        "get-page-text": "getPageText", "read-console": "readConsoleMessages", "key": "key", "read-network": "readNetworkRequests",
+        "execute-js": "executeJavaScript", "save-resource": "saveResource", "wait-for": "waitFor",
         "create-web-pane": "createWebPane", "steal-pane": "stealPane", "hang": "hang", "slow": "slow", "nap": "nap",
     ]
 
@@ -71,7 +73,8 @@ final class ControlFixture {
                     let workspace = context.workspace
                     context.register(
                         ContentTypeContribution(id: "web", displayName: "Web", icon: .symbol("globe")) { pane in
-                            WebPane(context: pane)
+                            log.builtPanes += 1
+                            return WebPane(context: pane)
                         })
                     context.register(
                         ControlCapabilityContribution(
@@ -204,9 +207,6 @@ final class ControlFixture {
                     schema: ["type": "array", "items": ["enum": ["shift", "control", "alt", "meta"]]]),
                 ControlArgument("command", .string, enumValues: ["select-all", "undo", "redo", "delete"]),
             ])
-        verb(
-            "captureBodies", "capture-bodies", "Capture response bodies.",
-            arguments: [ControlArgument("enabled", .bool, flag: "off", flagValue: false)])
         verb("readNetwork", "read-network", "Network requests.", arguments: [ControlArgument("failed", .bool)])
         verb(
             "executeJs", "execute-js", "Run one expression.",

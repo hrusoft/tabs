@@ -1,7 +1,10 @@
 import Foundation
 
-/// What a page tells whoever is listening (`BrowserPage.events`): the events
-/// the header and the wait supervisor read, named for what they mean.
+/// What a page tells whoever is listening (`BrowserPage.events`), named for
+/// what they mean: read by the page's own load waits and script calls
+/// (`waitForLoadEnd`, `waitForLoadSettle`, `call`), the wait supervisor
+/// (`PageWait`) and `wait-for`'s closed-pane watch. The header follows the page
+/// through `BrowserPage.onChange` and `onTitle` instead.
 enum PageEvent: Equatable {
     case didStartLoading
     case didStopLoading

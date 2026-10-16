@@ -39,7 +39,7 @@ package struct AppPaths: Sendable {
     }
 
     package static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> AppPaths {
-        if let override = environment["TABS_DATA_DIR"], !override.isEmpty {
+        if let override = LaunchSetting.dataDirectory.value(in: environment), !override.isEmpty {
             return AppPaths(dataDirectory: URL(filePath: override, directoryHint: .isDirectory))
         }
         // Named by the bundle identifier, as macOS apps name their folders: a Debug build's

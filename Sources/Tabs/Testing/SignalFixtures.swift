@@ -10,7 +10,6 @@ import TabsPluginSDK
 @MainActor
 enum SignalFixtures {
     static let bellID = "bell"
-    static let controlledID = ControlledSignal.id
 
     /// The terminal's bell: asks for attention until seen, marks the tabs
     /// holding the pane, bounces the Dock; a 3s pulse in the alert color.

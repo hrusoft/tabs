@@ -120,16 +120,17 @@ final class GitTreePlugin: NSObject, TabsPlugin {
     func activate(_ context: any PluginContext) throws {
         let settings = context.settings(GitTreeSettings.self)
         let workspace = context.workspace  // captured below instead of `context`
+        let services = GitTreeServices()   // what the plugin's panes share
         context.register(
             ContentTypeContribution(
-                id: "git-tree", displayName: "Git tree", icon: .symbol("arrow.triangle.branch"),
+                id: "git-tree", displayName: "Git tree", icon: .image(GitTreeGlyphs.gitTree), creationLabel: "New git tree",
                 initialConfig: { creation in
                     guard let origin = creation.origin, let dir = workspace.capability(.workingDirectory, of: origin) else {
                         return .emptyObject
                     }
                     return ["cwd": .string(dir.path)]
                 },
-                makePane: { pane in try GitTreePane(pane: pane, settings: settings) }))
+                makePane: { pane in try GitTreePane(pane: pane, settings: settings, services: services) }))
         context.register(
             CommandContribution(
                 id: "git-tree.refresh", title: "Refresh", summary: "Re-read the active git tree.", menu: .view,
@@ -160,7 +161,7 @@ final class GitTreePlugin: NSObject, TabsPlugin {
 |---|---|
 | `ContentTypeContribution` | `makePane` builds every pane of the type, new or restored ([Panes](#panes)); `initialConfig(creation)` for a pane created without a config (`creation.origin`: the pane it was made from); `icon` (`PaneIcon`: an existing SF Symbol, or a template image); `creationLabel` (default "New \<displayName>") = the creation button's tooltip and accessibility label; the ⌘P palette row shows `displayName` |
 | `CommandContribution` | `menu`: `.file` / `.edit` / `.view` / `.window`; `defaultChord`; `appliesTo` (own type: enabled, and its chord armed, only while one of your panes of that type is active); `isEnabled`, `isChecked`; `summary` (Settings ▸ Keyboard) |
-| `SettingsPageContribution` | AppKit `makeView`, or a SwiftUI builder (gets `settingsPageLayout()`: grouped `Form`, `SettingsPageContribution.width` = 600); made when its tab is first chosen (not as Settings opens), then kept while the window lives; the window fits its height, a longer page scrolls; hidden while the plugin is disabled |
+| `SettingsPageContribution` | AppKit `makeView`, or a SwiftUI builder (gets `settingsPageLayout()`: grouped `Form`, `SettingsPageContribution.width` = 600); made when its tab is first chosen (not as Settings opens), then kept while the window lives; the window fits its height, a longer page scrolls; hidden while the plugin is disabled. Core embeds the page in the app's theme ([THEMES.md](THEMES.md)): a SwiftUI page gets its text, secondary text, separators and tint from there (verified on macOS 27 only) — mark a row's description `.foregroundStyle(.secondary)`, and use hierarchical styles (`.secondary`, `.tint`), not `Color.secondary` or `Color.accentColor` |
 | `PaneSignalContribution` | [Signals](#signals) |
 | `ControlVerbContribution` | [Control verbs](#control-verbs-tabs-ctl) |
 | `ControlCapabilityContribution` | one per plugin with control-plane verbs, id = plugin id |
@@ -208,11 +209,10 @@ something that's gone): core keeps the saved pane verbatim, shown unavailable wi
 | `closeWarning` | one line, a bullet in core's "A pane is still busy" confirmation: say what's lost ("vim is still running") |
 | `focus()` | the pane became active in a key window; default makes `view` first responder |
 | `paneDidShow()` / `paneDidHide()` | became / stopped being its window's visible tab. Size to the view only while shown |
-| `paneAppearanceDidChange(theme:depth:)` | theme or depth changed, and once before the first show. `PaneTheme` = the tokens core paints chrome with (`bg`, `bgElevated`, `border`, `text`, `textDim`, `accent`, `onAccent`, `bellAlert`, `agent`, `hover`, `shadow`, `shadowStrength`, `isDark`, `surface(depth:)`). Chrome-like content uses it; content with its own palette ignores it |
+| `paneAppearanceDidChange(theme:depth:)` | theme or depth changed, and once before the first show. `PaneTheme` = the tokens core paints chrome with (`bg`, `bgElevated`, `border`, `text`, `textDim`, `accent`, `onAccent`, `bellAlert`, `agent`, `hover`, `shadow`, `shadowStrength`, `isDark`, `surface(depth:)`), the chosen theme's ([THEMES.md](THEMES.md)); a plugin never makes one, and holds `PaneTheme.placeholder` (AppKit's colors) until told. Chrome-like content uses it; content with its own palette ignores it |
 | `paneDidBecomeAttended()` / `paneDidLoseAttention()` | the user starts / stops looking: active pane of a focused window. Transitions only (losing also precedes `paneWillClose`). The place for a refresh on return |
 | `paneWillClose()` | the pane is going for good; not called at quit |
 | `headerActions` | `[PaneHeaderAction(id:label:icon:perform:)]`: buttons leftmost in the header's hover-revealed controls, drawn like core's (13pt icon box); `id` is the accessibility identifier. Asked with `view` |
-| `headerAccessory` | a view of yours after the actions, before core's controls. Asked with `view` |
 | `headerTitle` | a view of yours in the title's slot (after grip and signal icons, before the controls; what width is left, bar height); no title text, no Edit title. A press on one of its controls activates without dragging; on empty space it drags the pane. Adopt `PaneHeaderTitleView` for `PaneHeaderSlot` (bar content width, fractional origin offset). Asked with `view` |
 | `controlSummary`, `controlDescription()` | what `list-panes` / `pane-info` show ([Control verbs](#control-verbs-tabs-ctl)) |
 
@@ -225,8 +225,8 @@ is shared by all its tabs, and a pane can move to another window.
 |---|---|
 | `paneID`, `contentType`, `initialConfig` | |
 | `windowID` | live: follows the pane between windows |
-| `theme`, `depth` | current (dark / 0 until first told) |
-| `controller` | the pane that owns this one now (an agent's terminal, via `controlledBy`), or nil; live from creation to close. What your guards read |
+| `theme`, `depth` | current (`PaneTheme.placeholder` / 0 until first told) |
+| `controller` | the pane that controls this one now (usually an agent's terminal, via `controlledBy`), or nil; live: it ends when either pane closes or core disables control. What your guards read, on every decision |
 | `setTitle(_:)`, `configDidChange()` | |
 | `requestClose()` | asynchronous: happens after your call returns; the user is still asked if `closeWarning` is set |
 | `offer(_:_:)` | offer (or withdraw with nil) a core capability on every change: `pane.offer(.workingDirectory, url)`; readers never call you |
@@ -268,9 +268,9 @@ Declare kinds in `activate`, raise them on your own panes:
 
 ```swift
 let bell = PaneSignalContribution(
-    id: "terminal.bell", label: "Bell", icon: .symbol("bell"), color: .alert,
+    id: "terminal.bell", label: "Bell", icon: .image(TerminalGlyphs.bell), color: .alert,
     pulse: 3, marksTabs: true, lifetime: .untilSeen, requestsAttention: true,
-    setting: .init(title: "Bell indicator", detail: "Pulse a bell icon when a terminal rings its bell."))
+    setting: .init(title: "Bell indicator", detail: "Pulse a bell icon and bounce the Dock icon when a terminal rings its bell."))
 context.register(bell)
 pane.raise(bell.signal)  // later, from one of your panes
 ```
@@ -328,15 +328,15 @@ sees those failures.
   `harness.call`), `args` as given, `paneId` = its target (`.pane(ofTypes:)`), `timeout` = its deadline.
 - `command` (kebab-case CLI name) and `wireType` (lowerCamelCase wire `type`): both or neither. `wireType` is declared,
   never derived (several differ from the command), not one of core's, and unique across all plugins: a clash fails the
-  later plugin. A bare `command` two verbs share is refused at dispatch, naming both (qualified names still work).
+  later plugin. A `command` is not one of core's either (`ping`, `describe`, …: refused at registration); a bare
+  `command` two plugins' verbs share is refused at dispatch, naming both (qualified names still work).
 - `arguments` = the wire fields = the flags. Names lowerCamelCase; the flag is the name in kebab-case
   (`retryOnRedirect` → `--retry-on-redirect`) unless `flag:` (`timeoutMs` → `--timeout`). Not `type`, `paneId`,
   `targetPaneId` (nor `target` with a composition).
   - Kinds: `string`, `integer`, `number`, `bool`, `object`, `array`, `path`, `csv` (comma list → array of strings),
     `json` (parsed; any JSON unless `schema:` says more).
   - `enumValues`, `minimum`, `defaultValue` (flags only; never applied to a raw wire request), `placeholder` (the usage
-    line's `<css>`), `flagValue` (what a present `bool` flag sends: `--off` → `enabled: false`), `schema` (the wire
-    property's own JSON Schema).
+    line's `<css>`), `schema` (the wire property's own JSON Schema).
   - A bare flag arrives as `true`: accepted only for `bool` and `path` (a bare `--out` = "generate one", `true` on the
     wire); otherwise `--<flag> needs a value`, never sent as `1` or `"true"`.
   - `path`: relative values resolved against the caller's `cwd` (flags and raw wire requests alike); the handler always
@@ -345,7 +345,7 @@ sees those failures.
   → the required wire field `target`; core adds the seven flags (after `--pane`) and the schema.
 - `target`: `.ownedPane(ofTypes: [your types])` for a verb acting on a pane (core adds the required `--pane`); `.none`
   for one acting on the app or creating a pane. `ofTypes: nil` means any type (core's own verbs); `pane(as:)` still
-  returns only your panes. `.pane(ofTypes:)` is for internal verbs.
+  returns only your panes. `.pane(ofTypes:)` is for internal verbs: on a control-plane verb, registration refuses it.
 - `batchable: false`: refused inside `batch` — for a verb that grants a pane's ownership partway through
   (`create-browser-pane`).
 - `timeout` (default 30 s) / `timeoutFor(arguments)`: your budget. A verb that waits declares its longest wait +
@@ -361,6 +361,9 @@ sees those failures.
 - `invocation.targetPane`, `invocation.pane(as:)` (your controller), `invocation.cwd`.
 - Throw `ControlVerbError("…")` for a clean message; control-plane errors go out verbatim, no prefix (the skill quotes
   them).
+- `tabs-ctl` exits 1 for `ok: false`, and for an `ok: true` answer whose result holds a non-empty `errors` array or a
+  `steps` entry with `ok: false`: report per-part failures that way (form-input's `errors`), so a shell's `&&` means
+  every part landed.
 - Return a `JSONValue`; `.null` answers a bare `{ok: true}`. No bytes on the socket: screenshots, saved resources and
   big results are files, answered with their path.
 - Honor cancellation: on timeout the caller is answered anyway and your side effects stay. Never block the main actor.
@@ -368,9 +371,9 @@ sees those failures.
 **Panes an agent controls**
 
 - A pane your verb creates for the agent: `openPane(PaneRequest(…, controlledBy: invocation.callerPane))`, allowed only
-  while that verb is still running (else refused, no pane made). The ledger has it before `makePane`, so its first
+  while that verb is still running and its caller is an open pane (else refused, no pane made). The ledger has it before `makePane`, so its first
   load already knows (`PaneContext.controller`); core raises the `controlled` signal.
-- Only its owner may target it; anyone else gets `not the owner of this pane`. Ownership ends when the pane closes.
+- Only its owner may target it; anyone else gets `not the owner of this pane`. Ownership ends when either pane closes or core disables it.
 
 **What agents read**
 
@@ -382,17 +385,17 @@ sees those failures.
   `resultShape`s.
 - `controlSummary`: fields `list-panes` merges over `{paneId, type, title}`; nil (default) = not listed.
 - `controlDescription()`: `.fields` (merged over the same), `.error(message)` (the caller's error), or `.unsupported`
-  (default: `<type> panes cannot be inspected with getPaneInfo`). Both read the live controller, so they must work
+  (default: `<type> panes cannot be inspected with pane-info`). Both read the live controller, so they must work
   before the view exists.
 
 ## Settings
 
 ```swift
-struct GitTreeSettings: PluginSettingsValue { var showRemotes = true }  // init() = the defaults
-let settings = context.settings(GitTreeSettings.self)                   // one settings type per plugin
-settings.update { $0.showRemotes = false }                              // persisted
-let observation = settings.observe { value in … }                       // AppKit: after each change, not initially
-Toggle("Show remotes", isOn: settings.binding(\.showRemotes))           // SwiftUI observes settings.value
+struct GitTreeSettings: PluginSettingsValue { var autoRefreshOnFocus = false }   // init() = the defaults
+let settings = context.settings(GitTreeSettings.self)                            // one settings type per plugin
+settings.update { $0.autoRefreshOnFocus = true }                                 // persisted
+let observation = settings.observe { value in … }                                // AppKit: after each change, not initially
+Toggle("Auto-refresh on focus", isOn: settings.binding(\.autoRefreshOnFocus))    // SwiftUI observes settings.value
 ```
 
 - Stored under `plugins.<id>` in `settings.json`, merged over your encoded defaults: fields added later decode;
@@ -450,6 +453,9 @@ schemes:
       targets: [GitTreePluginTests, GitTreePluginUITests, GitTreePluginE2ETests]
 ```
 
+- **Helpers every tier needs** (`Plugins/<Name>/Tests/Shared`, optional): compiled into your unit bundle (it is part of
+  `Tests/`) and your UI and end-to-end bundles (their templates list it), e.g. Browser's `FixtureServer`. A helper one
+  tier needs stays in that tier's folder.
 - **What a user does** (`Plugins/<Name>/Tests/UI`, target `<Name>PluginUITests`, hosted in Tabs.app with every
   bundled plugin across real image boundaries; `make test-ui`): `UIDriver` (`Tests/AppSupport`): `create("git-tree")`,
   `click("<accessibility id>")`, `type(…)`, `press(KeyChord("r", [.command]))`, `choose("View", "Refresh")`; assert

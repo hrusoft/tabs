@@ -49,23 +49,23 @@ public extension Identifier where Tag == WindowTag {
 }
 
 /// Syntax rules shared by manifests and contributions.
-public enum IdentifierRules {
+package enum IdentifierRules {
     /// Plugin ids double as file names: lowercase letters, digits and dashes.
-    public static func isValidPluginID(_ id: String) -> Bool {
+    package static func isValidPluginID(_ id: String) -> Bool {
         id.wholeMatch(of: /[a-z][a-z0-9-]*/) != nil
     }
 
     /// Everything else: dot-separated segments of letters, digits and dashes,
     /// starting with a letter (`terminal`, `terminal.clearBuffer`).
-    public static func isValidQualifiedName(_ name: String) -> Bool {
+    package static func isValidQualifiedName(_ name: String) -> Bool {
         name.wholeMatch(of: /[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z0-9-]+)*/) != nil
     }
 
     /// Ids core keeps for itself; no plugin may use them.
-    public static let reservedPluginIDs: Set<String> = ["tabs", "core", "sdk"]
+    package static let reservedPluginIDs: Set<String> = ["tabs", "core", "sdk"]
 
     /// Whether `name` lives in `plugin`'s namespace: the id itself or `<id>.<rest>`.
-    public static func isNamespaced(_ name: String, under plugin: PluginID) -> Bool {
+    package static func isNamespaced(_ name: String, under plugin: PluginID) -> Bool {
         name == plugin.rawValue || name.hasPrefix(plugin.rawValue + ".")
     }
 }

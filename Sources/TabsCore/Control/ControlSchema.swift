@@ -4,8 +4,9 @@ import TabsPluginSDK
 /// The wire request's JSON Schema, and the small evaluator that checks a
 /// request against it, over exactly the subset the control protocol needs —
 /// `type`, `properties`/`required`/`additionalProperties`, `enum`/`const`/
-/// `minimum`, a shallow `items`, and `oneOf`/`anyOf`. Deliberately no library:
-/// adding a feature here should mean the protocol needs it.
+/// `minimum`, `items`, and `oneOf`/`anyOf`, each nested to any depth.
+/// Deliberately no library: adding a feature here should mean the protocol
+/// needs it.
 ///
 /// Each verb's schema is derived from its `arguments`
 /// (`ControlSchema.wire(for:)`), so the two cannot drift, and `describe`
@@ -50,9 +51,10 @@ package enum ControlSchema {
         case .bool: schema = ["type": "boolean"]
         case .object: schema = ["type": "object"]
         case .array: schema = ["type": "array"]
-        // A path's wire value is a string or `true` ("generate one"), and a
-        // json value is anything: no type check, only that the property exists.
-        case .path, .json: schema = [:]
+        // A path's wire value is a string or `true` ("generate one").
+        case .path: schema = ["anyOf": [["type": "string"], ["const": true]]]
+        // A json value is anything: no type check, only that the property exists.
+        case .json: schema = [:]
         case .csv: schema = ["type": "array", "items": ["type": "string"]]
         }
         if let minimum = argument.minimum, argument.kind == .number || argument.kind == .integer {

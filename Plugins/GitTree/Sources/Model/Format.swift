@@ -37,3 +37,38 @@ private func parseISODate(_ text: String) -> Date? {
 func baseName(_ path: String) -> String {
     path.split(separator: "/").last.map(String.init) ?? path
 }
+
+/// A rename as git prints one in `--numstat` and `--stat` (its
+/// `pprint_rename`): the parts both paths share kept outside braces, a
+/// shared prefix up to a `/` and a shared suffix from one, so
+/// `src/old/a.txt` → `src/new/a.txt` reads `src/{old => new}/a.txt`; with
+/// nothing shared, `a => b`.
+func renameLabel(_ old: String, _ new: String) -> String {
+    let a = Array(old.utf8)
+    let b = Array(new.utf8)
+    let slash = UInt8(ascii: "/")
+    var prefix = 0
+    var index = 0
+    while index < a.count, index < b.count, a[index] == b[index] {
+        if a[index] == slash { prefix = index + 1 }
+        index += 1
+    }
+    // From the ends (each string's terminator counts, as in git's C), back
+    // at most into the prefix's own slash.
+    func byte(_ bytes: [UInt8], _ at: Int) -> UInt8 { at < bytes.count ? bytes[at] : 0 }
+    let floor = prefix - (prefix > 0 ? 1 : 0)
+    var suffix = 0
+    var endA = a.count
+    var endB = b.count
+    while floor <= endA, floor <= endB, byte(a, endA) == byte(b, endB) {
+        if byte(a, endA) == slash { suffix = a.count - endA }
+        endA -= 1
+        endB -= 1
+    }
+    let middleA = max(a.count - prefix - suffix, 0)
+    let middleB = max(b.count - prefix - suffix, 0)
+    func text(_ bytes: ArraySlice<UInt8>) -> String { String(decoding: bytes, as: UTF8.self) }
+    let middle = text(a[prefix..<prefix + middleA]) + " => " + text(b[prefix..<prefix + middleB])
+    guard prefix + suffix > 0 else { return middle }
+    return text(a[..<prefix]) + "{" + middle + "}" + text(a[(a.count - suffix)...])
+}

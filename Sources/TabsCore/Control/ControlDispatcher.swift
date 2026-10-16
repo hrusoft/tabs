@@ -3,8 +3,8 @@ import TabsPluginSDK
 import os
 
 /// Routes external-control requests to core's verbs and to plugins'
-/// `ControlVerbContribution`s. Transport-agnostic: `--control` feeds it today,
-/// a socket server can tomorrow.
+/// `ControlVerbContribution`s. Transport-agnostic: `Tabs --control` and the
+/// control socket (`ControlServer`) both feed it.
 ///
 /// Request:  `{"command": "clock.now", "args": {...}, "paneId": "...", "cwd": "/abs/path"}`
 /// Response: `{"ok": true, "result": ...}` or `{"ok": false, "error": "..."}`
@@ -17,7 +17,7 @@ import os
 /// A verb with a `wireType` belongs to the **control plane** (`ControlPlane.swift`):
 /// its envelope is CLI flags, turned into a wire request that goes through
 /// `dispatch(wire:)` — caller, ownership, schema, target, budget — the same way
-/// a `batch` step does. Every other verb is handled here as it always was.
+/// a `batch` step does. Every other verb is an internal one, handled here.
 @MainActor
 package final class ControlDispatcher {
     package struct Envelope: Sendable {
@@ -38,6 +38,8 @@ package final class ControlDispatcher {
     let panes: PaneRuntime
     let plugins: PluginHost
     private var coreVerbs: [String: ControlVerbContribution] = [:]
+    /// Core's verbs' names, in the order they were added.
+    private var coreOrder: [String] = []
     /// How long past its budget a control-plane verb may take before it is
     /// answered `timed out`: `ControlBudget.headroom` (tests shorten it).
     package var headroom = ControlBudget.headroom
@@ -53,6 +55,7 @@ package final class ControlDispatcher {
                 .array(self.verbs().map { Self.describe($0.verb, owner: $0.owner) })
             })
         installControlPlane()
+        registry.addValidator(for: .controlVerbs) { [weak self] verb, _, _ in self?.clashWithCore(verb) }
     }
 
     /// Core's own verbs meet the same rules as plugins'.
@@ -61,6 +64,27 @@ package final class ControlDispatcher {
         precondition(CoreExtensionPoints.problem(with: verb) == nil, "\(verb.name): \(CoreExtensionPoints.problem(with: verb) ?? "")")
         precondition(coreVerbs[verb.name] == nil, "\(verb.name) added twice")
         coreVerbs[verb.name] = verb
+        coreOrder.append(verb.name)
+    }
+
+    /// Core's control-plane verbs, in the order they were added: the order
+    /// `capabilities` and `describe` list them.
+    var coreCommands: [ControlVerbContribution] {
+        coreOrder.compactMap { coreVerbs[$0] }.filter { $0.command != nil }
+    }
+
+    /// A plugin's verb may take none of core's wire types or commands: a wire
+    /// type names exactly one verb, and a command a plugin shared with core
+    /// would be ambiguous to every agent.
+    private func clashWithCore(_ verb: ControlVerbContribution) -> String? {
+        let core = coreCommands
+        if let wireType = verb.wireType, core.contains(where: { $0.wireType == wireType }) {
+            return "wireType \"\(wireType)\" is one of core's"
+        }
+        if let command = verb.command, core.contains(where: { $0.command == command }) {
+            return "command \"\(command)\" is one of core's"
+        }
+        return nil
     }
 
     package func verbs() -> [(verb: ControlVerbContribution, owner: PluginID)] {

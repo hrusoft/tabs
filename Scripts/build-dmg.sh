@@ -15,7 +15,8 @@
 # release. Scripts/release.sh runs it before it publishes anything; run it by
 # hand for a dry run.
 #
-# Needs macOS with Xcode 27 and mise (the Makefile runs XcodeGen through it).
+# Needs macOS with Xcode 27 and mise (the Makefile runs XcodeGen through it,
+# make-dmg.sh dmgbuild).
 #
 set -euo pipefail
 

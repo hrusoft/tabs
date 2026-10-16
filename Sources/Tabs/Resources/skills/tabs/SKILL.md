@@ -1,6 +1,6 @@
 ---
 name: tabs
-description: Drive panes in the Tabs terminal app from a shell running inside one of its terminal panes — today, browser panes: open one, screenshot a page, read its text or structure, click and type, capture console output, run JavaScript. Discover the full surface with the tool itself. Only relevant when the user is working inside Tabs — do not reach for this in any other terminal.
+description: "Drive panes in the Tabs terminal app from a shell running inside one of its terminal panes — today, browser panes: open one, screenshot a page, read its text or structure, click and type, capture console output, run JavaScript. Discover the full surface with the tool itself. Only relevant when the user is working inside Tabs — do not reach for this in any other terminal."
 # allowed-tools is a real optional field in the open Agent Skills spec
 # (agentskills.io/specification: "Experimental. Support for this field may
 # vary between agent implementations") — not a Claude Code-only extension.
@@ -42,7 +42,7 @@ tabs-ctl capabilities
 tabs-ctl describe --capability <name>
 ```
 
-`capabilities` lists every capability this app has right now — `core` (the commands below) plus one per content type (`browser`, and others as they add their own) — each with whether it's enabled and a one-line index of its commands. `describe` gives one capability's full reference: every command's flags, its exact wire shape (JSON Schema — what a `batch` step for it looks like), its result shape, and that capability's **guide**, the prose that explains *when* and *how* to use its commands well, not just what they accept.
+`capabilities` lists every capability this app has right now — `core` (the commands below) plus one per plugin that adds commands (`browser`, and others as they add their own) — each with whether it's enabled and a one-line index of its commands. `describe` gives one capability's full reference: every command's flags, its exact wire shape (JSON Schema — what a `batch` step for it looks like), its result shape, and that capability's **guide**, the prose that explains *when* and *how* to use its commands well, not just what they accept.
 
 Both need a live socket, same as everything else here — nothing in this skill works offline, including discovery.
 
@@ -57,10 +57,10 @@ Trust `describe`'s output over any prose, this file included, when the two disag
 What ownership does **not** do is keep the pane alive: the user can close it by hand at any time, and nothing tells you when they do. Every verb aimed at it then fails with
 
 ```
-target pane no longer exists — it was closed; listOwnedPanes shows the panes still open
+target pane no longer exists — it was closed; list-panes shows the panes still open
 ```
 
-Treat that as ordinary, not as an error to retry or work around — it usually means the user closed the pane deliberately. Run `list-panes` to see what's still open, and create a fresh pane if you still need one.
+Treat that as ordinary, not as an error to retry or work around — it usually means the user closed the pane deliberately. Create a fresh pane if you still need one.
 
 You get **the same message** for a pane you closed yourself with `close-pane`, which is the other way an id stops working. It is not `not the owner of this pane` — that message is reserved for an id that was never yours, and reading it after your own `close-pane` would send you looking for a permissions problem that doesn't exist.
 

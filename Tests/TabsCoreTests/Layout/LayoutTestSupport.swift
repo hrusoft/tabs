@@ -16,8 +16,8 @@ func createLeaf(
             titleIsManual: titleIsManual))
 }
 
-func createTab(_ title: String, _ content: LayoutNode, id: NodeID = .make()) -> Tab {
-    Tab(id: id, title: title, content: content)
+func createTab(_ title: String, _ content: LayoutNode, id: NodeID = .make(), titleIsManual: Bool = false) -> Tab {
+    Tab(id: id, title: title, titleIsManual: titleIsManual, content: content)
 }
 
 /// A tab group; the first tab is active unless `active` names another

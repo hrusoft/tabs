@@ -45,7 +45,7 @@ extension InputVerbs {
         composition: .elementTarget
     ) { invocation in
         let pane = try VerbSupport.pane(invocation)
-        let target = try elementTarget(invocation["target"])
+        let target = try InputTarget.parse(invocation["target"]).orThrow()
         let text = invocation["text"]?.stringValue ?? ""
         if let untypeable = untypeableCharError(text) { throw ControlVerbError(untypeable) }
         let input = PageInput(page: pane.page)
@@ -111,6 +111,8 @@ extension InputVerbs {
                     ? "pass only one of key or command — a keystroke and an editing command are different things"
                     : "key needs one of key (a keystroke) or command (\(EditingCommand.allCases.map(\.rawValue).joined(separator: ", ")))")
         }
+        // Refused before anything reaches the page: a key the keyboard doesn't have would send nothing.
+        if let keyName, named, !canSendKeystroke(keyName) { throw ControlVerbError(unknownKeyError(keyName)) }
         let input = PageInput(page: pane.page)
         return try await mounted {
             try await input.withHostFocusRestored {
@@ -122,6 +124,11 @@ extension InputVerbs {
                 return .object(["note": .string(note)])
             }
         }
+    }
+
+    /// Why `key` refuses a key it can't send (`canSendKeystroke`), and every key it takes.
+    static func unknownKeyError(_ key: String) -> String {
+        "unknown key \(jsonQuoted(key)) — one of \(USKeyboard.keyNames) (names are case-sensitive), or a single character such as a, A, ! or é"
     }
 
     /// The modifiers of a request (the schema admits only the four).
@@ -139,11 +146,7 @@ extension InputVerbs {
                 "unknown command \(jsonQuoted(wire?.stringValue ?? "")) — one of \(EditingCommand.allCases.map(\.rawValue).joined(separator: ", "))"
             )
         }
-        let outcome: [String: JSONValue]
-        switch await VerbSupport.evalOutcomeInGuest(pane.page, editingCommandScript(command.execName)) {
-        case .failure(let failure): throw ControlVerbError(failure.message)
-        case .success(let value): outcome = value
-        }
+        let outcome = try await VerbSupport.evalOutcomeInGuest(pane.page, editingCommandScript(command.execName)).orThrow()
         let element = InputTarget.description(of: outcome["element"])
         guard outcome["applied"] == true else {
             let place = element.map { " on \(Targeting.describeForError($0))" } ?? " (nothing is focused)"

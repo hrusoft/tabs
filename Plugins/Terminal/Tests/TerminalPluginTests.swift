@@ -132,7 +132,7 @@ final class TerminalTestBed {
     let plugin: TerminalPlugin
 
     init(alongside: [PluginCandidate] = [], testFile: String = #filePath) throws {
-        let made = Box<TerminalPlugin?>(nil)
+        let made = Ref<TerminalPlugin?>(nil)
         harness = try PluginHarness(alongside: alongside, testFile: testFile) {
             let plugin = TerminalPlugin()
             made.value = plugin
@@ -181,47 +181,6 @@ final class TerminalTestBed {
         harness.engine.close(terminal.id)
         if let pid { _ = await eventually(sourceLocation: sourceLocation) { !isAlive(pid) } }
     }
-}
-
-@MainActor
-final class Box<Value> {
-    var value: Value
-    init(_ value: Value) { self.value = value }
-}
-
-struct TestFailure: Error, CustomStringConvertible {
-    let description: String
-    init(_ description: String) { self.description = description }
-}
-
-/// Polls `condition` until it holds or `timeout` passes (generous: it returns
-/// as soon as it holds). A wait that held only after more than `slowWait` is
-/// recorded as a warning, which fails nothing: a stalled shell or a starved
-/// main actor shows up long before it costs a timeout.
-@MainActor
-func eventually(timeout: Duration = .seconds(10), sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async -> Bool
-{
-    let clock = ContinuousClock()
-    let start = clock.now
-    var held = condition()
-    while !held, clock.now < start + timeout {
-        try? await Task.sleep(for: .milliseconds(20))
-        held = condition()
-    }
-    let waited = start.duration(to: clock.now)
-    if held, waited > slowWait {
-        Issue.record("slow: held after \(seconds(waited)) of its \(seconds(timeout))", severity: .warning, sourceLocation: sourceLocation)
-    }
-    return held
-}
-
-/// How long a wait may take before it's reported as slow.
-let slowWait: Duration = .seconds(3)
-
-/// A duration as `1.2 s`.
-func seconds(_ duration: Duration) -> String {
-    let (whole, fraction) = duration.components
-    return String(format: "%.1f s", Double(whole) + Double(fraction) / 1e18)
 }
 
 /// Whether a process exists (a zombie counts until reaped).

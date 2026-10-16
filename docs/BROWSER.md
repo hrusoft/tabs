@@ -45,7 +45,7 @@ Paths under `Plugins/Browser/Sources/` unless rooted.
 | `Model/PageTypes.swift` | Element targets, `KeyModifier`, `EditingCommand` |
 | `Page/BrowserPage.swift` | The `WKWebView` (`BrowserWebView`), delegates + KVO, committed URL, status, load failure, console, history, the starting-blank rule, script evaluation, viewport, snapshot |
 | `Page/LoopbackExemption.swift` | The content rule list that keeps an upgraded loopback request on http (C-10): rules, grant, compiled once per plugin into its cache |
-| `Page/PageEvents.swift` | Page events (start, stop, navigate, in-page navigate, fail, title, destroyed) for the header and the waits |
+| `Page/PageEvents.swift` | Page events (start, stop, navigate, in-page navigate, fail, title, destroyed) for the load waits, script calls, `PageWait` and `wait-for`'s closed-pane watch; the header follows `BrowserPage.onChange`/`onTitle` instead |
 | `Page/ConsoleCapture.swift` | Document-start console wrapper + error listener; `InputAcknowledgement` |
 | `Page/ErrorPage.swift`, `Page/LoadErrors.swift` | `tabs-error:` error document; `NSError` → `ERR_*` (Chromium's net error names, the vocabulary every answer uses) |
 | `Page/PageValues.swift` | `DocumentStatus`, `ConsoleEntry`, `PageScriptError`, `HTTPStatusText`, `fallbackTitle` |
@@ -67,14 +67,45 @@ Paths under `Plugins/Browser/Sources/` unless rooted.
 | **Core** `Skills/SkillInstaller.swift`, `Sources/Tabs/UI/AiSettingsPage.swift`; `project.yml` bundles `Sources/Tabs/Resources/skills` | Skill install per agent |
 | **Core** `PaneRuntime.childEnvironment` | `TABS_PANE_ID`, `TABS_CONTROL_SOCKET` |
 
+## Testing
+
+Browser tests cover control of active pages: pages someone can see. A page in a window that is
+never shown, or in none, is one nobody can see, and WebKit runs it at its background pace
+(Implementation notes): its timers throttled, its process readied for suspension between script
+calls, a history step left at background priority. That is the pace of a background tab, not
+what the tests are about, so:
+
+- **Unit tier.** `PageBed` and `InputVerbBed` put their page in an `OnScreenWindow`, a window
+  that is never shown but tells AppKit, and so WebKit, it is on screen and unoccluded; the
+  harness (`PluginHarness.browser`) puts each browser pane its layout shows in one. A pane the
+  layout doesn't show (a background tab) is in no window, as in the app.
+- **UI tier.** The app's workspace windows, never shown in tests, count as seen while
+  `TABS_TEST_WINDOWS_SEEN=1` (Debug builds only; docs/DEVELOPMENT.md), which Browser's UI test
+  bundle sets as it loads (`Plugins/Browser/Tests/UI/WindowsSeen.c`).
+- **End-to-end tier.** The hidden app (`TABS_E2E_HIDDEN=1`) never shows its windows, so its
+  pages are hidden to WebKit, and stay so: its one Browser test
+  (`BrowserControlEndToEndTests/aPageTextBiggerThanThePipeBufferComesBackWhole`) is a load and a
+  read, each holding WebKit's activity for the page while it is in flight, so it never relies on
+  a background page running.
+- **The exceptions** are tests whose subject is revealing or refusing a background pane: C-7's
+  hidden halves (`BrowserControlPaneTests/paneInfoRefusesToInventAViewportForAPaneThatIsNotShown`,
+  `BrowserPaneTests/paneInfoReportsTheLiveFieldsAndRefusesToInventAViewport`,
+  `BrowserSnapshotTests/aPageThatIsNotOnScreenHasNoViewportAndNoSnapshot`), `activate-pane`
+  (`BrowserControlPaneTests/activatePaneBringsABackgroundedPaneToTheFrontWithoutStealingTheKeyboard`),
+  the UI tier's reveal and focus cases (`UITests.BrowserControlUITests/screenshotRevealsABackgroundedPaneItselfAndSaysSoWithActivatedTrue`,
+  `BrowserInputUITests`' background tab), and the refusals of a page with no window
+  (`BrowserInputVerbTests/inputVerbsRefuseAPaneThatIsNotMounted`,
+  `BrowserInputTests/aPageThatIsNotInAWindowRefusesInput`). No test has a background page's own
+  running as its subject: E-5 has none.
+
 ## Cases
 
 Tests: `Plugins/Browser/Tests` = unhosted, real core; `UITests.*` = the real shell, windows
-never shown; `*EndToEndTests` = the running app driven by its own bundled `tabs-ctl`, only for
-what the other tiers can't show: the relay's own reads (an answer on the line, one past a pipe
-buffer) and exit code, and the built bundle wired into the launched app.
-Pages come from a loopback `FixtureServer` (`Tests/Support`). A test waits on what it can see
-(a wait arming in the page, a gated response, a decided navigation), not on a sleep.
+never shown (but counted as seen: Testing); `*EndToEndTests` = the running app driven by its own
+bundled `tabs-ctl`, only for what the other tiers can't show: the relay's own reads (an answer on
+the line, one past a pipe buffer) and exit code, and the built bundle wired into the launched app.
+Pages come from a loopback `FixtureServer` (`Plugins/Browser/Tests/Shared`). A test waits on what
+it can see (a wait arming in the page, a gated response, a decided navigation), not on a sleep.
 
 ### Creating and restoring
 
@@ -120,6 +151,7 @@ Pages come from a loopback `FixtureServer` (`Tests/Support`). A test waits on wh
 | C-8 | `list-panes` summary: `{paneId, type, title, url}`; `url` from the config (works unmounted) | `BrowserControlPaneTests/listPanesReportsTheUrlThePaneWouldBeSavedWith` |
 | C-9 | The page's own history (`canGoBack`/`canGoForward`) drives the buttons and the verbs | `BrowserNavigationTests/canGoBackAndForwardAreThePagesOwnHistory` |
 | C-10 | `upgrade-insecure-requests` never upgrades a loopback URL (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`): a dev server on `http://localhost` that sends it loads its scripts, styles, fetches and same-origin links over http. WebKit upgrades them (the page hangs half-loaded, a link fails with `ERR_SSL_PROTOCOL_ERROR`); `LoopbackExemption` redirects them back, only while the document is an `http` loopback one whose `Content-Security-Policy` header has the directive, as its history entry had it on a step back. An https loopback URL the app loads stays https. Limits: Notes | `BrowserLoopbackExemptionTests` |
+| C-11 | A committed document is recorded at its own address (`url`, `config.url`, the navigation event), also when the next load or a Back/Forward step was asked for before its commit reached the app: the address is its history entry's, which WebKit sets before it reports the commit, not the web view's `url`, which already shows the one asked for | `BrowserNavigationTests/aCommitIsRecordedAtItsOwnAddressWhenTheNextIsAlreadyAskedFor` |
 
 ### Input, focus and activation
 
@@ -144,7 +176,7 @@ Pages come from a loopback `FixtureServer` (`Tests/Support`). A test waits on wh
 | E-2 | Splitting or closing a sibling never remounts an existing browser pane | `UITests.BrowserUITests/aMovedPaneKeepsItsPage` |
 | E-3 | A pane drag over a browser pane previews and drops there; the page never eats a drag begun elsewhere | `UITests.BrowserUITests/aPressOnTheTitleSegmentDragsThePaneLikeTheRestOfTheBar` (docks onto a browser pane) |
 | E-4 | Verbs follow the pane across windows: an agent keeps driving and listing it | `BrowserControlPaneTests/anAgentKeepsDrivingAndListingItsPaneAfterTheUserDragsThatPaneIntoAnotherWindow` |
-| E-5 | A hidden pane (background tab) keeps its page running; revealed, never activated, to be captured | `BrowserControlPaneTests/aBackgroundedPaneKeepsItsPageRunningAndAnswersTheReadVerbs` |
+| E-5 | A hidden pane (background tab) keeps its page running, at WebKit's background pace (its repeating timers about once a second; on a busy machine its own timers may stay held between verbs: Implementation notes); revealed, never activated, to be captured | — |
 | E-6 | `pageInstance` changes only when the page is re-created (relaunch); a move doesn't change it | `BrowserNavigationTests/pageInstanceIsStableForAsLongAsThePageLives` |
 
 ### Popups and URL policy
@@ -173,30 +205,31 @@ Pages come from a loopback `FixtureServer` (`Tests/Support`). A test waits on wh
 
 | Id | Case | Test |
 |---|---|---|
-| H-1 | A request is `{command, args, paneId, cwd}`; `paneId` is the **caller's** pane (`TABS_PANE_ID`), never a wire claim; a caller that isn't an attached pane (or sends no `paneId`) → `not running inside a Tabs pane`, before anything else. Any attached pane of any type passes (`ControlPlane.dispatch`: `panes.contentType(of:) != nil`): an exited terminal's, a browser's, a git tree's; TERMINAL.md T-6 | `ControlPlaneTests/aCallerWithNoLivePaneIsRefusedBeforeAnythingElse`, `UITests.AiSettings/theBundledTabsCtlRefusesToRunOutsideATabsPane` |
-| H-2 | Ownership: a pane a caller created is the caller pane's for the app run (never persisted or expired, survives the user navigating it); a verb naming `targetPaneId` acts only on an owned pane, else `not the owner of this pane`; checked once in core for every verb | `ControlPlaneTests/anAgentCreatesAPaneOwnsItAndDrivesItButNoOther`, `ControlPlaneTests/ownershipOutlivesTheUserNavigatingThePaneByHand` |
-| H-3 | A pane closed (owner's `close-pane` or the user) answers its owner `target pane no longer exists — it was closed; listOwnedPanes shows the panes still open`; everyone else the uniform `not the owner of this pane` (no liveness leak); 100 tombstones, oldest out | `ControlPlaneTests/aPaneItsOwnerClosedIsGoneToThatOwnerAndUniformlyRefusedToEveryoneElse`, `PaneOwnershipTests/aHundredClosedPanesAreRememberedAndTheOldestGoFirst` |
-| H-4 | Owned the instant the pane exists (`PaneRequest.controlledBy`), allowed only for the caller of the plugin's own running verb, never outside one | `ControlPlaneTests/aPaneIsOwnedFromTheInstantItsPluginBuildsIt`, `ControlPlaneTests/aPluginMayNameOnlyTheCallerOfItsOwnRunningVerbAsAControllerAndNeverOutsideOne` |
+| H-1 | A request is `{command, args, paneId, cwd}`; `paneId` is the **caller's** pane (`TABS_PANE_ID`), never a wire claim; a caller that isn't an attached pane (or sends no `paneId`) → `not running inside a Tabs pane`, whatever the verb (`dispatch(wire:)`: once the type names a verb, before ownership, schema and handler). Not the first answer a client with no pane can get: a flag error from building the request (`ControlEnvelope.build`) comes back before it, and internal verbs (no `wireType`: `tabs.verbs`, `tabs.info`, …) check no caller. Any attached pane of any type passes (`ControlPlane.dispatch`: `panes.contentType(of:) != nil`): an exited terminal's, a browser's, a git tree's; TERMINAL.md T-6 | `ControlPlaneTests/aCallerWithNoLivePaneIsRefusedBeforeAnythingElse`, `UITests.AiSettings/theBundledTabsCtlRefusesToRunOutsideATabsPane` |
+| H-2 | Ownership: a pane a caller created is the caller pane's until one of the two closes or control is disabled (H-17): never persisted or expired, survives the user navigating it; a verb naming `targetPaneId` acts only on an owned pane, else `not the owner of this pane`; checked once in core for every verb | `ControlPlaneTests/anAgentCreatesAPaneOwnsItAndDrivesItButNoOther`, `ControlPlaneTests/ownershipOutlivesTheUserNavigatingThePaneByHand` |
+| H-3 | A pane closed (owner's `close-pane` or the user) answers its owner `target pane no longer exists — it was closed; list-panes shows the panes still open`; everyone else the uniform `not the owner of this pane` (no liveness leak); 100 tombstones, oldest out | `ControlPlaneTests/aPaneItsOwnerClosedIsGoneToThatOwnerAndUniformlyRefusedToEveryoneElse`, `PaneOwnershipTests/aHundredClosedPanesAreRememberedAndTheOldestGoFirst` |
+| H-4 | Owned the instant the pane exists (`PaneRequest.controlledBy`), allowed only for the caller of the plugin's own running verb, never outside one, and only while that caller is an open pane (no pane is made otherwise) | `ControlPlaneTests/aPaneIsOwnedFromTheInstantItsPluginBuildsIt`, `ControlPlaneTests/aPluginMayNameOnlyTheCallerOfItsOwnRunningVerbAsAControllerAndNeverOutsideOne`, `ControlPlaneTests/aPaneIsNotOpenedUnderAControllerThatIsNotOpen` |
 | H-5 | Owned panes carry core's `controlled` signal: robot icon, pulsing `agent` outline (4.5 s), tooltip "Controlled by another pane", until withdrawn, never on the pane's tab; Settings ▸ Panes & Tabs "Control indicator" | `ControlPlaneTests/anOwnedPaneCarriesTheControlledSignalAndItNeverReachesItsTab`, `UITests.ControlledPanes/anOwnedPaneShowsTheRobotAndItsOutlineButNeverOnATab` |
-| H-6 | The ledger resets between tests (`tabs.test.reset`) | `ControlPlaneTests/theLedgerResets` |
-| H-7 | Flags → wire request: unknown flag refused naming the valid ones; `--pane` → `targetPaneId`; enum, number (`minimum`), boolean (bare = `true`; an inverting flag sends its declared value), csv (split on commas), json (parse error reported), path (bare = `true`, "generate one"; a value resolved against the caller's `cwd`); a bare flag needing a value refused, never sent as `1`/`"true"`; a missing required flag named. A bool `--flag=false` still sends `true` | `ControlEnvelopeTests` |
+| H-6 | No ledger outlives a test reset: `tabs.test.reset` builds a new `CoreRuntime`, and with it an empty ledger (no pairs, no tombstones) | — |
+| H-7 | Flags → wire request: unknown flag refused naming the valid ones; `--pane` → `targetPaneId`; enum, number (`minimum`; a blank value is not a number, never 0), boolean (a present flag sends `true`), csv (split on commas), json (parse error reported), path (bare = `true`, "generate one"; a value resolved against the caller's `cwd`); a bare flag needing a value refused, never sent as `1`/`"true"`; a missing required flag named. A bool `--flag=false` still sends `true` | `ControlEnvelopeTests` |
 | H-8 | Element target from flags: `--ref`, or `--x` + `--y`, or `--role`/`--name`/`--selector` (+ `--nth`, semantic only): exactly one form; both axes, numeric; `--nth` a non-negative integer; one composed `target` (`ControlFlagComposition.elementTarget`), no stray top-level fields | `ControlEnvelopeTests`, `BrowserInputVerbTests/everyElementTargetFormFromTheFlagsReachesTheHandler` |
-| H-9 | The wire request is validated against the verb's JSON Schema (`additionalProperties: false`; `paneId` stripped first), the same check for a `batch` step and a flag-built request | `ControlSchemaTests`, `ControlPlaneTests/aWireRequestIsValidatedAgainstTheVerbsOwnSchema` |
+| H-9 | The wire request is validated against the verb's JSON Schema (`additionalProperties: false`; `paneId` stripped first), the same check for a `batch` step and a flag-built request; a `path` field is a string or `true`, nothing else; a `null` field counts as absent, as for a flag (a `null` `targetPaneId` is no target) | `ControlSchemaTests`, `ControlPlaneTests/aWireRequestIsValidatedAgainstTheVerbsOwnSchema`, `ControlPlaneTests/aPathOnTheWireIsAStringOrTrue`, `ControlPlaneTests/aNullFieldOnTheWireIsAbsent` |
 | H-10 | Budgets: quick 5 s, read 15 s, 30 s (`execute-js`, `save-resource`); derived from the wait outlived: load 15 s + 5 s headroom (`reload`, history steps), `create-browser-pane` 5 s mount + 15 s load + headroom, `navigate` 2 × 15 s + headroom, `wait-for` clamped timeout + headroom per request (`timeoutFor`), `assert` 1 s + headroom, `batch` none. Deadline = budget + headroom; then `<type> timed out after <budget>ms` and the handler is cancelled | `ControlBudgetTests`, `BrowserNavigationVerbTests/theVerbsBudgetsAreTheseTiers` |
 | H-11 | Core verbs: `ping`; `activate-pane` (reveal, never activate); `close-pane` (ownership released only once really gone; a declined close → `the pane was not closed`); `list-panes` (panes this caller created, every window); `pane-info` (identity + the type's live fields; gone → pane-gone error; a type that can't be inspected says so) | `CoreControlVerbTests` |
 | H-12 | `batch --requests <json array> [--continue-on-error]`: in order, each step as the batch's caller (`paneId` overwritten); stops at the first failure (`stoppedAt`, later steps `{skipped: true}`), `--continue-on-error` runs all; ≤ 50; no nesting; an unbatchable verb refused by name (`createBrowserPane cannot be used inside a batch`); no deadline of its own; `ok: true` whenever it ran | `ControlBatchTests`, `BrowserNavigationVerbTests/createBrowserPaneCannotBeUsedInsideABatch` |
 | H-13 | `capabilities`: `core`, then each plugin capability with `enabled` and one line per command (a disabled plugin's listed disabled; its verbs still answer); `describe --capability <id>`: limits, guide, every command's flags, wire schema, result shape; unknown capability refused naming `capabilities` | `CoreControlVerbTests`, `BrowserInputVerbTests/describeStatesTheInputVerbsFlags`, `BrowserReadVerbTests/everyDeclaredVerbIsRegisteredAndListedByCapabilities` |
 | H-14 | Socket per boot (`control-<pid>.sock` in the data directory); one request per line, answered in order, one line each; a request split mid-character decodes intact; an unknown command refused cleanly; two instances on one data directory keep apart; `tabs-ctl` drains a response bigger than the pipe buffer | `ControlServerTests`, `ControlPlaneEndToEndTests/tabsCtlGetsItsAnswerOnTheLineIntactAndExitsNonZeroForAFailedStep`, `BrowserControlEndToEndTests/aPageTextBiggerThanThePipeBufferComesBackWhole` |
 | H-15 | A malformed envelope is refused with a validation message before dispatch | `ControlPlaneTests/aMalformedEnvelopeIsRefusedWithAValidationMessageBeforeAnythingIsDispatched` |
-| H-16 | Ring log (console): seq from 1, oldest evicted, seq stable across eviction, entries strictly after `sinceSeq`, no rewind on clear, removal by seq, `compilePattern` (regex; a bad one refused, never matched literally). Plugin-private | `RingLogTests` |
+| H-16 | Ring log (console): seq from 1, oldest evicted, seq stable across eviction, entries strictly after `sinceSeq`, no rewind on clear, `compilePattern` (regex; a bad one refused, never matched literally). Plugin-private | `RingLogTests` |
+| H-17 | One registry (`PaneOwnership`) for control, both ends: `enableControl(of:from:)` (a pane controls any number of panes and is controlled by at most one, never itself; both open — a pane being made only through `openPane`'s `enableControl(ofNewPane:from:)`; never taken over: a second controller is refused until the first is disabled; control carries no further, so two panes may control each other), `disableControl(of:from:)` (no tombstone: the former controller gets `not the owner of this pane`), `pairs`; closing a pane (`detach` → `paneClosed`) ends every pair it is in, either side — a closed controller's panes stay open and are nobody's (cue down, `PaneContext.controller` nil); every change goes to every observer in the order the changes happened, one an observer makes included; control is checked as each request arrives, so a request already running when control ends finishes | `PaneOwnershipTests`, `ControlPlaneTests/closingTheControllerFreesItsPanesAndTakesTheirCueDown`, `ControlPlaneTests/controlOfAPaneThatIsNotOpenIsRefused`, `ControlPlaneTests/disablingControlTakesTheCueDownAndRefusesTheFormerControllerLikeAnyoneElse`, `ControlPlaneTests/controlIsNeverTakenOverOnlyHandedOverOnceDisabled`, `UITests.ControlledPanes/closingTheControllerTakesTheRobotAndOutlineOffThePaneItControlled` |
 
 ### `tabs-ctl` and the skill
 
 | Id | Case | Test |
 |---|---|---|
 | I-1 | `SKILL.md` + `scripts/tabs-ctl` = `Sources/Tabs/Resources/skills/tabs`, bundled unchanged as `Contents/Resources/skills/tabs` (`Scripts/verify-app.sh` check 10); the stub runs `Contents/Helpers/tabs-ctl` (`Sources/TabsCtl`, check 11), found through its real path, so a symlinked skill directory works. The relay sends argv as `{command, args, paneId, cwd}` via `TABS_PANE_ID`/`TABS_CONTROL_SOCKET`; exits non-zero on `ok: false`, a failed batch step, or non-empty `errors`; settles on the first response newline (Notes); every outcome is one line of JSON | `RelayTests`, `UITests.AiSettings/theBundledTabsCtlRefusesToRunOutsideATabsPane`, `ControlPlaneEndToEndTests/tabsCtlGetsItsAnswerOnTheLineIntactAndExitsNonZeroForAFailedStep` |
-| I-2 | Command names are kebab-case (`create-browser-pane`, `read-page`, …): a verb declares `command` + `wireType`; the qualified name (`browser.navigate`) works too; a bare command two verbs share is refused naming both | `ControlPlaneTests/aVerbAnswersToItsCommandAndToItsQualifiedName`, `ControlVerbRulesTests` |
-| I-3 | Settings ▸ AI lists Claude Code (`~/.claude/skills/tabs`) and Codex (`~/.agents/skills/tabs`); Install symlinks the bundled skill, Uninstall removes it; never clobbers or removes what Tabs didn't create; installed = a link to *this* bundle's skill | `SkillInstallerTests`, `UITests.AiSettings/installThenUninstallThroughTheRealControlsChangeTheStatus` |
+| I-2 | Command names are kebab-case (`create-browser-pane`, `read-page`, …): a verb declares `command` + `wireType`; the qualified name (`browser.navigate`) works too; a bare command two verbs share is refused naming both; a plugin's `command` or `wireType` that is core's is refused at registration (`command "describe" is one of core's`), and so is a `.pane` target on a verb with a `command` (`a pane target is for internal verbs: …`) | `ControlPlaneTests/aVerbAnswersToItsCommandAndToItsQualifiedName`, `ControlVerbRulesTests` |
+| I-3 | Settings ▸ AI lists Claude Code (`~/.claude/skills/tabs`) and Codex (`~/.agents/skills/tabs`); Install symlinks the bundled skill, replacing a link that leads nowhere (the app moved), never a link elsewhere; Uninstall removes any link there; neither touches a real file or directory; installed = a link to *this* bundle's skill | `SkillInstallerTests`, `UITests.AiSettings/installThenUninstallThroughTheRealControlsChangeTheStatus` |
 | I-4 | The guide never promises a verb the app lacks: no network section, every command it runs exists, its usage lines name the flags the verbs declare | `BrowserGuideTests`, `UITests.BrowserScriptUITests/theShippedBundleServesTheGuide` (the shipped bundle's) |
 
 ### The browser verbs
@@ -211,7 +244,7 @@ Names are CLI commands, wire types in parentheses. Every one but `create-browser
 | J-3 | `reload` / `go-back` / `go-forward`: wait to settle → `{loaded, loadError?, url, title, …}`, no `redirected`; nothing to step to → `cannot go back — no earlier page in this pane's history` (`forward` / `later`). A history step onto a failed entry reports the entry's recorded failure (WebKit serves the stored error page without the network) | `BrowserNavigationVerbTests/reloadAndHistoryVerbsSettleOnThePageTheyLandOn` |
 | J-4 | Every navigation answer reads the page at answer time: `url`, `title`, last document's status, `titleFromUrl: true` when `document.title` is empty (1 s read; unreadable → no flag), after reload and history steps too; never from title events | `BrowserNavigationVerbTests/titleFromUrlIsCorrectOnReloadAndHistoryStepsNotOnlyNavigate` |
 | J-5 | Landing on a failed page, whichever verb: `navigate` fails `failed to load <url>: ERR_…`, the others answer `loaded: false` + `loadError`; status, console and `config.url` reflect the failure | `BrowserNavigationVerbTests/landingOnAFailedPageReportsTheFailureWhicheverVerbGotThere` |
-| J-6 | `screenshot [--no-activate] [--selector css \| --ref ref]`: both forms refused before anything is revealed; a hidden pane is revealed (never activated) → `activated: true` (3 s to become paintable, empty captures retried within it); `--no-activate` fails naming the remedy; PNG to a file → `{path, width, height}` (device px) + `viewport`, `scaleFactor` (from the page, exact at a fractional width); a clip adds `clipped` (CSS px of the page, clamped to the viewport, rounded outward) and `element`; an element outside the viewport refused. At a fractional pane width WebKit rounds the viewport down (read from the page) | `BrowserSnapshotTests`, `BrowserSnapshotTests/screenshotClipsToOneElementInCSSPixelsClampedToTheViewport`, `BrowserReadVerbTests/screenshotRefusesBothFormsAtOnceBeforeItRevealsAnything`, `BrowserReadVerbTests/screenshotNoActivateFailsOnAPaneThatIsNotShown`, `UITests.BrowserControlUITests/screenshotRevealsABackgroundedPaneItselfAndSaysSoWithActivatedTrue` |
+| J-6 | `screenshot [--no-activate] [--selector css \| --ref ref]`: both forms refused before anything is revealed; a hidden pane is revealed (never activated) → `activated: true` (3 s to become paintable, empty captures retried within it); `--no-activate` fails naming the remedy; PNG to a file → `{path, width, height}` (device px) + `viewport`, `scaleFactor` (from the page, exact at a fractional width); a clip adds `clipped` (CSS px of the page, clamped to the viewport, rounded outward) and `element`; an element outside the viewport refused. At a fractional pane width WebKit rounds the viewport down (read from the page) | `BrowserSnapshotTests`, `BrowserSnapshotTests/screenshotClipsToOneElementInCSSPixelsClampedToTheViewport`, `BrowserReadVerbTests/screenshotRefusesBothFormsAtOnceBeforeItRevealsAnything`, `UITests.BrowserControlUITests/screenshotRevealsABackgroundedPaneItselfAndSaysSoWithActivatedTrue` |
 | J-7 | `get-page-text [--max-length]`: `innerText` cut at the limit (default 50 000, hard 200 000; UTF-16 units), `truncated` always honest, + readiness (J-11) | `BrowserReadVerbTests/thePageTextLimitsAreTheDefaultAndTheHardCap` |
 | J-8 | `read-page [--selector] [--role] [--offset]`: interactive elements + headings (and images for `--role img`/`presentation`: `<img>` is `img`, `presentation` with `alt=""`), ≤ 200 per call, each `{ref, role, name, tag, rect, value, checked}`; `total`, `offset`, `truncated` (more after this page); validated up front (blank refused, unknown role refused with the vocabulary, `offset` a non-negative integer; a selector the page refuses is surfaced); sliced before refs are minted; names approximate the accessible-name algorithm (label text minus the control, a select's chosen option, `aria-labelledby`…), `checked` incl. `"mixed"` | `BrowserScriptTests/readPageListsWhatThePageShowsWithRolesAndNamesAsTheBrowserComputesThem`, `BrowserReadVerbTests/readPageNarrowsByRoleAndSelectorAndPagesByOffset` |
 | J-9 | `find --description [--max-results]` (default 10): `scoreElement` ranking (a heuristic); refs minted only for the matches returned (two page calls); a match that left the page in between is dropped | `BrowserReadVerbTests/findMintsRefsOnlyForTheMatchesItReturns`, `FindElementsTests` |
@@ -230,9 +263,10 @@ Names are CLI commands, wire types in parentheses. Every one but `create-browser
 | J-22 | `save-resource [--url \| --ref \| --selector] [--out]`: exactly one source (an element's `currentSrc`/`src`/`href`/`data`); `data:` decoded in-app; `http(s)` fetched host-side (not bound by CSP/CORS) with the page's cookies and User-Agent, streamed under the 50 MB cap, 25 s total (not a stall timeout), status ≥ 400 refused, response cookies written back, redirects off http(s) refused; `blob:` fetched in a private content world, the one blob route (only a revoked blob fails); file extension from content type → magic bytes → URL → `bin` → `{path, bytes, contentType}` | `BrowserResourceFetchTests`, `BrowserResourceVerbTests` |
 | J-23 | `read-network`, `capture-bodies`: absent (Scope): unknown commands, not in `capabilities`/`describe` | `BrowserScriptVerbTests/captureVerbsAreAbsent` |
 | J-24 | Every verb refuses a pane its caller doesn't own (H-2), a closed one (H-3), one of another type (`target is not a browser pane`), and one without a page (`browser pane is not currently mounted`): a pane in a never-shown tab; for click/hover/type/key, a page with no window (scroll and form-input work by script) | `BrowserInputVerbTests/inputVerbsRefuseAPaneThatIsNotMounted`, `BrowserNavigationVerbTests/aPaneThatIsNotABrowserIsRefusedByName`, `BrowserNavigationVerbTests/anAgentCanCreateAndControlABrowserPaneItOwnsButNoOther`, `BrowserReadVerbTests/readBackVerbsRefuseAPaneThisCallerDoesNotOwn`, `BrowserInputVerbTests/inputVerbsRefuseAPaneThisCallerDoesNotOwn`, `BrowserScriptVerbTests/scriptingVerbsRefuseAPaneThisCallerDoesNotOwn`, `BrowserResourceVerbTests/readBackVerbsRefuseAPaneThisCallerDoesNotOwn` |
-| J-25 | A page that can't run script answers `the page could not run script — it may be mid-navigation, showing an error page, or a viewer (such as the PDF viewer) that runs none`, never the engine's plumbing | `BrowserReadVerbTests/aPageThatCannotRunScriptIsOneSentenceNotTheEnginesPlumbing` |
+| J-25 | A page that can't run script answers `the page could not run script — it may be mid-navigation, or its process may have ended (a reload brings it back)`, never the engine's plumbing | `BrowserReadVerbTests/aPageThatCannotRunScriptIsOneSentenceNotTheEnginesPlumbing` |
 | J-26 | Files: `--out` = a caller-named path (core resolves it against the caller's `cwd`), created exclusively (`O_EXCL`), never overwritten (`refusing to overwrite an existing file: <path>`) or swept; else `<uuid>.<ext>` under the plugin's cache dir (`agent-screenshots`, `agent-resources`, `agent-output`), 10-minute TTL, swept at activation (background) and at most once a minute per subdirectory on write; a write failure is a message, never a throw | `BrowserAgentFilesTests` |
 | J-27 | Bytes never ride the socket: screenshots, saved resources and `--out` results are files; answers carry paths | `UITests.BrowserControlUITests/anAgentCanReadBackAPaneItOwnsInfoTextAndARealPNGOnDisk`, `BrowserScriptVerbTests/executeJsOutWritesTheFullResultToAFileInsteadOfTruncating` |
+| J-28 | `key --key` takes a key name as the keyboard spells it (case-sensitive: `Enter`, `Escape`, `Tab`, `Backspace`, `Delete`, the arrows, `Home`, `End`, `PageUp`, `PageDown`, `F1`–`F20`, and `Space`, `Return`) or one character (printable ASCII as a keystroke, any other as text, J-14); anything else (`enter`, `Esc`, `ab`) is refused before the page is touched, `unknown key "<key>" — one of …` listing the names (`USKeyboard.keyNames`), never answered ok having sent nothing (`canSendKeystroke`) | `BrowserInputVerbTests/keyRefusesAKeyItCannotSendNamingTheKeysItTakes`, `KeystrokesTests/canSendANamedKeyOrOneCharacterAndNothingElse`, `KeystrokesTests/theKeyNamesAreTheOnesItCanSend` |
 
 ## Look
 
@@ -288,11 +322,62 @@ Tests: `BrowserPaneTests/laysOutTheButtonsAndTheBarInOneRow` (L-1…L-4),
   answered at all; on a busy machine WebKit sometimes answers it with an error. `PageWait` races
   every injection against `PageEvents`, re-injecting into the new document
   (`BrowserPolicyTests/anEvaluationAwaitingAPromiseNeverSettlesWhenThePageNavigatesAway`); every
-  other script call goes through `BrowserPage.call` (`evaluate`, the input counters, a blob
-  fetch), which answers unavailable at the navigation, or when its task is cancelled, instead of
-  never (`BrowserNavigationTests/aScriptCallANavigationOrphansAnswersUnavailable`,
+  other script call goes through `BrowserPage.call` (`evaluate`, a blob fetch, and
+  `boundedCall`'s reads, which give up after a budget: the input counters, the viewport,
+  `titleFromUrl`'s title), which answers unavailable at the navigation, or when its task is
+  cancelled, instead of never (`BrowserNavigationTests/aScriptCallANavigationOrphansAnswersUnavailable`,
   `…/aCancelledScriptCallAnswersUnavailable`). A read of the input counters that went around it
   hung an Enter that submits a form for good.
+- **A page nobody can see runs at background priority** (a background tab, or a page in a window
+  that is never shown and doesn't say otherwise), except while WebKit holds an activity for its
+  process: a load
+  asked for ("Client navigation"), a script call awaiting its answer. A back/forward step holds
+  none (WebKit's log), and the last load's assertion runs out about a second after it ended, so
+  on a busy machine the step waited for the process: beside a CPU burner a median of 2.2 s and up
+  to 15.7 s (steps onto and off an error page: a median of 1.1 s, up to 4.5 s), and in full test
+  gates 10 s passed with nothing started (`BrowserPaneTests/theButtonsFollowThePagesHistory`,
+  `BrowserFailureTests/theErrorPageIsARealHistoryEntry`, then on hidden pages: they run on active
+  ones now, Testing). `BrowserPage.goBack`/`goForward` send a
+  no-op script in a private world right after the step: its activity lasts until the process
+  answers (a few milliseconds), which comes after it took the step (one connection, in order),
+  and the step then took 0.02–0.03 s whatever the load (all measured).
+- **A page nobody can see runs at WebKit's background pace** (E-5's limit; a never-shown test
+  window is one). Its repeating timers are throttled: a 100 ms `setInterval` fired 7 times in its
+  first second, then once a second, where a page in a window that says it is visible kept 10 a
+  second (WebKit's `hiddenPageDOMTimerThrottlingEnabled`; with it off, 8–9). And once a hidden page
+  is idle WebKit lets the system nap it: it stops holding off App Nap for the page ("App nap
+  disabled for page due to user activity" ends) and readies the page's process for suspension
+  whenever no script call or load is in flight ("PrepareToSuspend" after every call). In a full
+  gate on a busy machine (2026-10-15) that held a hidden page's own 100 ms timer for the 10 s its
+  test polled, through 30 script calls that each woke the process, while WebKit's own timers in
+  it kept firing (WebKit's log). A verb's own script runs (it holds an activity while it is in
+  flight), but between verbs a hidden pane's page may not move at all; it couldn't be made to
+  happen on a quiet machine or beside a CPU burner alone. On another busy gate a hidden page's
+  timer ran at least 0.45 s late while its load activity still held it awake, so the fast pace of
+  a page's own timers is only promised for a page someone can see. The tests that met it
+  (`FixtureServerTests/waityChangesOnlyWhenTheTestDrivesIt`,
+  `BrowserWaitTests/idleSettlesOnlyOnceTheDOMStopsChurning`) ran on hidden pages; every Browser
+  test's page is an active one now (Testing).
+- **A test's fixed times don't hold on a busy machine.** In full gates on 2026-10-14 a page's
+  script calls took 0.25–0.54 s each, 0.8 s passed between two of them, and a cancelled call's
+  answer (main-actor hops only) took over 5 s. A test that needs no time to pass between a
+  mutation and a read makes both in one script
+  (`BrowserScriptTests/readsReportReadinessWithSettledFlippingOnlyWhenTheDOMIsQuiet`), one that
+  waits for a page's own timer polls for it rather than sleeping a fixed time
+  (`FixtureServerTests/waityChangesOnlyWhenTheTestDrivesIt`), and a wait that only tells
+  "answers" from "never" is generous (`BrowserNavigationTests/aCancelledScriptCallAnswersUnavailable`).
+- **WebKit sometimes ends a PDF page's process** (macOS 27.0.1, WebKit 22625.1.29.11.28): the
+  built-in viewer sends `WebPageProxy_PluginScaleFactorDidChange` with a value the app's side of
+  WebKit refuses as an invalid message, so WebKit ends the page's content process ("Received an
+  invalid message …", then `processDidTerminate reason=Crash` and a simulated crash report of the
+  app faulting in `WebPageProxy::pluginScaleFactorDidChange`), and "Not eagerly reloading the view
+  because it is not currently visible". The page is then dead: every script answers WebKit's
+  error 5 (`JavaScriptResultTypeIsUnsupported`, read as `.unsupportedResult`, J-25), while a fetch
+  of its URL from the app still works. It happened in 2 of 20 runs of the Browser unit tests in
+  full gates on 2026-10-14, on a busy machine, and couldn't be provoked (128 PDF loads, hidden,
+  zero-sized and resized; the viewer ran script in every one). The test that met it (a PDF saved
+  by its address or its `<embed>`) was removed; what to do about a page whose process ends is
+  open.
 - **Console capture is injected.** The `console.*` wrapper runs in the page's own world (each
   world has its own `console`); the error listener runs in a private world (error events reach
   every world, and the page can't remove it). A `console.*` entry's source URL and line come

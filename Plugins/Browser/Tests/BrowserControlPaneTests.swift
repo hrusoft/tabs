@@ -114,8 +114,12 @@ import Testing
     /// C-7: a pane that isn't on screen has no viewport at all, never an invented one, and says so.
     @Test func paneInfoRefusesToInventAViewportForAPaneThatIsNotShown() async throws {
         let pane = try await create("about:blank")
+        let window = try #require(harness.engine.model.window(holding: pane))
+        // The user goes back to the agent's tab: the browser is backgrounded, its page in no window.
+        harness.engine.perform(in: window.id) { [agent = harness.agentPane] layout, titles in layout.reveal(agent, titles: titles) }
+        #expect(harness.engine.model.window(window.id)?.isShowing(pane) == false)
         let info = result(await ctl("pane-info", ["pane": .string(pane.rawValue)]))
-        #expect(info["hidden"] == true, "the harness has no window for the page")
+        #expect(info["hidden"] == true, "a background tab's page is in no window")
         #expect(info["viewport"] == nil)
     }
 
@@ -167,28 +171,7 @@ import Testing
         #expect(activated["ok"] == true)
         let after = try #require(harness.engine.model.window(window.id))
         #expect(after.isShowing(pane), "brought to the front")
-        #expect(after.activeLeafID == agent, "but the user's active pane is still theirs: the keyboard is not stolen")
-    }
-
-    /// E-5: a hidden pane keeps its page running: the verbs answer for it (reads, waits, scripts) without revealing it.
-    @Test func aBackgroundedPaneKeepsItsPageRunningAndAnswersTheReadVerbs() async throws {
-        let server = try await FixtureServer.startStandard()
-        defer { server.stop() }
-        let pane = try await create(server.url())
-        let id = JSONValue.string(pane.rawValue)
-        let agent = harness.agentPane
-        let window = try #require(harness.engine.model.window(holding: pane))
-        harness.engine.perform(in: window.id) { layout, titles in layout.reveal(agent, titles: titles) }
-        #expect(harness.engine.model.window(window.id)?.isShowing(pane) == false)
-        let text = result(await ctl("get-page-text", ["pane": id]))
-        #expect(text["text"]?.stringValue?.contains("Hello from the fixture") == true)
-        let read = result(await ctl("read-page", ["pane": id]))
-        #expect(read["elements"] != nil)
-        #expect(result(await ctl("wait-for", ["pane": id, "text": "Hello from the fixture"]))["elapsedMs"] != nil)
-        #expect(await ctl("assert", ["pane": id, "text": "Hello from the fixture"])["ok"] == true)
-        #expect(result(await ctl("execute-js", ["pane": id, "code": "document.title"]))["value"] == "Fixture")
-        #expect(harness.engine.model.window(window.id)?.isShowing(pane) == false, "none of it reveals the pane")
-        #expect(harness.engine.model.window(window.id)?.activeLeafID == agent)
+        #expect(after.activePaneID == agent, "but the user's active pane is still theirs: the keyboard is not stolen")
     }
 
     // MARK: E-4

@@ -50,11 +50,7 @@ enum ReadPage {
         let page = try VerbSupport.pane(invocation).page
         let requested = invocation["maxLength"]?.doubleValue.map { Int($0.rounded(.down)) } ?? BrowserLimits.defaultPageTextMax
         let limit = min(requested, BrowserLimits.pageTextHardMax)
-        let answer: [String: JSONValue]
-        switch await VerbSupport.evalInGuest(page, pageTextScript) {
-        case .failure(let error): throw ControlVerbError(error.message)
-        case .success(let value): answer = object(value)
-        }
+        let answer = try await object(page.evaluate(pageTextScript).orThrow())
         // Lengths are the page's own: UTF-16 code units, as `String.length` counts them.
         let units = Array((answer["text"]?.stringValue ?? "").utf16)
         var result = readinessFields(page, answer)
@@ -91,11 +87,7 @@ enum ReadPage {
         let filter = ReadPageFilter(
             selector: invocation["selector"]?.stringValue, role: invocation["role"]?.stringValue,
             offset: invocation["offset"]?.doubleValue.map { Int($0) })
-        let raw: [String: JSONValue]
-        switch await VerbSupport.evalInGuest(page, readPageScript(filter)) {
-        case .failure(let error): throw ControlVerbError(error.message)
-        case .success(let value): raw = object(value)
-        }
+        let raw = try await object(page.evaluate(readPageScript(filter)).orThrow())
         // Only the selector branch can report one, and only for a selector the page's own
         // `querySelectorAll` refused: surfaced rather than degraded to an empty list, which
         // would read as "nothing on this page matches".
@@ -127,11 +119,7 @@ enum ReadPage {
         let page = try VerbSupport.pane(invocation).page
         let description = invocation["description"]?.stringValue ?? ""
         let token = UUID().uuidString.lowercased()
-        let described: [String: JSONValue]
-        switch await VerbSupport.evalOutcomeInGuest(page, findCandidatesScript(token: token)) {
-        case .failure(let failure): throw ControlVerbError(failure.message)
-        case .success(let object): described = object
-        }
+        let described = try await VerbSupport.evalOutcomeInGuest(page, findCandidatesScript(token: token)).orThrow()
         let candidates = (array(described["candidates"])).enumerated().map { index, json in
             Candidate(
                 json: json, name: json["name"]?.stringValue ?? "", role: json["role"]?.stringValue ?? "",
@@ -141,11 +129,8 @@ enum ReadPage {
             candidates, description: description, maxResults: invocation["maxResults"]?.doubleValue.map { Int($0) } ?? 10)
         var refs: [JSONValue] = []
         if !ranked.isEmpty {
-            let minted: [String: JSONValue]
-            switch await VerbSupport.evalOutcomeInGuest(page, mintFindRefsScript(token: token, indices: ranked.map(\.element.index))) {
-            case .failure(let failure): throw ControlVerbError(failure.message)
-            case .success(let object): minted = object
-            }
+            let script = mintFindRefsScript(token: token, indices: ranked.map(\.element.index))
+            let minted = try await VerbSupport.evalOutcomeInGuest(page, script).orThrow()
             if let error = minted["error"]?.stringValue { throw ControlVerbError(error) }
             refs = array(minted["refs"])
         }

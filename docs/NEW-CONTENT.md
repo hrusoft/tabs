@@ -164,16 +164,17 @@ Lengths in pt; colors dark / light (`PaneTheme`).
 | L-9 | Empty state | padding 10; sentence wraps to 2 lines → panel 60 tall | 12, `text` at 65% | — | — | `palette-empty` |
 | L-10 | Over a floating pane | backdrop and panel paint above the float and its shadow | — | — | — | `palette-over-floating` |
 | L-11 | Light theme | light tokens, shadow strength 0.45 | — | see rows | — | `palette-light` |
-| L-12 | Backdrop focus ring | The outermost 1pt of the window, radius 2, every step (`PaletteView.draw`) | — | `#99c8ff` over dark, `#005fcc` over light, opaque | — | every palette scenario |
+| L-12 | Backdrop focus ring | The outermost 1pt of the window, radius 2, every step (`PaletteView.draw`) | — | `accent` `#4f8cff` / `#2f6fe4`, opaque | — | every palette scenario |
 
 ## Implementation notes
 
 - **Taking the keyboard from a page** (P-5, P-6): the palette becomes first responder, which takes
   the keyboard from a `WKWebView` as from any view.
 - **Tabular digits** (L-4): `ChromeText(tabularNumbers:)`, `NSFont.monospacedDigitSystemFont`.
-- **Panel shadow** (L-2), as for the context menu and dialog card: set in `layout()`, since a
-  layer shadow set in `init` is reset before the view shows; `shadowRadius` is the whole blur
-  (40), not half of it.
+- **Panel shadow** (L-2): `applyOverlayShadow(.modal)`, as for the dialog card (the menus' is
+  `.menu`), applied as the panel is laid out (the context menu's as it's placed), never in `init`,
+  since a layer shadow set in `init` is reset before the view shows; `shadowRadius` is the whole
+  blur (40), not half of it.
 
 ## Checking the look
 

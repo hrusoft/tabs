@@ -16,6 +16,9 @@ protocol GitSource: AnyObject {
     func commit(_ dir: String, hash: String) async -> GitCommitResult
     /// The same shape of detail for the working tree's uncommitted state.
     func workingTree(_ dir: String) async -> GitCommitResult
+    /// One file's diff in a commit's detail (`hash` `""`: the working tree's),
+    /// read from the repository's `root`.
+    func fileDiff(_ root: String, hash: String, file: ChangedFile) async -> GitFileDiffResult
     /// Where a pane with no directory of its own starts.
     func defaultDirectory() async -> String
     /// The refs behind the checkout decision, read fresh.
@@ -45,6 +48,11 @@ final class GitRepositorySource: GitSource {
     func commit(_ dir: String, hash: String) async -> GitCommitResult { await git.readCommit(dir, hash: hash) }
 
     func workingTree(_ dir: String) async -> GitCommitResult { await git.readWorkingTreeChanges(dir) }
+
+    func fileDiff(_ root: String, hash: String, file: ChangedFile) async -> GitFileDiffResult {
+        hash == uncommittedChangesHash
+            ? await git.readWorkingTreeFileDiff(root, file: file) : await git.readCommitFileDiff(root, hash: hash, file: file)
+    }
 
     /// The fallback when creation inherited no directory: the app's own
     /// working directory when it's inside a repository (launched from a shell,
@@ -84,8 +92,13 @@ final class ScriptedGitSource: GitSource {
     /// Makes every ref read fail this way (a checkout must still not fail
     /// silently).
     var branchesAtCommitFailure: GitFailure?
-    /// While set, every checkout waits until `releaseCheckouts()`.
-    var holdCheckouts = false
+    /// What every checkout passes through.
+    let checkoutGate = Gate()
+    /// Each file's diff, by detail hash (`""`: the working tree) then path;
+    /// an unset one fails.
+    var fileDiffs: [String: [String: FileDiff]] = [:]
+    /// What every file diff read passes through.
+    let fileDiffGate = Gate()
 
     private(set) var logCalls: [String] = []
     private(set) var logScopes: [GitBranchScope] = []
@@ -93,7 +106,30 @@ final class ScriptedGitSource: GitSource {
     private(set) var detailReads: [String] = []
     private(set) var branchesAtCommitCalls: [String] = []
     private(set) var checkoutCalls: [CheckoutTarget] = []
-    private var pendingCheckouts: [CheckedContinuation<Void, Never>] = []
+    /// Every file diff asked for: the root, the detail's hash and the file.
+    private(set) var fileDiffReads: [(root: String, hash: String, file: ChangedFile)] = []
+
+    /// A call passes at once (after a yield), or while held, waits until
+    /// `release()`.
+    @MainActor
+    final class Gate {
+        var isHeld = false
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+
+        func pass() async {
+            if isHeld {
+                await withCheckedContinuation { waiting.append($0) }
+            } else {
+                await Task.yield()
+            }
+        }
+
+        func release() {
+            let pending = waiting
+            waiting = []
+            for continuation in pending { continuation.resume() }
+        }
+    }
 
     init() {}
 
@@ -104,12 +140,6 @@ final class ScriptedGitSource: GitSource {
         if let root { self.root = root }
         self.hasMore = hasMore
         self.hasUncommittedChanges = hasUncommittedChanges
-    }
-
-    func releaseCheckouts() {
-        let pending = pendingCheckouts
-        pendingCheckouts = []
-        for continuation in pending { continuation.resume() }
     }
 
     /// An unset hash's detail is synthesized from its log entry.
@@ -150,6 +180,15 @@ final class ScriptedGitSource: GitSource {
         return .success(workingTreeDetail)
     }
 
+    func fileDiff(_ root: String, hash: String, file: ChangedFile) async -> GitFileDiffResult {
+        fileDiffReads.append((root, hash, file))
+        await fileDiffGate.pass()
+        guard let diff = fileDiffs[hash]?[file.path] else {
+            return .failure(GitError(.failed(message: "no diff for \(file.path)")))
+        }
+        return .success(diff)
+    }
+
     func defaultDirectory() async -> String {
         await Task.yield()
         return defaultDirectoryAnswer
@@ -164,11 +203,7 @@ final class ScriptedGitSource: GitSource {
 
     func checkout(_ dir: String, _ target: CheckoutTarget) async -> GitCheckoutResult {
         checkoutCalls.append(target)
-        if holdCheckouts {
-            await withCheckedContinuation { pendingCheckouts.append($0) }
-        } else {
-            await Task.yield()
-        }
+        await checkoutGate.pass()
         if let checkoutFailure { return .failure(checkoutFailure) }
         switch target {
         case .commit(let hash): head = .detached(hash: hash)

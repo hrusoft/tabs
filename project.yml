@@ -41,8 +41,9 @@ settings:
     GCC_TREAT_WARNINGS_AS_ERRORS: YES
     # The linker's warnings too: neither setting above reaches ld.
     OTHER_LDFLAGS: $(inherited) -Wl,-fatal_warnings
-    # The stamp script reads sources and build configuration and writes the
-    # built Info.plist.
+    # The fingerprint and stamp scripts read sources and build configuration
+    # that no phase declares as inputs; the stamp script writes
+    # Resources/TabsBuildStamp.plist (a file of its own, never the Info.plist).
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     DEAD_CODE_STRIPPING: YES
     # How many of a test bundle's tests run at once when its scheme entry is
@@ -84,8 +85,9 @@ targetTemplates:
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/TabsBuildStamp.plist
 
-  # The SDK: a module whose types cross image boundaries. Dynamic, so the
-  # process holds exactly one copy; its sources feed the shared-ABI fingerprint.
+  # The SDK and core: modules whose types cross image boundaries (plugins ↔
+  # core, core ↔ the app shell). Dynamic, so the process holds exactly one copy
+  # of each; their sources feed the shared-ABI fingerprint.
   SharedFramework:
     templates: [Stamped]
     type: framework
@@ -130,7 +132,9 @@ targetTemplates:
   # with <pluginDir>/Tests (but for its UI and E2E folders, below), run against
   # the real core runtime (PluginHarness) with no app, no windows and no other
   # plugin. Core's `package` API is visible here (for the harness), never to
-  # the plugin's own target.
+  # the plugin's own target. <pluginDir>/Tests/Shared, if the plugin has one,
+  # holds the helpers every tier of its tests compiles (the UI and E2E
+  # templates list it; here it is part of <pluginDir>/Tests).
   PluginTests:
     type: bundle.unit-test
     platform: macOS
@@ -166,6 +170,8 @@ targetTemplates:
     platform: macOS
     sources:
       - path: ${pluginDir}/Tests/UI
+      - path: ${pluginDir}/Tests/Shared
+        optional: true
       - path: Tests/AppSupport
       - path: Tests/Support
       - path: Tests/Process
@@ -192,10 +198,12 @@ targetTemplates:
     platform: macOS
     sources:
       - path: ${pluginDir}/Tests/E2E
+      - path: ${pluginDir}/Tests/Shared
+        optional: true
       - path: Tests/EndToEndSupport
       - path: Tests/Support/ControlClient.swift
-      - path: Tests/Support/FixtureServer.swift
-      - path: Tests/Support/FixtureServer+Standard.swift
+      - path: Tests/Support/TestShell.swift
+      - path: Tests/Support/WebDataStores.swift
       - path: Tests/Process
     settings:
       base:
@@ -231,18 +239,12 @@ targets:
   # control. No windows. Its API is `package`, so nothing outside the TabsCore
   # package can use it even by importing it.
   TabsCore:
-    templates: [Stamped]
-    type: framework
-    platform: macOS
+    templates: [SharedFramework]
     sources: [Sources/TabsCore]
     settings:
       base:
         TABS_IMAGE_ROLE: core
         PRODUCT_BUNDLE_IDENTIFIER: com.hrusoft.tabs.core
-        GENERATE_INFOPLIST_FILE: YES
-        DEFINES_MODULE: YES
-        SKIP_INSTALL: YES
-        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../Frameworks"
         SWIFT_PACKAGE_NAME: TabsCore
     dependencies:
       - target: TabsPluginSDK
@@ -259,12 +261,17 @@ targets:
     platform: macOS
     sources:
       - path: Sources/Tabs
-        excludes: [Info.plist, Resources/skills]
+        excludes: [Info.plist, Resources/skills, Resources/Themes]
       # The "control Tabs" skill (SKILL.md and scripts/tabs-ctl, a stub that runs
       # Contents/Helpers/tabs-ctl), bundled unchanged as Contents/Resources/skills/tabs. Real
       # files rather than anything inside an archive: Settings ▸ AI symlinks it into an agent's
       # skill directory, and the agent's shell runs it as a plain OS process.
       - path: Sources/Tabs/Resources/skills
+        type: folder
+        buildPhase: resources
+      # The themes the Theme menu lists, one JSON file each (docs/THEMES.md), bundled unchanged
+      # as Contents/Resources/Themes: a new theme is a new file, no project change.
+      - path: Sources/Tabs/Resources/Themes
         type: folder
         buildPhase: resources
     settings:
@@ -396,6 +403,7 @@ targets:
       - Tests/TabsEndToEndTests
       - Tests/EndToEndSupport
       - Tests/Support/ControlClient.swift
+      - Tests/Support/TestShell.swift
       - Tests/Process
     settings:
       base:

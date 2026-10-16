@@ -5,7 +5,8 @@
     "height": 500
   },
   "settings": {
-    "colorTheme": "dark"
+    "colorTheme": "dark",
+    "tabTitlesFollowPanes": false
   },
   "layout": {
     "version": 1,

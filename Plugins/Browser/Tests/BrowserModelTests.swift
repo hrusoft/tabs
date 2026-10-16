@@ -379,18 +379,12 @@ extension BrowserSettings {
     }
 }
 
-/// H-16: the wire of the log the console shares with any capture buffer.
+/// H-16: the console's log.
 @MainActor
 @Suite struct RingLogTests {
     private struct Entry: Sequenced {
         var seq = 0
         var text: String
-    }
-
-    private final class Boxed: Sequenced {
-        var seq = 0
-        var text: String
-        init(_ text: String) { self.text = text }
     }
 
     @Test func assignsIncreasingSequenceNumbersFrom1() {
@@ -433,33 +427,6 @@ extension BrowserSettings {
         #expect(log.list().count == 1)
         #expect(fresh.seq == 3)
         #expect(log.list(sinceSeq: 2).map(\.text) == ["new page"])
-    }
-
-    @Test func removesAnEntryBySeqReportingWhetherItWasPresent() {
-        let log = RingLog<Entry>(capacity: 10)
-        log.add(Entry(text: "a"))
-        let b = log.add(Entry(text: "b"))
-        log.add(Entry(text: "c"))
-        #expect(log.remove(seq: b.seq))
-        #expect(log.list().map(\.text) == ["a", "c"])
-        // Already gone: a second remove reports that rather than throwing.
-        #expect(!log.remove(seq: b.seq))
-    }
-
-    @Test func reportsAnEvictedEntryAsAbsentFromRemoveAndNeverReusesItsSeq() {
-        let log = RingLog<Entry>(capacity: 2)
-        let a = log.add(Entry(text: "a"))
-        log.add(Entry(text: "b"))
-        log.add(Entry(text: "c"))
-        #expect(!log.remove(seq: a.seq))
-        #expect(log.add(Entry(text: "d")).seq == 4)
-    }
-
-    @Test func handsBackTheStoredObjectSoAnInFlightEntryCanBeCompletedLater() {
-        let log = RingLog<Boxed>(capacity: 10)
-        let entry = log.add(Boxed("pending"))
-        entry.text = "done"
-        #expect(log.list()[0].text == "done")
     }
 
     @Test func compilePatternMatchesEverythingWhenNoPatternIsGiven() {

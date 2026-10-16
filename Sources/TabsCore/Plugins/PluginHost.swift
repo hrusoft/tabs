@@ -23,8 +23,7 @@ package final class PluginHost {
     private var active: [(plugin: any TabsPlugin, context: PluginContextImpl)] = []
     private var contexts: [PluginID: PluginContextImpl] = [:]
     private var ranks: [PluginID: (Int, String)] = [:]
-    private var changeObservers: [(token: Int, handler: @MainActor () -> Void)] = []
-    private var nextObserverToken = 0
+    private let changeObservers = ObserverList<Void>()
     package private(set) var hasStarted = false
 
     package init(_ deps: Dependencies) {
@@ -157,15 +156,12 @@ package final class PluginHost {
         else { return }
         baseRecords[index].userEnabled = enabled
         deps.settings.setDisabled(!enabled, for: id)
-        for observer in changeObservers { observer.handler() }
+        changeObservers.notify(())
     }
 
     /// Called whenever what plugins offer changes (enablement today).
     package func observeChanges(_ handler: @escaping @MainActor () -> Void) -> Subscription {
-        nextObserverToken += 1
-        let token = nextObserverToken
-        changeObservers.append((token, handler))
-        return Subscription { [weak self] in self?.changeObservers.removeAll { $0.token == token } }
+        changeObservers.add { _ in handler() }
     }
 
     package func report(sharedFingerprint: String?) -> JSONValue {

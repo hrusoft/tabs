@@ -1,9 +1,9 @@
 import Foundation
 import TabsPluginSDK
 
-/// Runs plugin commands for the shell's menus (and, later, context menus and
-/// header buttons), enforcing the isolation rule every entry point needs: a
-/// command gets the active pane's controller only if its own plugin made it.
+/// Runs plugin commands for the shell's main menu, enforcing the isolation
+/// rule: a command gets the active pane's controller only if its own plugin
+/// made it.
 /// Another plugin's pane is visible only by id and content type.
 @MainActor
 package final class CommandCenter {
@@ -20,8 +20,9 @@ package final class CommandCenter {
     }
 
     /// What `owner`'s command sees, given the frontmost window and its active
-    /// pane (and that pane's content type, which the shell knows for panes
-    /// core doesn't: empty and unavailable ones).
+    /// pane (and that pane's content type, which the menu takes from the layout
+    /// model, `LayoutEngine.activeContentType`: it names the type of a pane
+    /// whose plugin is missing too, and is nil for an empty one).
     package func invocation(for owner: PluginID, window: WindowID?, pane: PaneID?, contentType: ContentTypeID?) -> CommandInvocation {
         let own = pane.flatMap { panes.pane($0) }.flatMap { $0.isAttached && $0.owner == owner ? $0.controller : nil }
         return CommandInvocation(windowID: window, paneID: pane, contentType: contentType, pane: own)

@@ -31,10 +31,10 @@ package enum ControlEnvelope {
     ) -> Built {
         // `null` counts as absent, as it does for every other argument.
         let args = args.filter { $0.value != .null }
+        // The composition's flags included: `ControlFlag.of` adds them, and
+        // registration refuses a flag declared twice.
         let flags = ControlFlag.of(verb)
-        let known = flags.map(\.name) + (verb.composition == .elementTarget ? ControlFlag.elementTargetFlagNames : [])
-        var seen: Set<String> = []
-        let accepted = known.filter { seen.insert($0).inserted }
+        let accepted = flags.map(\.name)
         if let unknown = args.keys.sorted().first(where: { !accepted.contains($0) }) {
             let valid = accepted.map { "--\($0)" }.joined(separator: ", ")
             return .failed("unknown flag --\(unknown) for \(command); accepts: \(valid.isEmpty ? "(none)" : valid)")
@@ -64,8 +64,8 @@ package enum ControlEnvelope {
                 }
                 request[flag.wire] = json(value)
             case .boolean:
-                // A present flag is its value: `true`, or what an inverting flag declares.
-                request[flag.wire] = flag.flagValue ?? true
+                // A present flag is `true`, whatever value it was given.
+                request[flag.wire] = true
             case .csv:
                 request[flag.wire] = .array(text(of: raw).split(separator: ",").map { .string(String($0)) })
             case .json:
@@ -168,18 +168,18 @@ package enum ControlEnvelope {
         }
     }
 
-    /// `Number(raw)`, nil for NaN (and for infinities, which have no JSON form).
+    /// `Number(raw)`, nil for NaN (and for infinities, which have no JSON
+    /// form) — but a blank string is not a number, where JavaScript's is 0:
+    /// `--x "$X"` with `X` unset must not click (0, 0). (No `null` gets here:
+    /// `build` drops it. A `false` does, from a raw socket client.)
     static func number(of raw: JSONValue) -> Double? {
         let value: Double?
         switch raw {
         case .int(let number): value = Double(number)
         case .double(let number): value = number
         case .bool(let flag): value = flag ? 1 : 0
-        case .string(let text):
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            value = trimmed.isEmpty ? 0 : Double(trimmed)
-        case .null: value = 0
-        case .array, .object: value = nil
+        case .string(let text): value = Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .null, .array, .object: value = nil
         }
         guard let value, value.isFinite else { return nil }
         return value

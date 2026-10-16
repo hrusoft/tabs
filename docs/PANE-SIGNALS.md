@@ -10,8 +10,9 @@ the **bell**. Code: `Sources/TabsCore/Panes/PaneSignals.swift` (who carries what
 
 - Mechanism only: plugins declare kinds (`PaneSignalContribution`, point `tabs.paneSignals`,
   namespaced ids). The bell is the terminal plugin's `terminal.bell` ([TERMINAL.md](TERMINAL.md)).
-- Core declares one kind, `controlled` (`ControlledSignal`), raised while the ownership ledger
-  (`PaneOwnership`, [BROWSER.md](BROWSER.md) H-2…H-6) has an owner for the pane. Core's because
+- Core declares one kind, `controlled` (`ControlledSignal`), up exactly while the control registry
+  (`PaneOwnership`, [BROWSER.md](BROWSER.md) H-2…H-6, H-17) has a controller for the open pane: it
+  follows the registry's changes, never raised or withdrawn by hand. Core's because
   ownership is, and the cue must look the same whichever plugin's pane it is.
 - A plugin raises and withdraws only its own kinds, only on its own panes; another plugin's,
   core's or an undeclared kind is refused and logged
@@ -79,8 +80,8 @@ pane.withdraw(PaneSignal("terminal.bell"))  // nothing if not carried
 
 ## Cases
 
-"Active" = exactly the window's `activePaneId` (may be a tab group). "Focused" = key window of
-the active app (`NSApp.isActive && isKeyWindow`). "Looked at" = active and focused.
+"Active" = exactly the window's `activePaneId`, always a leaf (`WindowLayout` never makes a tab group active).
+"Focused" = key window of the active app (`NSApp.isActive && isKeyWindow`). "Looked at" = active and focused.
 
 ### Raising a bell
 
@@ -89,7 +90,7 @@ the active app (`NSApp.isActive && isKeyWindow`). "Looked at" = active and focus
 | S-1 | Bell in a pane that isn't its window's active pane → flagged: icon before the header title, content outlined in the bell color with inner glow, pulsing | `PaneSignalsTests/aBellOnAPaneThatIsntActiveFlagsIt`, `UITests.Signals/aSignalsIconSitsBeforeTheHeaderTitle`, `UITests.Signals/theOutlineCoversThePanesContentInItsKindsColor` |
 | S-2 | Bell in the active pane of a focused window → dropped: nothing shown, nothing kept | `PaneSignalsTests/aBellInTheActivePaneOfAFocusedWindowIsDropped`, `UITests.Signals/windowFocusDecidesWhetherABellIsLookedAt` |
 | S-3 | Bell in the active pane of an unfocused window → flagged | `PaneSignalsTests/aBellInTheActivePaneOfAnUnfocusedWindowFlagsIt`, `UITests.Signals/windowFocusDecidesWhetherABellIsLookedAt` |
-| S-4 | A tab group being active doesn't count as looking at its leaves: a bell inside flags (exact id compare) | `PaneSignalsTests/aTabGroupBeingActiveIsntLookingAtItsPanes` |
+| S-4 | *Retired:* a tab group being active doesn't count as looking at its leaves. A tab group is never active (`WindowLayout` keeps the active pane a leaf), so the case can't arise; the test it cited never existed | — |
 | S-5 | Second bell in a flagged pane changes nothing (Dock aside, S-20) | `PaneSignalsTests/raisingAgainChangesNothing` |
 | S-6 | Indicator off → bell dropped outright: not kept, no Dock bounce | `PaneSignalsTests/aSwitchedOffBellIsDroppedWithoutBouncing` |
 | S-7 | Indicator off hides every flag at once; back on shows those still kept | `PaneSignalsTests/switchingOffHidesWhatsUpAndSwitchingOnShowsItAgain`, `PaneSignalsTests/flippingASwitchRedrawsThePanesCarryingThatKind`, `UITests.Signals/theSettingsPageHasASwitchPerKindThatHidesIt` |
@@ -124,11 +125,11 @@ the active app (`NSApp.isActive && isKeyWindow`). "Looked at" = active and focus
 | S-21 | A pane another pane owns → robot before the header title, outline in the agent color, slow pulse (4.5s) | `PaneSignalsTests/aStatusStaysUntilWithdrawn`, `UITests.ControlledPanes/anOwnedPaneShowsTheRobotAndItsOutlineButNeverOnATab`, `ControlPlaneTests/anOwnedPaneCarriesTheControlledSignalAndItNeverReachesItsTab` |
 | S-22 | Never on a tab, not even a background one: a kind that doesn't mark tabs shows nothing while its pane is in a background tab | `PaneSignalsTests/tabsMarkTheirPanesSignalsAtEveryDepthButNotStatuses`, `UITests.Signals/aTabHoldingASignalledPaneShowsItsIconAndGrows` |
 | S-23 | Activation, focus, being looked at never clear it | `PaneSignalsTests/aStatusStaysUntilWithdrawn`, `UITests.Signals/clickingASignalledPaneClearsItsBellButNotItsStatus` |
-| S-24 | Ownership released → cue goes | `PaneSignalsTests/aStatusStaysUntilWithdrawn`, `ControlPlaneTests/closingThePaneWithdrawsItWhoeverClosesIt` |
+| S-24 | Control ended → cue goes: the pane closed, its controller closed, or control disabled | `PaneSignalsTests/aStatusStaysUntilWithdrawn`, `ControlPlaneTests/closingThePaneWithdrawsItWhoeverClosesIt`, `ControlPlaneTests/closingTheControllerFreesItsPanesAndTakesTheirCueDown`, `UITests.ControlledPanes/closingTheControllerTakesTheRobotAndOutlineOffThePaneItControlled`, `UITests.ControlledPanes/disablingControlTakesTheRobotAndOutlineOff` |
 | S-25 | Indicator off hides it; state kept, so back on shows every pane owned now | `PaneSignalsTests/aStatusRaisedWhileSwitchedOffIsKeptHidden` |
 | S-26 | Follows its pane into another window | `PaneSignalsTests/aSignalFollowsItsPaneIntoAnotherWindow` |
 | S-27 | Hovering the robot shows the system tool tip "Controlled by another pane"; the bell has none. Tool tip rects on header and tab icons (`SignalIconRow.installTooltips`) | — (tool tips need a shown window and a real pointer) |
-| S-28 | Raised when a pane is created through tabs-ctl from inside another pane (`create-browser-pane`), from the instant its plugin builds it; withdrawn by `close-pane`. A pane the user closes by hand leaves the ledger with it (its owner is then told it's gone) | `ControlPlaneTests/aPaneIsOwnedFromTheInstantItsPluginBuildsIt`, `ControlPlaneTests/anOwnedPaneCarriesTheControlledSignalAndItNeverReachesItsTab`, `ControlPlaneTests/closingThePaneWithdrawsItWhoeverClosesIt` |
+| S-28 | Raised when a pane is created through tabs-ctl from inside another pane (`create-browser-pane`), from the instant its plugin builds it; withdrawn by `close-pane`. A pane the user closes by hand leaves the ledger with it (its owner is then told it's gone); so does its controller's closing (the pane stays, nobody's) | `ControlPlaneTests/aPaneIsOwnedFromTheInstantItsPluginBuildsIt`, `ControlPlaneTests/anOwnedPaneCarriesTheControlledSignalAndItNeverReachesItsTab`, `ControlPlaneTests/closingThePaneWithdrawsItWhoeverClosesIt`, `ControlPlaneTests/closingTheControllerFreesItsPanesAndTakesTheirCueDown` |
 
 ### Several cues
 

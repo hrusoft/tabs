@@ -32,9 +32,28 @@ enum GitTreeMetrics {
     static let detailPadding = (vertical: 8.0, horizontal: 10.0)
     static let fieldsGap = (row: 2.0, column: 10.0)
     static let fileLineHeight = 17.0
+    static let fileDisclosureWidth = 14.0
     static let fileStatWidth = 84.0
     static let fileGap = 8.0
     static let fileStatGap = 5.0
+
+    /// An expanded file's diff box: under its row, a 1pt border, radius 3.
+    static let diffMargin = (top: 2.0, bottom: 6.0)
+    static let diffPadding = 3.0
+    static let diffRadius = 3.0
+    static let diffLineHeight = 15.0
+    /// Either side of a line number, in its column.
+    static let diffNumberPadding = 4.0
+    static let diffMarkerWidth = 12.0
+    static let diffTextPaddingRight = 6.0
+    static let diffHiddenRowHeight = 20.0
+    static let diffStripHeight = 20.0
+    static let diffButtonPadding = 8.0
+    static let diffNotePadding = (vertical: 4.0, horizontal: 8.0)
+    /// Tab stops in a diff's text, in characters.
+    static let diffTabWidth = 4
+    /// Menlo 11's advance: every ASCII character's width.
+    static let monoAdvance = GitText.mono11.width(String(repeating: "0", count: 100)) / 100
 
     static let noticePadding = 16.0
     static let noticeParagraphGap = 6.0
@@ -56,6 +75,9 @@ enum GitTreeColors {
     /// Diff stats' own colors, not borrowed lanes.
     static let insertions = NSColor.hex(0x59b871)
     static let deletions = NSColor.hex(0xe0705a)
+    /// An added or removed line's wash in a file's diff.
+    static let addedLine = insertions.withAlphaComponent(0.15)
+    static let removedLine = deletions.withAlphaComponent(0.15)
 }
 
 /// Text in a line box of the font's rounded ascent plus rounded descent, the
@@ -180,6 +202,17 @@ extension String {
 /// A view whose origin is top-left.
 class GitFlippedView: NSView {
     override var isFlipped: Bool { true }
+}
+
+extension NSView {
+    /// `updateTrackingAreas`' usual work: `old` replaced by an area over the
+    /// visible rect that reports `events` whether or not the window is key.
+    func replaceTrackingArea(_ old: NSTrackingArea?, events: NSTrackingArea.Options) -> NSTrackingArea {
+        if let old { removeTrackingArea(old) }
+        let area = NSTrackingArea(rect: .zero, options: events.union([.activeAlways, .inVisibleRect]), owner: self)
+        addTrackingArea(area)
+        return area
+    }
 }
 
 /// `x` snapped as a painted box edge is: to a whole point, round half up.

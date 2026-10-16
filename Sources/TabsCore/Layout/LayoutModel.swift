@@ -58,10 +58,9 @@ package struct LayoutModel: Equatable, Sendable {
                     return copy
                 }
             }
-            let wasActive = window.activePaneID
             if case .tabs(let root) = fix(window.rootNode) { window.root = root }
             for index in window.floating.indices { window.floating[index].content = fix(window.floating[index].content) }
-            if !window.holds(wasActive) { window.activePaneID = Tree.firstPaneID(window.rootNode) }
+            window.repairActivePane()
         }
         for index in windows.indices { unique(&windows[index]) }
         if var lastClosed {
@@ -74,9 +73,11 @@ package struct LayoutModel: Equatable, Sendable {
 
 // MARK: - Saved form
 
-/// layout.json: every window as `{id, root, activePaneId, floating, frame}`,
-/// where a leaf is `{id, type, config, title?, titleIsManual?}` (`type: "empty"`
-/// for an empty pane), a group `{id, type: "tabs", tabs: [{id, title, content}],
+/// layout.json: every window as `{id, root, activePaneId, recentPaneIds?,
+/// floating, frame}` (`recentPaneIds`: the panes that were active, most recent
+/// first; absent when only the active pane has been), where a leaf is `{id,
+/// type, config, title?, titleIsManual?}` (`type: "empty"` for an empty pane),
+/// a group `{id, type: "tabs", tabs: [{id, title, titleIsManual?, content}],
 /// activeTabId}`, a split `{id, type: "split", direction, children, sizes}`.
 ///
 /// A pane whose plugin is unavailable round-trips byte-for-byte, so a missing
@@ -116,7 +117,7 @@ package struct LayoutSnapshot: Decodable {
 }
 
 extension WindowLayout: Codable {
-    private enum CodingKeys: String, CodingKey { case id, root, activePaneId, floating, frame }
+    private enum CodingKeys: String, CodingKey { case id, root, activePaneId, recentPaneIds, floating, frame }
 
     package init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -133,6 +134,7 @@ extension WindowLayout: Codable {
             id: (try? container.decodeIfPresent(WindowID.self, forKey: .id)) ?? .make(),
             root: try container.decode(LayoutNode.self, forKey: .root), floating: floating,
             active: try? container.decodeIfPresent(NodeID.self, forKey: .activePaneId),
+            recent: (try? container.decodeIfPresent([NodeID].self, forKey: .recentPaneIds)) ?? [],
             frame: try? container.decodeIfPresent(WindowFrame.self, forKey: .frame))
     }
 
@@ -141,6 +143,7 @@ extension WindowLayout: Codable {
         try container.encode(id, forKey: .id)
         try container.encode(rootNode, forKey: .root)
         try container.encode(activePaneID, forKey: .activePaneId)
+        if recentPanes != [activePaneID] { try container.encode(recentPanes, forKey: .recentPaneIds) }
         try container.encode(floating, forKey: .floating)
         try container.encodeIfPresent(frame, forKey: .frame)
     }
@@ -151,7 +154,7 @@ extension LayoutNode: Codable {
         case id, type, config, title, titleIsManual, tabs, activeTabId, direction, children, sizes
     }
 
-    private enum TabKeys: String, CodingKey { case id, title, content }
+    private enum TabKeys: String, CodingKey { case id, title, titleIsManual, content }
 
     package static let emptyTypeName = "empty"
 
@@ -169,39 +172,21 @@ extension LayoutNode: Codable {
                 self = .emptyLeaf()
                 return
             }
-            var tabs: [Tab] = []
-            var index = 0
-            while !array.isAtEnd {
-                if let tab = try? array.decode(DecodedTab.self) {
-                    tabs.append(tab.tab)
-                } else {
-                    _ = try? array.decode(JSONValue.self)
-                    decoder.diagnostics?.drop("dropped malformed tab #\(index)")
-                }
-                index += 1
-            }
+            let tabs = array.decodeLossy(DecodedTab.self, diagnostics: decoder.diagnostics) { "dropped malformed tab #\($0)" }
+                .map(\.element.tab)
             let active = try? container.decodeIfPresent(NodeID.self, forKey: .activeTabId)
             self = .tabs(TabGroup(id: id, tabs: tabs, activeTabID: .some(active ?? nil)))
         case "split":
             let direction = try container.decode(SplitDirection.self, forKey: .direction)
             let rawSizes = (try? container.decodeIfPresent([JSONValue].self, forKey: .sizes)) ?? []
-            var children: [LayoutNode] = []
-            var sizes: [Double] = []
+            var kept: [(index: Int, element: LayoutNode)] = []
             if container.contains(.children) {
                 var array = try container.nestedUnkeyedContainer(forKey: .children)
-                var index = 0
-                while !array.isAtEnd {
-                    if let child = try? array.decode(LayoutNode.self) {
-                        children.append(child)
-                        // Each kept child keeps its own size; a missing one is 0 (repaired by normalize).
-                        sizes.append(rawSizes.indices.contains(index) ? rawSizes[index].doubleValue ?? 0 : 0)
-                    } else {
-                        _ = try? array.decode(JSONValue.self)
-                        decoder.diagnostics?.drop("dropped malformed pane #\(index) of children")
-                    }
-                    index += 1
-                }
+                kept = array.decodeLossy(LayoutNode.self, diagnostics: decoder.diagnostics) { "dropped malformed pane #\($0) of children" }
             }
+            let children = kept.map(\.element)
+            // Each kept child keeps its own size; a missing one is 0 (repaired by normalize).
+            let sizes = kept.map { rawSizes.indices.contains($0.index) ? rawSizes[$0.index].doubleValue ?? 0 : 0 }
             self = .split(Split(id: id, direction: direction, children: children, sizes: sizes))
         default:
             self = .leaf(
@@ -221,6 +206,7 @@ extension LayoutNode: Codable {
             let container = try decoder.container(keyedBy: TabKeys.self)
             tab = Tab(
                 id: try container.decode(NodeID.self, forKey: .id), title: (try? container.decode(String.self, forKey: .title)) ?? "",
+                titleIsManual: (try? container.decodeIfPresent(Bool.self, forKey: .titleIsManual)) ?? false,
                 content: try container.decode(LayoutNode.self, forKey: .content))
         }
     }
@@ -241,6 +227,7 @@ extension LayoutNode: Codable {
                 var entry = tabs.nestedContainer(keyedBy: TabKeys.self)
                 try entry.encode(tab.id, forKey: .id)
                 try entry.encode(tab.title, forKey: .title)
+                if tab.titleIsManual { try entry.encode(true, forKey: .titleIsManual) }
                 try entry.encode(tab.content, forKey: .content)
             }
             try container.encode(group.activeTabID, forKey: .activeTabId)
@@ -278,12 +265,13 @@ extension FloatingPane: Codable {
 extension FloatAnchor: Codable {
     private enum CodingKeys: String, CodingKey {
         case kind, splitId, direction, index, size, beforeId, afterId
-        case groupId, title, beforeTabId, afterTabId, siblings, wasActive, groupAnchor, groupWasRoot
+        case groupId, title, titleIsManual, beforeTabId, afterTabId, siblings, wasActive, groupAnchor, groupWasRoot
     }
 
     private struct SiblingForm: Codable {
         var id: NodeID
         var title: String?
+        var titleIsManual: Bool?
         var contentId: NodeID
     }
 
@@ -301,9 +289,12 @@ extension FloatAnchor: Codable {
             self = .tab(
                 .init(
                     groupID: groupID, index: index, title: (try? container.decode(String.self, forKey: .title)) ?? "",
+                    titleIsManual: (try? container.decode(Bool.self, forKey: .titleIsManual)) ?? false,
                     beforeTabID: try? container.decode(NodeID.self, forKey: .beforeTabId),
                     afterTabID: try? container.decode(NodeID.self, forKey: .afterTabId),
-                    siblings: siblings.map { .init(id: $0.id, title: $0.title ?? "", contentID: $0.contentId) },
+                    siblings: siblings.map {
+                        .init(id: $0.id, title: $0.title ?? "", titleIsManual: $0.titleIsManual ?? false, contentID: $0.contentId)
+                    },
                     wasActive: (try? container.decode(Bool.self, forKey: .wasActive)) ?? false,
                     groupAnchor: try? container.decode(FloatAnchor.self, forKey: .groupAnchor),
                     groupWasRoot: (try? container.decode(Bool.self, forKey: .groupWasRoot)) ?? false))
@@ -339,9 +330,14 @@ extension FloatAnchor: Codable {
             try container.encode(tab.groupID, forKey: .groupId)
             try container.encode(tab.index, forKey: .index)
             try container.encode(tab.title, forKey: .title)
+            if tab.titleIsManual { try container.encode(true, forKey: .titleIsManual) }
             try container.encodeIfPresent(tab.beforeTabID, forKey: .beforeTabId)
             try container.encodeIfPresent(tab.afterTabID, forKey: .afterTabId)
-            try container.encode(tab.siblings.map { SiblingForm(id: $0.id, title: $0.title, contentId: $0.contentID) }, forKey: .siblings)
+            try container.encode(
+                tab.siblings.map {
+                    SiblingForm(id: $0.id, title: $0.title, titleIsManual: $0.titleIsManual ? true : nil, contentId: $0.contentID)
+                },
+                forKey: .siblings)
             try container.encode(tab.wasActive, forKey: .wasActive)
             try container.encodeIfPresent(tab.groupAnchor, forKey: .groupAnchor)
             try container.encode(tab.groupWasRoot, forKey: .groupWasRoot)
@@ -355,14 +351,26 @@ extension KeyedDecodingContainer {
     func decodeLossy<T: Decodable>(_ type: T.Type, forKey key: Key, what: String, diagnostics: DecodingDiagnostics?) throws -> [T] {
         guard contains(key) else { return [] }
         var array = try nestedUnkeyedContainer(forKey: key)
-        var result: [T] = []
+        return array.decodeLossy(T.self, diagnostics: diagnostics) { "dropped malformed \(what) #\($0) of \(key.stringValue)" }
+            .map(\.element)
+    }
+}
+
+extension UnkeyedDecodingContainer {
+    /// Decodes the rest of the array element by element: the ones that decode,
+    /// each with its index, the others dropped and reported (`dropped`, given
+    /// the index).
+    mutating func decodeLossy<T: Decodable>(
+        _ type: T.Type, diagnostics: DecodingDiagnostics?, dropped: (Int) -> String
+    ) -> [(index: Int, element: T)] {
+        var result: [(index: Int, element: T)] = []
         var index = 0
-        while !array.isAtEnd {
-            if let element = try? array.decode(T.self) {
-                result.append(element)
+        while !isAtEnd {
+            if let element = try? decode(T.self) {
+                result.append((index, element))
             } else {
-                _ = try? array.decode(JSONValue.self)
-                diagnostics?.drop("dropped malformed \(what) #\(index) of \(key.stringValue)")
+                _ = try? decode(JSONValue.self)
+                diagnostics?.drop(dropped(index))
             }
             index += 1
         }

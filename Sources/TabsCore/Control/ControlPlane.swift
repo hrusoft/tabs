@@ -13,8 +13,11 @@ import TabsPluginSDK
 ///
 /// 1. the request type is a verb's (`unknown request type`);
 /// 2. the caller is a live pane (`not running inside a Tabs pane`) — uniform,
-///    before anything else, whatever the verb, so a socket client with no pane
-///    can do nothing and learns nothing;
+///    whatever the verb, so no control-plane verb runs for a client with no
+///    pane. It isn't the first answer such a client can get: an envelope's
+///    flags are coerced before dispatch (`ControlEnvelope.build`), so a flag
+///    error comes back first, and internal verbs (`tabs.verbs`, …) check no
+///    caller at all;
 /// 3. a named target is one the caller owns (`not the owner of this pane`),
 ///    checked once here, so a verb a plugin adds cannot ship without it;
 /// 4. the wire request is valid against the verb's schema (`request.<field> …`);
@@ -22,10 +25,12 @@ import TabsPluginSDK
 /// 6. the handler runs, on its budget.
 extension ControlDispatcher {
     /// What a verb aimed at a pane that is gone answers with — quoted verbatim
-    /// in the skill's SKILL.md, which is why it is a constant. Two producers:
-    /// the ledger's tombstone for a pane its owner closed, and a target that
-    /// no longer resolves to a live pane (the user closed it by hand).
-    package static let paneGoneError = "target pane no longer exists — it was closed; listOwnedPanes shows the panes still open"
+    /// in the skill's SKILL.md, which is why it is a constant. Three producers:
+    /// the ownership check, from the ledger's tombstone for a pane its caller
+    /// controlled (closed by `close-pane` or by the user: either way `detach`
+    /// leaves the tombstone); the target check, for a target that no longer
+    /// resolves to a live pane; and `pane-info`'s handler, the same check.
+    package static let paneGoneError = "target pane no longer exists — it was closed; list-panes shows the panes still open"
 
     /// How many sub-requests one `batch` may carry.
     package static let maxBatchSize = 50
@@ -48,26 +53,17 @@ extension ControlDispatcher {
         return await dispatch(wire: request, cwd: envelope.cwd)
     }
 
-    /// The flags of `command`, as a wire request: `buildRequestFromEnvelope`.
-    package func buildRequest(command: String, args: [String: JSONValue], paneId: PaneID, cwd: URL?) -> ControlEnvelope.Built {
-        switch resolve(command: command) {
-        case .found(let verb, _) where verb.wireType != nil:
-            return ControlEnvelope.build(verb, command: command, args: args, paneId: paneId, cwd: cwd)
-        case .ambiguous(let names):
-            return .failed("command \"\(command)\" is ambiguous (\(names.sorted().joined(separator: ", "))); use a qualified name")
-        case .found, .none:
-            return .failed("unknown command: \(command.isEmpty ? "(none)" : command) — run capabilities to list them")
-        }
-    }
-
     // MARK: Dispatch
 
     /// Validates a wire request, enforces the boundary checks every verb
     /// shares, then runs the verb. What arrives is untyped: a `batch` step
     /// assembled from a caller's JSON, or a request `ControlEnvelope` built.
     package func dispatch(wire request: JSONValue, cwd: URL?) async -> JSONValue {
-        guard case .object(var fields) = request, let type = fields["type"]?.stringValue, let (verb, owner) = verb(wireType: type) else {
-            return Self.failure("unknown request type: \(request["type"]?.stringValue ?? "(none)")")
+        // `null` counts as absent, as it does for a flag and for an internal
+        // verb's argument: a `null` target is no target.
+        var fields = request.objectValue?.filter { $0.value != .null } ?? [:]
+        guard let type = fields["type"]?.stringValue, let (verb, owner) = verb(wireType: type) else {
+            return Self.failure("unknown request type: \(fields["type"]?.stringValue ?? "(none)")")
         }
         let caller = PaneID(fields["paneId"]?.stringValue ?? "")
         guard panes.contentType(of: caller) != nil else { return Self.failure("not running inside a Tabs pane") }
@@ -76,7 +72,7 @@ extension ControlDispatcher {
         // a pane this caller created — the one boundary that keeps a control
         // session from reading or driving the user's panes, or another agent's.
         if let named = fields["targetPaneId"] {
-            guard case .string(let id) = named, panes.ownership.owner(of: PaneID(id)) == caller else {
+            guard case .string(let id) = named, panes.ownership.controller(of: PaneID(id)) == caller else {
                 // The one exception, for the caller who already knew this pane
                 // existed: it created it, and it has since closed. "Not the
                 // owner" would send it hunting an auth problem instead of
@@ -186,7 +182,7 @@ extension ControlDispatcher {
             ControlVerbContribution(
                 name: "tabs.activatePane",
                 summary:
-                    "Bring a pane you own to the front of its tab group without capturing it. screenshot does this itself when needed.",
+                    "Bring a pane you own to the front of its tab group, without taking the keyboard from the pane the user is in.",
                 target: .ownedPane(ofTypes: nil), timeout: quick, command: "activate-pane", wireType: "activatePane"
             ) { [unowned self] invocation in
                 // Visible, never active: the user's keyboard stays where it is.
@@ -228,7 +224,7 @@ extension ControlDispatcher {
                     throw ControlVerbError(Self.paneGoneError)
                 }
                 switch await pane.controller.controlDescription() {
-                case .unsupported: throw ControlVerbError("\(pane.contentType.rawValue) panes cannot be inspected with getPaneInfo")
+                case .unsupported: throw ControlVerbError("\(pane.contentType.rawValue) panes cannot be inspected with pane-info")
                 case .error(let message): throw ControlVerbError(message)
                 case .fields(let fields):
                     var result: [String: JSONValue] = [
@@ -266,7 +262,7 @@ extension ControlDispatcher {
 
         addCoreVerb(
             ControlVerbContribution(
-                name: "tabs.capabilities", summary: "One line per command, grouped by capability (core plus every content type).",
+                name: "tabs.capabilities", summary: "One line per command, grouped by capability (core plus each plugin's).",
                 timeout: quick, command: "capabilities", wireType: "capabilities",
                 resultShape: [
                     "capabilities": [["id": "string", "displayName": "string", "enabled": "boolean", "commands": ["string"]]]
@@ -280,7 +276,7 @@ extension ControlDispatcher {
                 arguments: [
                     ControlArgument(
                         "capability", .string, required: true,
-                        summary: "A capability id from capabilities — \"core\", or a content type like \"browser\".")
+                        summary: "A capability id from capabilities — \"core\", or a plugin's id like \"browser\".")
                 ],
                 timeout: quick, command: "describe", wireType: "describe",
                 resultShape: [
@@ -295,16 +291,8 @@ extension ControlDispatcher {
             ) { [unowned self] invocation in try self.describe(capability: invocation["capability"]?.stringValue ?? "") })
     }
 
-    /// Core's commands, in the order `capabilities` and `describe` list them.
-    private static let coreCommandOrder = [
-        "tabs.ping", "tabs.activatePane", "tabs.closePane", "tabs.listPanes", "tabs.paneInfo", "tabs.batch", "tabs.capabilities",
-        "tabs.describe",
-    ]
-
     /// Core's own numbers, served by `describe --capability core`.
     static let coreLimits: [String: JSONValue] = ["maxBatchRequests": .int(Int64(maxBatchSize))]
-
-    private var coreCommands: [ControlVerbContribution] { Self.coreCommandOrder.compactMap { verb(named: $0)?.verb } }
 
     /// A capability's commands: its plugin's control-plane verbs, in registration order.
     private func commands(of plugin: PluginID) -> [ControlVerbContribution] {

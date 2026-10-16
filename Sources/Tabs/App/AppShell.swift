@@ -26,7 +26,8 @@ final class AppShell {
         renderer = WorkspaceRenderer(runtime: runtime, engine: engine, presentsWindows: presentsWindows)
         router = CommandRouter(runtime: runtime, engine: engine)
         input = WorkspaceInput(renderer: renderer, runtime: runtime)
-        caffeinateDialog = CaffeinateDialogPresenter(caffeinate: runtime.caffeinate, presentsWindows: presentsWindows)
+        caffeinateDialog = CaffeinateDialogPresenter(
+            caffeinate: runtime.caffeinate, settings: runtime.settings, themes: runtime.themes, presentsWindows: presentsWindows)
         router.showCaffeinateDialog = { [weak caffeinateDialog] in caffeinateDialog?.show() }
         router.isWorkspaceWindow = { [weak renderer] window in renderer?.isWorkspaceWindow(window) ?? false }
         router.windowController = { [weak renderer] id in renderer?.windowController(id) }
@@ -84,19 +85,19 @@ final class AppShell {
         subscriptions.append(runtime.shortcuts.observeChanges { [weak self] in self?.installMenu() })
     }
 
-    /// The chrome's look from the pane settings, and the appearance of everything else the app shows.
+    /// The chrome's look from the pane settings, and the appearance of everything else the app
+    /// shows: the theme the setting names (`runtime.themes`), and what macOS draws pinned to its
+    /// dark or light.
     func applyPaneSettings(_ settings: SettingsStore.PaneSettings) {
-        // The app's own appearance first: `system` is read from the OS, which a pinned one hides.
-        let pinned = NSAppearance.pinned(by: settings.colorTheme)
-        if NSApp?.appearance?.name != pinned?.name { NSApp?.appearance = pinned }
+        // `system` is read from the OS, which a pinned appearance hides: unpinned first.
+        if settings.colorTheme == ThemeCatalog.system, NSApp?.appearance != nil { NSApp?.appearance = nil }
         let systemIsDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let theme = runtime.themes.catalog.resolve(settings.colorTheme, systemIsDark: systemIsDark)
+        let pinned = NSAppearance.pinned(by: settings.colorTheme, theme: theme)
+        if NSApp?.appearance?.name != pinned?.name { NSApp?.appearance = pinned }
+        runtime.themes.set(theme)
         var appearance = renderer.baseAppearance
-        appearance.theme = Theme.resolve(settings.colorTheme, systemIsDark: systemIsDark)
-        appearance.dimInactivePanes = settings.dimInactivePanes
-        appearance.dimIntensity = settings.dimInactivePanesIntensity
-        appearance.showNavFlash = settings.showNavFlash
-        appearance.snapResizeSeparators = settings.snapResizeSeparators
-        appearance.spawnPosition = settings.spawnPosition
+        appearance.apply(settings, theme: theme)
         renderer.baseAppearance = appearance
     }
 
@@ -122,5 +123,19 @@ final class AppShell {
         subscriptions.removeAll()
         for observer in keyWindowObservers { NotificationCenter.default.removeObserver(observer) }
         keyWindowObservers.removeAll()
+    }
+}
+
+extension PaneAppearance {
+    /// The chrome's look as the pane settings give it, `theme` being what their `colorTheme`
+    /// resolved to: what the app draws with, and what the visual capture stages a scenario's
+    /// settings with.
+    mutating func apply(_ settings: SettingsStore.PaneSettings, theme: Theme) {
+        self.theme = theme
+        dimInactivePanes = settings.dimInactivePanes
+        dimIntensity = settings.dimInactivePanesIntensity
+        showNavFlash = settings.showNavFlash
+        snapResizeSeparators = settings.snapResizeSeparators
+        tabTitlesFollowPanes = settings.tabTitlesFollowPanes
     }
 }

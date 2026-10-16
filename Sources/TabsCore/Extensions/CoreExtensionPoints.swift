@@ -34,6 +34,9 @@ package enum CoreExtensionPoints {
             return nil
         }
         guard let command = verb.command else { return "a wireType needs a command (the CLI name)" }
+        // Dispatch reads only an owned-pane target: a pane target's types
+        // would be ignored, and its handler would get no pane.
+        if case .pane = verb.target { return "a pane target is for internal verbs: a control-plane verb takes an owned-pane target" }
         guard isKebabCase(command) else { return "command \"\(command)\" must be kebab-case" }
         guard isLowerCamelCase(wireType) else { return "wireType \"\(wireType)\" must be lowerCamelCase" }
         // The request's own fields.
@@ -74,11 +77,6 @@ package enum CoreExtensionPoints {
     private static func isLowercase(_ byte: UInt8) -> Bool { (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte) }
     private static func isUppercase(_ byte: UInt8) -> Bool { (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte) }
     private static func isDigit(_ byte: UInt8) -> Bool { (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte) }
-
-    /// Wire types core's own verbs use.
-    package static let coreWireTypes: Set<String> = [
-        "ping", "activatePane", "closePane", "listOwnedPanes", "getPaneInfo", "batch", "capabilities", "describe",
-    ]
 
     /// What's wrong with a control capability's declaration.
     package static func problem(with capability: ControlCapabilityContribution) -> String? {
@@ -165,10 +163,11 @@ package enum CoreExtensionPoints {
             return Shortcuts.problem(with: chord, scope: command.appliesTo).map { "shortcut \(chord): \($0)" }
         }
 
+        // Core's own wire types and commands are the dispatcher's rule
+        // (`ControlDispatcher.init`): it adds those verbs, so it knows them.
         registry.addValidator(for: .controlVerbs) { verb, _, others in
             if let problem = problem(with: verb) { return problem }
             guard let wireType = verb.wireType else { return nil }
-            if coreWireTypes.contains(wireType) { return "wireType \"\(wireType)\" is one of core's" }
             if let clash = others.first(where: { $0.value.wireType == wireType }) {
                 return "wireType \"\(wireType)\" is already \(clash.owner)'s (\(clash.value.name))"
             }

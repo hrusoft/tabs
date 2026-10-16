@@ -1,13 +1,15 @@
 {
-  "description": "signal-both with the bell and control indicators turned off (enableBellIndicator, enableControlIndicator false): identical to split-horizontal — no icon in any header or tab, no cue outline; A keeps the accent outline.",
+  "description": "signal-both with the bell and control indicators turned off (disabledSignals bell, controlled): identical to split-horizontal — no icon in any header or tab, no cue outline; A keeps the accent outline.",
   "size": {
     "width": 1200,
     "height": 800
   },
   "settings": {
     "colorTheme": "dark",
-    "enableBellIndicator": false,
-    "enableControlIndicator": false
+    "disabledSignals": [
+      "bell",
+      "controlled"
+    ]
   },
   "signals": {
     "leaf-b": [

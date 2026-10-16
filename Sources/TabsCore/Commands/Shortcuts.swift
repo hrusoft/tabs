@@ -13,7 +13,9 @@ import TabsPluginSDK
 /// types share a chord: only the active type's command is armed.
 ///
 /// The fixed commands (Quit, Copy…) keep their chords: the user can't rebind
-/// them, and nothing else may take a reserved chord (`reserved`).
+/// them, and a plugin's default loses theirs to them by priority. The user
+/// can't take a reserved chord either (`reserved`); a plugin's default isn't
+/// checked against it, so one may take ⌃⌘F.
 @MainActor
 package final class Shortcuts {
     package enum Source: String, Sendable {
@@ -107,10 +109,10 @@ package final class Shortcuts {
         }
     }
 
-    /// Chords nothing but their owner may have: the fixed commands', and
-    /// AppKit's own Enter Full Screen (⌃⌘F).
+    /// Chords the user may not bind (`userProblem`): the fixed commands'.
+    /// Plugin defaults aren't checked against them: the fixed commands claim
+    /// theirs first anyway.
     package static let reserved: Set<KeyChord> = Set(CoreCommands.all.filter(\.isFixed).compactMap(\.defaultChord))
-        .union([KeyChord("f", [.control, .command])])
 
     private let registry: ContributionRegistry
     private let settings: SettingsStore
@@ -118,8 +120,7 @@ package final class Shortcuts {
     /// Core commands first, then plugins' in UI order.
     package private(set) var bindings: [Binding] = []
     private var indexByCommand: [CommandID: Int] = [:]
-    private var observers: [(token: Int, handler: @MainActor () -> Void)] = []
-    private var nextToken = 0
+    private let observers = ObserverList<Void>()
 
     package init(registry: ContributionRegistry, settings: SettingsStore, host: PluginHost) {
         self.registry = registry
@@ -176,10 +177,7 @@ package final class Shortcuts {
 
     /// Called after every rebuild (a rebinding, plugins starting).
     package func observeChanges(_ handler: @escaping @MainActor () -> Void) -> Subscription {
-        nextToken += 1
-        let token = nextToken
-        observers.append((token, handler))
-        return Subscription { [weak self] in self?.observers.removeAll { $0.token == token } }
+        observers.add { _ in handler() }
     }
 
     // MARK: The user's bindings
@@ -247,7 +245,7 @@ package final class Shortcuts {
     package func rebuild() {
         bindings = resolve(settings.shortcutOverrides)
         indexByCommand = Dictionary(bindings.indices.map { (bindings[$0].command, $0) }, uniquingKeysWith: { first, _ in first })
-        for observer in observers { observer.handler() }
+        observers.notify(())
     }
 
     /// Every binding the commands would have with `overrides`.

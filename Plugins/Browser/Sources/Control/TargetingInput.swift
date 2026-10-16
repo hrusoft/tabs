@@ -3,9 +3,9 @@ import TabsPluginSDK
 
 /// Naming an element for an input verb: resolving a ref, a semantic target or a
 /// point to where input should land (`resolveClickTarget`) or what should hold the
-/// keyboard (`focusTypingTarget`), and pressing there (`clickAt`). The impure half
-/// of targeting: what needs the page and its input. The wording every targeting
-/// error shares is `Targeting` (VerbSupport.swift).
+/// keyboard (`focusTypingTarget`). The impure half of targeting: what needs the
+/// page and its input. The wording every targeting error shares is `Targeting`
+/// (VerbSupport.swift).
 @MainActor
 struct TargetingInput {
     let page: BrowserPage
@@ -83,12 +83,6 @@ struct TargetingInput {
             Point(x: outcome["x"]?.doubleValue ?? 0, y: outcome["y"]?.doubleValue ?? 0, element: intended))
     }
 
-    /// A left click at a point: a move first, so a page that only reveals a
-    /// control on hover has seen the pointer arrive before the press lands on it.
-    func clickAt(x: Double, y: Double) async throws {
-        try await input.click(x: x, y: y)
-    }
-
     /// Puts the page's focus where typed text should land. A ref or semantic
     /// target is focused directly rather than clicked (an overlay could swallow
     /// the click): the semantic form resolves and focuses in the same page
@@ -100,7 +94,7 @@ struct TargetingInput {
     /// or just skips the field (`form-input`).
     func focusTypingTarget(_ target: ElementTarget) async throws -> VerbFailure? {
         if case .point(let x, let y) = target {
-            try await clickAt(x: x, y: y)
+            try await input.click(x: x, y: y)
             return nil
         }
         let named: NamedTarget

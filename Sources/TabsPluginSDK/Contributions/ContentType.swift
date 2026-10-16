@@ -44,7 +44,7 @@ public struct ContentTypeContribution: Contribution {
 
 public extension ContentTypeContribution {
     /// The creation button's label: `creationLabel`, else "New \(displayName)".
-    var resolvedCreationLabel: String { creationLabel ?? "New \(displayName)" }
+    package var resolvedCreationLabel: String { creationLabel ?? "New \(displayName)" }
 }
 
 /// Why a pane is being created.
@@ -72,9 +72,6 @@ public protocol PaneController: AnyObject {
     /// views (web and terminal views included) keep their state across a move;
     /// react to the window changing in `viewDidMoveToWindow` if you must.
     var view: NSView { get }
-    /// Extra control for the pane's header bar, trailing the title. Asked for
-    /// with `view`.
-    var headerAccessory: NSView? { get }
     /// A view that takes the place of the pane's title in its header bar, when
     /// the pane's subject is better shown as controls than as text (a path
     /// bar, a filter). Core lays it out in the title's slot: after the grip and
@@ -149,14 +146,13 @@ public enum PaneControlDescription: Sendable, Equatable {
     /// message is the caller's error.
     case error(String)
     /// This kind of pane can't be inspected: core answers `<type> panes cannot
-    /// be inspected with getPaneInfo`.
+    /// be inspected with pane-info`.
     case unsupported
 }
 
 public extension PaneController {
     var controlSummary: JSONValue? { nil }
     func controlDescription() async -> PaneControlDescription { .unsupported }
-    var headerAccessory: NSView? { nil }
     var headerTitle: NSView? { nil }
     var headerActions: [PaneHeaderAction] { [] }
     var closeWarning: String? { nil }
@@ -203,16 +199,18 @@ public protocol PaneContext: AnyObject {
     /// The config this pane was created or restored with.
     var initialConfig: JSONValue { get }
     /// The app's color tokens as of now (`paneAppearanceDidChange` says when
-    /// they change). Before core first tells the pane, the dark theme.
+    /// they change). Before core first tells the pane, `PaneTheme.placeholder`
+    /// (AppKit's own colors).
     var theme: PaneTheme { get }
     /// How many tab groups are above the pane (the outermost is 0): which
     /// shade its header is painted with (`theme.surface(depth:)`). It changes
     /// when the pane is moved.
     var depth: Int { get }
-    /// The pane that owns this one right now — the pane whose shell created it
-    /// through a control verb (`PaneRequest.controlledBy`) — or nil. Live: it
-    /// ends when this pane closes. What a plugin's guards read (an owned pane
-    /// may not open windows or be steered outside http and https).
+    /// The pane that controls this one right now — usually the pane whose shell
+    /// created it through a control verb (`PaneRequest.controlledBy`) — or nil. Live: it
+    /// ends when either pane closes, or when core disables control, so read it
+    /// on every decision. What a plugin's guards read (an owned pane may not
+    /// open windows or be steered outside http and https).
     var controller: PaneID? { get }
     /// Sets the tab title (a note's first line, a shell's cwd).
     func setTitle(_ title: String)

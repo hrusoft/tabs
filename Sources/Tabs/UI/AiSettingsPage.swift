@@ -64,7 +64,7 @@ struct AiSettingsView: View {
                         }
                     } label: {
                         Text(target.label)
-                        Text(model.detail(of: target))
+                        Text(model.detail(of: target)).foregroundStyle(.secondary)
                             .accessibilityIdentifier("settings-skill-status-\(target.id)")
                     }
                 }
@@ -74,6 +74,7 @@ struct AiSettingsView: View {
                 Text(
                     "Installs a skill that lets an agent running in a Tabs terminal pane open and control browser panes it creates. It only works from inside Tabs — installing it doesn't affect anything outside the app."
                 )
+                .foregroundStyle(.secondary)
             }
             Section("Bell notifications") {
                 VStack(alignment: .leading, spacing: 10) {

@@ -184,7 +184,8 @@ private extension JSONValue {
         }
         // Cancelled before it gets the main actor: a connection that closed
         // while this request waited in its queue.
-        let request = Task { @MainActor in try await ControlDispatcher.run(verb, ControlInvocation(arguments: [:])) }
+        let invocation = ControlInvocation(arguments: [:], targetPane: nil, callerPane: nil, cwd: nil) { _ in nil }
+        let request = Task { @MainActor in try await ControlDispatcher.run(verb, invocation) }
         request.cancel()
         let result = await request.result
         #expect(throws: CancellationError.self) { try result.get() }

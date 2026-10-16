@@ -11,7 +11,7 @@ final class TabStripView: FlippedView {
     unowned let pane: PaneView
     private var tabViews: [NodeID: TabView] = [:]
     private(set) var orderedTabs: [TabView] = []
-    let newTabButton = NewTabButton()
+    let newTabButton: NewTabButton
     private let dropIndicator = FlippedView()
     /// How far the tabs are scrolled left.
     private(set) var scrollOffset: CGFloat = 0
@@ -19,6 +19,7 @@ final class TabStripView: FlippedView {
 
     init(pane: PaneView) {
         self.pane = pane
+        newTabButton = NewTabButton(pane: pane)
         super.init(frame: .zero)
         layer?.masksToBounds = true
         addSubview(newTabButton)
@@ -50,9 +51,7 @@ final class TabStripView: FlippedView {
         // The active tab draws over its neighbours' edges (it's the one raised).
         if let active = orderedTabs.first(where: \.isActive) { addSubview(active, positioned: .below, relativeTo: newTabButton) }
         dropIndicator.layer?.backgroundColor = theme.accent.cgColor
-        newTabButton.color = theme.textDim
-        newTabButton.hoverColor = theme.text
-        newTabButton.theme = theme
+        newTabButton.needsDisplay = true
         needsLayout = true
     }
 
@@ -170,7 +169,8 @@ final class TabView: FlippedView, PointerHover, NSViewToolTipOwner {
     var host: any ChromeHost { strip.pane.host }
     var theme: Theme { host.appearance.theme }
     var depth: Int { strip.pane.depth }
-    var title: String { tab?.title ?? "" }
+    /// What the tab shows (its pane's title while tab titles follow panes).
+    var title: String { tab.map(host.tabTitle) ?? "" }
 
     /// From the tab's left border to its title: the padding, or — while it
     /// shows signals — 2pt, then each 16pt icon and the tab's 2pt gap.
@@ -341,11 +341,7 @@ final class TabView: FlippedView, PointerHover, NSViewToolTipOwner {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(
-            rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        tracking = replaceTrackingArea(tracking, events: [.mouseEnteredAndExited, .mouseMoved])
     }
 
     override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
@@ -392,50 +388,9 @@ final class TabView: FlippedView, PointerHover, NSViewToolTipOwner {
 
 /// The "+" after the last tab: a new tab in this group. Revealed with the bar's other controls.
 @MainActor
-final class NewTabButton: FlippedView, PointerHover {
-    var color: NSColor = .gray { didSet { needsDisplay = true } }
-    var hoverColor: NSColor = .white
-    var theme: Theme = .dark
-    var onPress: (() -> Void)?
-    private var tracking: NSTrackingArea?
-    private var isHovered = false
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+final class NewTabButton: ChromeIconButton {
+    init(pane: PaneView) {
+        super.init(pane: pane, icon: ChromeIcon.plus, iconBox: Metrics.newTabButtonIconBox, label: "New tab", brightensOnHover: true)
         setAccessibilityIdentifier("tab-strip-new-tab-button")
-        toolTip = "New tab"
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if isHovered {
-            theme.hover(0.12).setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
-        }
-        ChromeIcon.plus.draw(in: drawn(CGRect(x: 5, y: 2, width: 10, height: 10)), color: isHovered ? hoverColor : color)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
-    override func mouseExited(with event: NSEvent) { pointerHover(at: nil) }
-
-    func pointerHover(at point: CGPoint?) {
-        isHovered = point != nil
-        needsDisplay = true
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override var mouseDownCanMoveWindow: Bool { false }
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        onPress?()
     }
 }

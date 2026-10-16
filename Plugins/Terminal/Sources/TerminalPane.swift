@@ -7,13 +7,6 @@ import TabsPluginSDK
 /// replaced.
 struct TerminalConfig: Codable, Equatable {
     var cwd: String?
-
-    init(cwd: String? = nil) { self.cwd = cwd }
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
-    }
 }
 
 /// One terminal pane — the emulator's view and its pty in one controller,

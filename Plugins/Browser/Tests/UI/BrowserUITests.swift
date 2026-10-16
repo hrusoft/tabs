@@ -32,8 +32,9 @@ extension UIDriver {
     /// Whether the address field has the keyboard.
     func isEditingAddress(_ pane: PaneID) throws -> Bool { try addressField(pane).currentEditor() != nil }
 
-    /// Where the header draws its parts (the Debug verb), `[x, y, width, height]` in the header title's coordinates.
-    func geometry(_ pane: PaneID) async throws -> JSONValue { try await call("browser.test.geometry", pane: pane) }
+    /// Where the header draws its parts (the visual capture's Debug verb, `browser.test.visual`),
+    /// `[x, y, width, height]` in the header title's coordinates.
+    func geometry(_ pane: PaneID) async throws -> JSONValue { try await call("browser.test.visual", pane: pane)["title"] ?? .null }
 
     /// The Debug verb's view of a browser pane.
     func browserState(_ pane: PaneID) async throws -> JSONValue { try await call("browser.test.state", pane: pane) }
@@ -186,7 +187,7 @@ extension UITests {
             let ui = UIDriver(layout: Self.one())
             defer { ui.discardWebData() }
             let toolbar = try ui.toolbar("b")
-            let bar = try #require(rect(try await ui.geometry("b")["bar"]))
+            let bar = try #require(rect(try await ui.geometry("b")["addressBar"]))
             let edge = NSPoint(x: bar.minX + 0.5, y: bar.midY)
             let calm = try #require(try Self.paint(toolbar).color(atPoint: edge, in: toolbar.bounds))
             try ui.click("browser-address-input")

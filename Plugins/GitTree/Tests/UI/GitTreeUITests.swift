@@ -118,7 +118,8 @@ extension UITests {
             let ui = UIDriver(layout: Self.one(repo.path))
             let state = try await ui.gitTree("g") { $0["subjects"] == ["third", "second", "first"] }
             #expect(state["head"] == "main")
-            #expect(ui.engine.paneTitle(of: "g") == URL(fileURLWithPath: repo.path).lastPathComponent)
+            // Titled once loaded; the chrome shows a pane's own title change once it has held (TAB-TITLES.md TT-13).
+            #expect(await ui.wait(until: { ui.engine.paneTitle(of: "g") == URL(fileURLWithPath: repo.path).lastPathComponent }))
         }
 
         /// F-1, K-1: ⌘R (View ▸ Refresh) re-reads after a commit lands behind the pane's back.
@@ -147,6 +148,65 @@ extension UITests {
             #expect(try await ui.gitTree("g")["listFocused"] == true, "a click gives the list the keyboard")
         }
 
+        /// S-6, S-7: moving to the pane from the keyboard focuses the list and
+        /// draws only the pane's active outline, no ring of the list's own inside it.
+        @Test func keyboardFocusShowsOnlyThePanesOutline() async throws {
+            let repo = try ScratchRepo(commits: ["first", "second"])
+            defer { repo.remove() }
+            let ui = UIDriver(
+                layout: Fixture.sideBySide(
+                    Fixture.leaf("a"), Fixture.leaf("g", "git-tree", config: ["cwd": .string(repo.path)]), active: "a"))
+            try await ui.gitTree("g") { $0["rows"]?.arrayCount == 2 }
+            // Pane navigation as the keyboard delivers it: the key down is AppKit's current event.
+            let chord = KeyChord(.arrow(.right), [.command])
+            let window = try #require(ui.window.window)
+            NSApp.postEvent(try #require(InputSynthesizer.chordEvent(.keyDown, chord, in: window)), atStart: true)
+            _ = NSApp.nextEvent(matching: .keyDown, until: .distantPast, inMode: .default, dequeue: true)
+            #expect(try ui.press(chord))
+            try await ui.gitTree("g") { $0["listFocused"] == true }
+
+            let root = try ui.window.root
+            let scroll = try #require(try ui.view("git-tree-list").enclosingScrollView)
+            let list = root.convert(scroll.frame, from: scroll.superview)
+            // Below the two rows, above the list's bottom edge.
+            let y = Int(((root.isFlipped ? list.maxY : root.bounds.height - list.maxY) - 8) * 2)
+            let image = try ui.rendering()
+            func isAccent(_ x: Int) throws -> Bool {
+                let color = try #require(image.colorAt(x: x * 2, y: y)?.usingColorSpace(.sRGB))
+                return color.blueComponent - color.redComponent > 0.4
+            }
+            let left = Int(list.minX.rounded()), right = Int(list.maxX.rounded())
+            // The outline takes the border columns either side of the content; the list's own edges stay unlit.
+            let lit = try [left - 1, left, right - 1, right].filter(isAccent)
+            #expect(lit == [left - 1, right], "accent columns \(lit), the list spanning \(left)..<\(right)")
+        }
+
+        /// S-6: a restored pane is activated while it's still reading (git runs
+        /// after the pane opens); the list has the keyboard once the history lands.
+        @Test func aRestoredPaneActivatedWhileReadingHasTheKeyboardOnceItsHistoryLands() async throws {
+            let repo = try ScratchRepo(commits: ["first", "second"])
+            defer { repo.remove() }
+            let ui = UIDriver(layout: Self.one(repo.path))
+            #expect(try ui.view("git-tree-list").enclosingScrollView?.isHidden == true, "still reading when activated")
+            try await ui.gitTree("g") { $0["rows"]?.arrayCount == 2 }
+            #expect(try await ui.gitTree("g")["listFocused"] == true)
+        }
+
+        /// S-6: a new pane made from another (as from a terminal) takes the
+        /// keyboard from it, though it's still reading when activated: keys
+        /// then go to its list, not to the pane it was made from.
+        @Test func aNewPaneTakesTheKeyboardFromThePaneItWasMadeFrom() async throws {
+            let repo = try ScratchRepo(commits: ["first", "second"])
+            defer { repo.remove() }
+            let ui = UIDriver(layout: Fixture.saved(Fixture.window("w", Fixture.leaf("t", "text", config: ["cwd": .string(repo.path)]))))
+            try ui.createViaPalette("Git tree")
+            let pane = try #require(ui.activePane)
+            #expect(ui.contentType(of: pane) == "git-tree")
+            #expect(try ui.view("git-tree-list").enclosingScrollView?.isHidden == true, "still reading when activated")
+            try await ui.gitTree(pane) { $0["rows"]?.arrayCount == 2 }
+            #expect(try await ui.gitTree(pane)["listFocused"] == true)
+        }
+
         /// C-1, C-2: double-clicking a commit with one local branch checks it
         /// out with no prompt, and the pane reads the new HEAD.
         @Test func doubleClickChecksOutTheOneBranch() async throws {
@@ -162,6 +222,33 @@ extension UITests {
             #expect(try repo.git("symbolic-ref", "--short", "HEAD") == "old")
         }
 
+        /// P-11, P-12, X-4: clicking a file row in the details opens its real
+        /// diff under it; right-clicking it opens core's menu (Show in Finder,
+        /// Open). No item is chosen: that would reach Finder.
+        @Test func clickingAFileRowOpensItsDiffAndRightClickOffersFinder() async throws {
+            let repo = try ScratchRepo(commits: ["first", "second"])
+            defer { repo.remove() }
+            let ui = UIDriver(layout: Self.one(repo.path))
+            try await ui.gitTree("g") { $0["detailFiles"] == ["file1.txt"] }
+            // The list has the keyboard (a click on the selected newest row).
+            try ui.click(at: NSPoint(x: 200, y: 12), in: try ui.view("git-tree-list"))
+            try await ui.gitTree("g") { $0["listFocused"] == true }
+            let geometry = try await ui.call("git-tree.test.visual", pane: "g")
+            let row = try #require(geometry["body"]?["files"]?[0]?["row"])
+            let numbers = try (0..<4).map { try #require(row[$0]?.doubleValue) }
+            let point = NSPoint(x: numbers[0] + numbers[2] / 2, y: numbers[1] + numbers[3] / 2)
+            let body = try ui.view("git-tree")
+            try ui.click(at: point, in: body)
+            let state = try await ui.gitTree("g") { $0["diffs"]?["file1.txt"]?["state"] == "read" }
+            #expect(state["expandedFiles"] == ["file1.txt"])
+            #expect(state["diffs"]?["file1.txt"]?["rows"] == ["added:1"])
+            #expect(state["listFocused"] == true, "the list keeps the keyboard")
+
+            try ui.click(at: point, in: body, right: true)
+            #expect(await ui.wait { ui.contextMenuCount == 2 }, "Show in Finder, Open")
+            #expect(try await ui.gitTree("g")["expandedFiles"] == ["file1.txt"], "a right-click opens and closes nothing")
+        }
+
         /// X-1: right-clicking a row selects it and opens core's context menu
         /// (Checkout, then Copy SHA-1); Checkout acts on the row right-clicked.
         @Test func rightClickSelectsTheRowAndOffersCheckoutThenCopy() async throws {
@@ -173,12 +260,7 @@ extension UITests {
             let state = try await ui.gitTree("g") { $0["rows"]?.arrayCount == 2 }
             #expect(try #require(state["rows"]?[1]?.stringValue) == first)
             try ui.click(at: NSPoint(x: 200, y: 24 * 1.5), in: try ui.view("git-tree-list"), right: true)
-            let deadline = Date().addingTimeInterval(10)
-            while ui.contextMenuCount != 2, Date() < deadline {
-                try await Task.sleep(for: .milliseconds(10))
-                ui.layoutAll()
-            }
-            #expect(ui.contextMenuCount == 2, "Checkout, Copy SHA-1")
+            #expect(await ui.wait { ui.contextMenuCount == 2 }, "Checkout, Copy SHA-1")
             #expect(try await ui.gitTree("g")["selected"]?.stringValue == first, "the right-click selected its row")
             try ui.chooseContextItem(0)
             try await ui.gitTree("g") { $0["head"] == "old" }

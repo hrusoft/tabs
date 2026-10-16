@@ -50,30 +50,21 @@ enum TestControlVerbs {
             })
 
         control.addCoreVerb(
-            ControlVerbContribution(name: "tabs.test.windows", summary: "Every window: its panes, the active and the focused one") { _ in
+            ControlVerbContribution(
+                name: "tabs.test.windows", summary: "Every window: whether it is frontmost, its active pane, each pane's content type"
+            ) { _ in
                 let renderer = try targets.workspace()
                 return .array(
                     renderer.windows.map { window in
                         let layout = window.layout
-                        let encoded = (try? JSONValue(encoding: layout)) ?? .null
                         return [
                             "id": .string(window.windowID.rawValue),
                             "frontmost": .bool(window === renderer.frontmostController),
-                            "title": .string(window.window?.title ?? ""),
-                            "activePane": layout.activeLeafID.map { .string($0.rawValue) } ?? .null,
-                            "activeNode": .string(layout.activePaneID.rawValue),
-                            "focusedPane": focusedPane(in: window).map { .string($0.rawValue) } ?? .null,
+                            "activePane": .string(layout.activePaneID.rawValue),
                             "panes": .array(
                                 layout.leaves.map { leaf in
-                                    [
-                                        "id": .string(leaf.id.rawValue),
-                                        "type": leaf.type.map { .string($0.rawValue) } ?? .null,
-                                        "title": .string(renderer.engine.paneTitle(of: leaf.id)),
-                                        "live": .bool(renderer.engine.live(leaf.id) != nil),
-                                        "visible": .bool(layout.isShowing(leaf.id)),
-                                    ]
+                                    ["id": .string(leaf.id.rawValue), "type": leaf.type.map { .string($0.rawValue) } ?? .null]
                                 }),
-                            "layout": encoded,
                         ]
                     })
             })
@@ -117,7 +108,7 @@ enum TestControlVerbs {
                 let paneID = invocation["paneId"]?.stringValue.map { PaneID($0) }
                 do {
                     if let type = invocation["create"]?.stringValue {
-                        guard let id = paneID ?? renderer.frontmostController?.layout.activeLeafID, let body = renderer.body(for: id) else {
+                        guard let id = paneID ?? renderer.frontmostController?.layout.activePaneID, let body = renderer.body(for: id) else {
                             throw ControlVerbError("no pane to create in")
                         }
                         try InputSynthesizer.create(ContentTypeID(type), in: body, input: targets.input)
@@ -195,13 +186,12 @@ enum TestControlVerbs {
             ControlVerbContribution(
                 name: "tabs.test.about",
                 summary:
-                    "The About window as built (null when there is none): its title, size and traits, how many windows bear "
-                    + "its title, every label, and each Copy button's title"
+                    "The About window as built (null when there is none): its title, whether it is shown, how many windows bear "
+                    + "its title, each address and each Copy button's title"
             ) { _ in
                 guard let controller = about.controller, let window = controller.window else { return .null }
                 let body = controller.body
                 body.layoutSubtreeIfNeeded()
-                let size = window.contentLayoutRect.size
                 var copyTitles: [String: JSONValue] = [:]
                 var addresses: [String: JSONValue] = [:]
                 for entry in Donations.addresses {
@@ -211,13 +201,7 @@ enum TestControlVerbs {
                 return [
                     "title": .string(window.title),
                     "visible": .bool(window.isVisible),
-                    "width": .double(size.width), "height": .double(size.height),
-                    "resizable": .bool(window.styleMask.contains(.resizable)),
-                    "zoomable": .bool(window.standardWindowButton(.zoomButton)?.isEnabled ?? false),
-                    "fullScreenAllowed": .bool(!window.collectionBehavior.contains(.fullScreenNone)),
-                    "hasParent": .bool(window.parent != nil),
                     "windows": .int(Int64(NSApp.windows.filter { $0.title == AboutCopy.windowTitle }.count)),
-                    "texts": .array(body.texts.map { .string($0) }),
                     "copyTitles": .object(copyTitles),
                     "addresses": .object(addresses),
                 ]
@@ -232,72 +216,6 @@ enum TestControlVerbs {
                 let id = PaneID(invocation["paneId"]?.stringValue ?? "")
                 guard let pane = runtime.panes.pane(id) else { throw ControlVerbError("no live pane \(id)") }
                 return runtime.panes.snapshot(pane).config
-            })
-
-        control.addCoreVerb(
-            ControlVerbContribution(
-                name: "tabs.test.signals",
-                summary:
-                    "Pane signals as drawn: per window, each visible pane's header icons and outline, each tab's icons (with the "
-                    + "leaves it holds); every pane's raised signals; how many times the Dock was asked to bounce"
-            ) { _ in
-                let renderer = try targets.workspace()
-                let signals = try targets.core().signals
-                @MainActor func kinds(_ icons: [SignalIconView]) -> JSONValue {
-                    var ids: [JSONValue] = []
-                    for icon in icons.sorted(by: { $0.frame.minX < $1.frame.minX }) { if let id = icon.kindID { ids.append(.string(id)) } }
-                    return .array(ids)
-                }
-                var raised: [String: JSONValue] = [:]
-                for pane in signals.panes.sorted() { raised[pane.rawValue] = .array(signals.raised(on: pane).map { .string($0.id) }) }
-                return [
-                    "attentionRequests": .int(Int64(renderer.attentionRequests)),
-                    "raised": .object(raised),
-                    "windows": .array(
-                        renderer.windows.map { window in
-                            window.root.layoutSubtreeIfNeeded()
-                            var panes: [String: JSONValue] = [:]
-                            var tabs: [String: JSONValue] = [:]
-                            for leaf in window.layout.leaves where window.layout.isShowing(leaf.id) {
-                                guard let view = window.paneView(leaf.id), let header = view.header else { continue }
-                                let outline = window.trees.lazy.compactMap { $0.overlay.signalOutlines[leaf.id] }.first
-                                panes[leaf.id.rawValue] = [
-                                    "header": kinds(header.signalIcons),
-                                    "outline": outline?.shown.map { .string($0.kind.id) } ?? .null,
-                                ]
-                            }
-                            for tree in window.layout.trees {
-                                for group in groups(in: tree) {
-                                    guard let bar = window.paneView(group.id)?.tabBar else { continue }
-                                    for tab in group.tabs {
-                                        guard let view = bar.strip.tabView(tab.id) else { continue }
-                                        tabs[tab.id.rawValue] = [
-                                            "leaves": .array(tab.content.leaves.map { .string($0.id.rawValue) }),
-                                            "signals": kinds(view.signalIcons),
-                                        ]
-                                    }
-                                }
-                            }
-                            return [
-                                "id": .string(window.windowID.rawValue), "panes": .object(panes), "tabs": .object(tabs),
-                            ]
-                        }),
-                ]
-            })
-
-        control.addCoreVerb(
-            ControlVerbContribution(
-                name: "tabs.test.paneSettings",
-                summary: "Merge fields into core's pane settings (core.panes), as Settings ▸ Panes & Tabs would; returns them all",
-                arguments: [ControlArgument("set", .object, summary: "e.g. {\"persistLayoutOnExit\": false}")]
-            ) { invocation in
-                let settings = try targets.core().settings
-                guard case .object(var fields) = try JSONValue(encoding: settings.panes) else { throw ControlVerbError("unencodable") }
-                if case .object(let changes)? = invocation["set"] { fields.merge(changes) { _, new in new } }
-                let merged = try JSONDecoder().decode(
-                    SettingsStore.PaneSettings.self, from: JSONValue.object(fields).encodedData(pretty: false))
-                settings.setPanes(merged)
-                return try JSONValue(encoding: settings.panes)
             })
 
         control.addCoreVerb(
@@ -324,7 +242,7 @@ enum TestControlVerbs {
                 name: "tabs.test.caffeinate",
                 summary:
                     "The managed caffeinate process (running, its OS pid) and the Caffeinate dialog as built (null when there is "
-                    + "none): its title, size and traits, how many windows bear its title, its switches and timer text"
+                    + "none): its title, whether it is shown, its switches and timer text"
             ) { _ in
                 guard let caffeinate else { throw ControlVerbError("core is gone (a reset is under way)") }
                 var dialog: JSONValue = .null
@@ -332,16 +250,9 @@ enum TestControlVerbs {
                     window.contentView?.layoutSubtreeIfNeeded()
                     var flags: [String: JSONValue] = [:]
                     for (name, flag) in flagNames { flags[name] = .bool(controller.model.flags[keyPath: flag]) }
-                    let size = window.contentLayoutRect.size
                     dialog = [
                         "title": .string(window.title),
                         "visible": .bool(window.isVisible),
-                        "width": .double(size.width), "height": .double(size.height),
-                        "resizable": .bool(window.styleMask.contains(.resizable)),
-                        "miniaturizable": .bool(window.styleMask.contains(.miniaturizable)),
-                        "fullScreenAllowed": .bool(!window.collectionBehavior.contains(.fullScreenNone)),
-                        "hasParent": .bool(window.parent != nil),
-                        "windows": .int(Int64(NSApp.windows.filter { $0.title == CaffeinateCopy.windowTitle }.count)),
                         "flags": .object(flags),
                         "timer": .string(controller.model.timerText),
                     ]
@@ -384,51 +295,23 @@ enum TestControlVerbs {
             })
     }
 
-    /// Every tab group in a tree, outer ones first.
-    private static func groups(in node: LayoutNode) -> [TabGroup] {
-        switch node {
-        case .leaf: []
-        case .tabs(let group): [group] + group.tabs.flatMap { groups(in: $0.content) }
-        case .split(let split): split.children.flatMap { groups(in: $0) }
-        }
-    }
-
-    /// The pane whose body holds the window's first responder.
-    private static func focusedPane(in window: WorkspaceWindowController) -> PaneID? {
-        var view = window.window?.firstResponder as? NSView
-        while let current = view {
-            if let body = current as? PaneBodyHost { return body.paneID }
-            view = current.superview
-        }
-        return nil
-    }
-
     private static func frontmost(_ renderer: WorkspaceRenderer) throws -> NSWindow {
         guard let window = renderer.frontmostController?.window else { throw ControlVerbError("no workspace window") }
         return window
     }
 
+    /// `key` with `modifiers` held, read as a stored chord spells them (`KeyChord(string:)`).
     private static func chord(_ key: String, _ modifiers: JSONValue?) throws -> KeyChord {
-        var flags: KeyChord.Modifiers = []
-        if case .array(let names)? = modifiers {
-            for name in names {
-                switch name.stringValue {
-                case "command", "cmd": flags.insert(.command)
-                case "shift": flags.insert(.shift)
-                case "option", "alt": flags.insert(.option)
-                case "control", "ctrl": flags.insert(.control)
-                default: throw ControlVerbError("unknown modifier \(name)")
-                }
+        var names: [String] = []
+        if case .array(let values)? = modifiers {
+            for value in values {
+                guard let name = value.stringValue else { throw ControlVerbError("unknown modifier \(value)") }
+                names.append(name)
             }
         }
-        let named: [String: KeyChord.Key] = [
-            "return": .return, "tab": .tab, "escape": .escape, "delete": .delete, "space": .space,
-            "left": .arrow(.left), "right": .arrow(.right), "up": .arrow(.up), "down": .arrow(.down),
-        ]
-        if let special = named[key] { return KeyChord(special, flags) }
-        if key.hasPrefix("f"), let number = Int(key.dropFirst()), (1...20).contains(number) { return KeyChord(.function(number), flags) }
-        guard key.count == 1, let character = key.first else { throw ControlVerbError("unknown key \"\(key)\"") }
-        return KeyChord(character, flags)
+        let spelled = (names + [key]).joined(separator: "+")
+        guard let chord = KeyChord(string: spelled) else { throw ControlVerbError("not a chord: \"\(spelled)\"") }
+        return chord
     }
 }
 #endif

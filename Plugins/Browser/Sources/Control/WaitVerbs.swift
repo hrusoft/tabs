@@ -16,7 +16,7 @@ enum WaitVerbs {
     /// What core tells the owner of a pane that has closed (`ControlPlane.paneGoneError`), which
     /// a wait re-checks between injections: a closed pane aborts the wait rather than burning the
     /// rest of a five-minute budget.
-    private static let paneGoneMessage = "target pane no longer exists — it was closed; listOwnedPanes shows the panes still open"
+    private static let paneGoneMessage = "target pane no longer exists — it was closed; list-panes shows the panes still open"
 
     // MARK: wait-for
 

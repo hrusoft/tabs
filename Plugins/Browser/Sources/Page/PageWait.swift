@@ -25,7 +25,7 @@ import TabsPluginSDK
 ///   injections, so a closed pane aborts the wait with the standard pane-gone
 ///   error instead of burning the rest of a five-minute budget.
 ///
-/// An injection that *fails* (a document mid-load, a viewer that runs no script)
+/// An injection that *fails* (a document mid-load, a page whose process ended)
 /// is retried on a short host-side delay until the deadline.
 ///
 /// `urlContains` never injects at all: the page's URL and the navigation events
@@ -71,6 +71,15 @@ struct PageWaitOptions {
 
 /// How long to back off before retrying an injection the page refused.
 private let injectRetryMs = 100
+
+/// The whole milliseconds left until `deadline`, rounded up: never 0 while any
+/// time is left, so a wait that answers "out of time" at 0 has waited its whole
+/// budget. Truncated, a deadline 0.16 ms away read as 0, and a 200 ms wait timed
+/// out after 199.84 ms (`BrowserWaitVerbTests/waitForGoneWaitsOutASpinner…`, once
+/// its page was an active one whose own budget timer fired on time).
+func millisecondsLeft(until deadline: Date, now: Date = Date()) -> Int {
+    Int((deadline.timeIntervalSince(now) * 1000).rounded(.up))
+}
 
 /// Polls `condition` every `everyMs` until it answers true or `deadline`
 /// passes, answering the final answer. The bounded busy-waits (a page
@@ -124,7 +133,7 @@ enum PageWait {
 
         while true {
             if let invalid = options.invalidReason?() { return .failed(invalid) }
-            let remaining = Int(deadlineAt.timeIntervalSinceNow * 1000)
+            let remaining = millisecondsLeft(until: deadlineAt)
             if remaining <= 0 { return .timedOut(elapsedMs: elapsed()) }
 
             let shot = OneShot<Race>()
@@ -187,7 +196,7 @@ enum PageWait {
             if let invalid = options.invalidReason?() { return .failed(invalid) }
             let url = page.url
             if url.contains(needle) { return .settled(elapsedMs: elapsed(), details: ["url": .string(url)]) }
-            let remaining = Int(deadlineAt.timeIntervalSinceNow * 1000)
+            let remaining = millisecondsLeft(until: deadlineAt)
             if remaining <= 0 { return .timedOut(elapsedMs: elapsed()) }
 
             // Event-driven with a poll fallback: the events cover every
