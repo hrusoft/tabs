@@ -66,7 +66,7 @@ package struct SkillInstaller: Sendable {
     /// The running app's own skills (`Contents/Resources/skills`, next to the executable — an
     /// agent's shell is a plain OS process, so the skill must be real files, not inside an
     /// archive) and the real home. The link points into the app bundle, so it breaks if the app
-    /// moves; installing again fixes it.
+    /// moves; installing again (from where the app is now) replaces it.
     package static func standard(bundle: Bundle = .main, home: URL? = nil) -> SkillInstaller {
         let home = home ?? URL(filePath: ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory(), directoryHint: .isDirectory)
         let skills = (bundle.resourceURL ?? bundle.bundleURL).appending(path: "skills", directoryHint: .isDirectory)
@@ -77,7 +77,8 @@ package struct SkillInstaller: Sendable {
 
     /// Symlinks the bundled skill into `targetID`'s personal skill directory, creating parent
     /// directories as needed. Refuses to touch a destination that already exists and isn't a
-    /// symlink we previously created ourselves — never clobbers something the user put there.
+    /// symlink to this bundle's skill — never clobbers something the user put there. A symlink
+    /// that leads nowhere (the app moved since it was made) holds nothing: it is replaced.
     package func install(_ targetID: String) -> Result {
         guard let target = targets.first(where: { $0.id == targetID }) else {
             return .failed("unknown install target: \(targetID)")
@@ -87,15 +88,14 @@ package struct SkillInstaller: Sendable {
         }
 
         let destination = target.directory.path
-        let existingTarget = Self.symlinkRealTarget(destination)
-        let destinationExists = Self.exists(destination) || existingTarget != nil
-        if destinationExists && existingTarget != resolvedSource {
+        let destinationExists = Self.exists(destination)
+        if destinationExists && Self.symlinkRealTarget(destination) != resolvedSource {
             return .failed("\(destination) already exists and isn't managed by Tabs")
         }
 
         do {
             let files = FileManager.default
-            if destinationExists { try? files.removeItem(atPath: destination) }
+            if destinationExists || Self.isSymlink(destination) { try? files.removeItem(atPath: destination) }
             try files.createDirectory(at: target.directory.deletingLastPathComponent(), withIntermediateDirectories: true)
             try files.createSymbolicLink(atPath: destination, withDestinationPath: source.path)
             return .ok
@@ -104,17 +104,18 @@ package struct SkillInstaller: Sendable {
         }
     }
 
-    /// Removes the symlink `install` created for `targetID`, if any. Same ownership check as
-    /// `install`, in reverse: refuses to remove a destination that exists but isn't a symlink
-    /// (so not something `install` created) — never deletes something the user put there
-    /// themselves. Nothing installed is a no-op, not an error.
+    /// Removes the symlink at `targetID`'s personal skill directory, wherever it points — this
+    /// bundle's skill, another directory, or nowhere (the app moved): a link holds none of the
+    /// user's files. Unlike `install`, which refuses a link to another directory, it removes
+    /// any link; it refuses anything else that's there (a real directory, a file), so it never
+    /// deletes something the user put there themselves. Nothing there is a no-op, not an error.
     package func uninstall(_ targetID: String) -> Result {
         guard let target = targets.first(where: { $0.id == targetID }) else {
             return .failed("unknown install target: \(targetID)")
         }
 
         let destination = target.directory.path
-        if Self.symlinkRealTarget(destination) == nil {
+        if !Self.isSymlink(destination) {
             if !Self.exists(destination) { return .ok }
             return .failed("\(destination) already exists and isn't managed by Tabs")
         }
@@ -140,24 +141,29 @@ package struct SkillInstaller: Sendable {
 
     // MARK: File system
 
-    /// `existsSync`: follows symlinks, so a dangling link doesn't exist.
+    /// Whether something is at `path`, following symlinks: a link that leads nowhere is nothing.
     private static func exists(_ path: String) -> Bool {
         var info = stat()
         return stat(path, &info) == 0
     }
 
-    /// `realpathSync`, symlinks fully resolved. `URL.resolvingSymlinksInPath` isn't it: it also
-    /// strips `/private`, which would make a temporary directory never equal its own real path.
+    /// Whether `path` itself is a symlink, wherever it leads (nowhere included).
+    private static func isSymlink(_ path: String) -> Bool {
+        var info = stat()
+        return lstat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFLNK
+    }
+
+    /// `path` with every symlink resolved, or nil if it leads nowhere. `URL.resolvingSymlinksInPath`
+    /// isn't it: it also strips `/private`, which would make a temporary directory never equal its
+    /// own real path.
     private static func realPath(_ path: String) -> String? {
         guard let resolved = realpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
     }
 
-    /// The real path a symlink at `path` resolves to, or nil if it isn't a symlink (or doesn't exist).
+    /// The real path a symlink at `path` resolves to, or nil if it isn't a symlink or leads nowhere.
     private static func symlinkRealTarget(_ path: String) -> String? {
-        var info = stat()
-        guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFLNK else { return nil }
-        return realPath(path)
+        isSymlink(path) ? realPath(path) : nil
     }
 }

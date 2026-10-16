@@ -113,7 +113,6 @@ final class TerminalServices {
 
     func remember(_ pane: TerminalPane, as id: PaneID) { panes[id] = WeakPane(pane: pane) }
     func forget(_ id: PaneID) { panes[id] = nil }
-    func pane(_ id: PaneID) -> TerminalPane? { panes[id]?.pane }
 
     func endAll() {
         for entry in panes.values { entry.pane?.end() }

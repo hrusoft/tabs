@@ -144,7 +144,7 @@ final class NavButton: BrowserFlippedView {
         }
     }
 
-    private var theme: PaneTheme { (superview as? BrowserToolbar)?.theme ?? .dark }
+    private var theme: PaneTheme { (superview as? BrowserToolbar)?.theme ?? .placeholder }
     private(set) var hovered = false { didSet { needsDisplay = true } }
     private var tracking: NSTrackingArea?
 
@@ -233,7 +233,7 @@ final class AddressBar: BrowserFlippedView, NSTextFieldDelegate {
         }
     }
 
-    private var theme: PaneTheme { toolbar?.theme ?? .dark }
+    private var theme: PaneTheme { toolbar?.theme ?? .placeholder }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -244,7 +244,7 @@ final class AddressBar: BrowserFlippedView, NSTextFieldDelegate {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BrowserText.ui12.font
-        field.textColor = PaneTheme.dark.textDim
+        field.textColor = PaneTheme.placeholder.textDim
         field.lineBreakMode = .byClipping
         field.cell?.isScrollable = true
         field.cell?.wraps = false

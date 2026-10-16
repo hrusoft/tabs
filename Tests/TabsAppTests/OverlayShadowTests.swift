@@ -14,7 +14,7 @@ extension UITests {
             let ui = UIDriver(layout: Fixture.saved(Fixture.window("w", Fixture.leaf("a"))))
             let controller = try #require(ui.renderer.windows.first)
             let ghost = DragGhostView()
-            ghost.update(title: "New Tab", theme: .light)
+            ghost.update(title: "New Tab", theme: .standInLight)
             controller.root.overlay.addSubview(ghost)
             ghost.frame = CGRect(x: 20, y: 20, width: 100, height: 22)
             let menu = try ui.control(HeaderAction.splitHorizontal.accessibilityID, of: "a")

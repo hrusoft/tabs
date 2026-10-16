@@ -126,9 +126,10 @@ import Testing
     }
 
     /// J-20: the DOM keeps changing as the wait starts, each change sooner than the quiet period after the
-    /// last (the page makes them, by its own clock: a page not on screen keeps running, E-5); idle may
-    /// only resolve once the last change is the quiet period old, so an answer any sooner means the quiet
-    /// clock fired mid-churn: the failure this test exists to catch.
+    /// last (the page makes them, by its own clock, on a page someone can see, as every test's is: a hidden page
+    /// runs at WebKit's background pace, E-5, and its timers can stay held); idle may only resolve once the last
+    /// change is the quiet period old, so an answer any sooner means the quiet clock fired mid-churn: the failure
+    /// this test exists to catch.
     @Test func waitForIdleSettlesOnlyOnceTheDOMStopsChurning() async throws {
         let bed = try await ScriptVerbBed.open("/waity")
         // Changes made from here would be as far apart as a busy main actor makes them, and could leave a
@@ -320,7 +321,7 @@ import Testing
         _ = bed.harness.runtime.panes.closePane(bed.pane)
         let answer = await wait
         #expect(!answer.ok)
-        #expect(answer.error == "target pane no longer exists — it was closed; listOwnedPanes shows the panes still open", "\(answer.json)")
+        #expect(answer.error == "target pane no longer exists — it was closed; list-panes shows the panes still open", "\(answer.json)")
         #expect(ContinuousClock.now - started < .seconds(10))
     }
 

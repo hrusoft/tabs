@@ -363,16 +363,6 @@ private final class Gate: @unchecked Sendable {
     }
 }
 
-/// Polls `condition` until it holds; false if it still doesn't after `timeout`.
-private func eventually(within timeout: Duration = .seconds(10), _ condition: () -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
-    while !condition() {
-        guard ContinuousClock.now < deadline else { return false }
-        try? await Task.sleep(for: .milliseconds(2))
-    }
-    return true
-}
-
 @MainActor
 @Suite struct StaleSocketTests {
     @Test func socketsOfDeadProcessesAreRemovedAndLiveOnesKept() throws {

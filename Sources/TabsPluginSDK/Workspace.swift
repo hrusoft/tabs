@@ -5,11 +5,11 @@ import Foundation
 /// so the model can change without breaking a plugin. In headless mode there are no
 /// windows: queries come back empty and `openPane` returns nil.
 ///
-/// A plugin manages only its own panes: `panes(ofType:)`, `openPane` and
-/// `focusPane` accept only the plugin's own content types (anything else is
-/// refused and shows up among its ignored calls). Other plugins' panes are
-/// visible only as core facts — the active pane's id and type, core's events —
-/// and through the capabilities core defines.
+/// A plugin manages only its own panes: `panes(ofType:)`, `openPane`,
+/// `focusPane` and `revealPane` accept only the plugin's own content types
+/// (anything else is refused and shows up among its ignored calls). Other
+/// plugins' panes are visible only as core facts — the active pane's id and
+/// type, core's events — and through the capabilities core defines.
 @MainActor
 public protocol Workspace: AnyObject {
     var activePaneID: PaneID? { get }
@@ -58,8 +58,9 @@ public struct PaneRequest: Sendable, Equatable {
     /// first load does already knows it is controlled. Core keeps it in the
     /// ownership ledger and raises the controlled signal. A plugin may name
     /// only the caller of one of its own control verbs still running
-    /// (`ControlInvocation.callerPane`); anything else is refused and the
-    /// pane isn't created.
+    /// (`ControlInvocation.callerPane`), and only while that caller is an open
+    /// pane (its terminal may close mid-verb); anything else is refused and
+    /// the pane isn't created.
     public var controlledBy: PaneID?
 
     public init(

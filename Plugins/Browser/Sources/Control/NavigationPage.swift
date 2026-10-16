@@ -5,17 +5,6 @@ import TabsPluginSDK
 /// of them reports once the load settles.
 @MainActor
 enum NavigationPage {
-    /// How one issued navigation ended. `loaded` is about the *requested* document (did the
-    /// load itself finish); `settled` is about the pane (has it stopped loading). WebKit
-    /// reports a superseded load as no event of its own (its loading flag stays up until the
-    /// replacement ends), so the two always agree: a superseded navigation waits out its
-    /// replacement and answers `loaded: true`, and `redirected` is what says the pane went
-    /// elsewhere (BROWSER.md, Notes).
-    struct Attempt: Equatable {
-        var loaded: Bool
-        var settled: Bool
-    }
-
     /// Where the pane actually is, read at the moment an answer is formed. Every navigation
     /// verb reports this alongside `loaded`, because a load "settling" says nothing about
     /// *what* it settled on: a server redirect, a client-side router or a post-load script
@@ -53,21 +42,18 @@ enum NavigationPage {
     }
 
     private static func documentTitleIsExplicit(_ page: BrowserPage) async -> Bool {
-        let answer = OneShot<Bool>()
-        page.evaluate("document.title") { result in
-            if case .success(.string(let title)) = result { answer.resolve(!title.isEmpty) } else { answer.resolve(true) }
+        let explicit = await page.boundedCall("return document.title", timeoutMs: 1_000) { result -> Bool? in
+            if case .success(.string(let title)) = result { !title.isEmpty } else { true }
         }
-        let budget = Task { @MainActor in
-            await delay(milliseconds: 1_000)
-            answer.resolve(true)
-        }
-        let explicit = await answer.wait()
-        budget.cancel()
-        return explicit
+        return explicit ?? true
     }
 
-    /// Issues one navigation and waits for it to end, one way or another.
-    static func attempt(_ page: BrowserPage, url: String, waitMs: Int) async -> Result<Attempt, VerbFailure> {
+    /// Issues one navigation and waits for it to end, one way or another: whether it loaded
+    /// (false: the wait ran out with the pane still loading), or the failure it ended in. WebKit
+    /// reports a superseded load as no event of its own (its loading flag stays up until the
+    /// replacement ends), so a superseded navigation waits out its replacement and answers
+    /// `loaded: true`, and `redirected` is what says the pane went elsewhere (BROWSER.md, Notes).
+    static func attempt(_ page: BrowserPage, url: String, waitMs: Int) async -> Result<Bool, VerbFailure> {
         page.load(url)
         let outcome = await page.waitForLoadSettle(timeoutMs: waitMs)
         if let code = outcome.loadError {
@@ -76,16 +62,16 @@ enum NavigationPage {
             }
             return .failure(VerbFailure("failed to load \(url): \(code)"))
         }
-        return .success(Attempt(loaded: outcome.loaded, settled: outcome.loaded))
+        return .success(outcome.loaded)
     }
 
-    /// The result every navigation answer is built from. `redirected` is present only when the
-    /// pane has settled: an unsettled pane hasn't ended up anywhere yet, and flagging its
+    /// The result every navigation answer is built from. `redirected` is present only once the
+    /// load has ended: a pane still loading hasn't ended up anywhere yet, and flagging its
     /// transient URL would be exactly the string-compare guesswork the flag exists to replace.
-    private static func navigationResult(_ page: BrowserPage, _ attempt: Attempt, requestedURL: String) async -> [String: JSONValue] {
+    private static func navigationResult(_ page: BrowserPage, loaded: Bool, requestedURL: String) async -> [String: JSONValue] {
         var result = await pageState(page)
-        result["loaded"] = .bool(attempt.loaded)
-        if attempt.settled { result["redirected"] = .bool(!isTrivialUrlChange(requested: requestedURL, final: page.url)) }
+        result["loaded"] = .bool(loaded)
+        if loaded { result["redirected"] = .bool(!isTrivialUrlChange(requested: requestedURL, final: page.url)) }
         return result
     }
 
@@ -94,30 +80,26 @@ enum NavigationPage {
         guard isAllowedUrl(url) else { throw ControlVerbError("url not allowed: \(url)") }
         let page = try VerbSupport.pane(invocation).page
         let retry = invocation["retryOnRedirect"]?.boolValue ?? false
-        let first: Attempt
-        switch await attempt(page, url: url, waitMs: BrowserLimits.loadWaitMs) {
-        case .failure(let failure): throw ControlVerbError(failure.message)
-        case .success(let done): first = done
-        }
+        let firstLoaded = try await attempt(page, url: url, waitMs: BrowserLimits.loadWaitMs).orThrow()
         let firstURL = page.url
         // Retry only a settled miss: the pane demonstrably ended up somewhere other than the
         // requested URL (an auth bounce whose first hit establishes the session), whether the
         // requested load finished there or was superseded on the way. A pane still loading gets
         // no retry: issuing a second load at an unsettled pane is the blind race this verb is
         // being cured of.
-        let settledElsewhere = first.settled && !isTrivialUrlChange(requested: url, final: firstURL)
+        let settledElsewhere = firstLoaded && !isTrivialUrlChange(requested: url, final: firstURL)
         guard retry, settledElsewhere else {
-            return .object(await navigationResult(page, first, requestedURL: url))
+            return .object(await navigationResult(page, loaded: firstLoaded, requestedURL: url))
         }
-        let second: Attempt
+        let secondLoaded: Bool
         switch await attempt(page, url: url, waitMs: BrowserLimits.loadWaitMs) {
         case .failure(let failure):
             throw ControlVerbError("\(failure.message) (on the retry — the first attempt landed on \(firstURL))")
-        case .success(let done): second = done
+        case .success(let loaded): secondLoaded = loaded
         }
         // The final attempt answers top-level; `firstUrl` keeps the first attempt's landing
         // visible so a caller can see what the bounce was.
-        var result = await navigationResult(page, second, requestedURL: url)
+        var result = await navigationResult(page, loaded: secondLoaded, requestedURL: url)
         result["retried"] = true
         result["firstUrl"] = .string(firstURL)
         return .object(result)

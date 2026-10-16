@@ -40,10 +40,3 @@ extension NSView {
     /// Every descendant, depth first.
     var allSubviews: [NSView] { subviews.flatMap { [$0] + $0.allSubviews } }
 }
-
-/// A mutable value closures can share.
-@MainActor
-final class Ref<Value> {
-    var value: Value
-    init(_ value: Value) { self.value = value }
-}

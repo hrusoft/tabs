@@ -30,21 +30,30 @@ has none: a serial bundle's suites are then weighed by their tests, as
 xcodebuild lists them (`-enumerate-tests`, about 2 s), and a parallel bundle is
 guessed by its kind.
 
-The tests' own files: each test process keeps them in a folder of its own,
-removed as it exits (Tests/Process/TestTemporary.swift). This removes the
-folders of processes that died before they could. A test's web pages keep
-theirs in WebKit's container for the app (~/Library/WebKit/<bundle id>), deleted
-as the test process exits (WebDataStores), but there Spotlight indexed every
-file meanwhile: about 1,600 a run, a sixth of the machine. A Debug build's
-container (com.hrusoft.tabs.debug, never an installed Tabs') and the unit tests'
-runner's (com.apple.dt.xctest.tool) are made links to `.noindex` folders beside
-them, which Spotlight skips.
+The tests' files and Spotlight (the one telling; the other places point here):
+a run writes thousands of files, and Spotlight indexes every one it can see, so
+each place they go is a `.noindex` folder, which it skips.
+- Each test process keeps its folders and files in one of its own,
+  `tabs-tests.noindex/<pid>` in the user's temporary directory, removed as it
+  exits (Tests/Process/TestTemporary.swift; Scripts/lint-test-files.py refuses
+  any other way in). Made straight in the temporary directory, they outlived
+  every run: about a thousand a run, piled up in the hundred thousands, all
+  indexed (Spotlight took about 14% of the CPU during a run). This removes the
+  folders of processes that died before they could.
+- A test's web pages keep their data in WebKit's container for the app
+  (~/Library/WebKit/<bundle id>), deleted as the test process exits
+  (Tests/Support/WebDataStores.swift), but Spotlight indexed every file
+  meanwhile: about 1,600 a run, a sixth of the machine. A Debug build's
+  container (com.hrusoft.tabs.debug, never an installed Tabs') and the unit
+  tests' runner's (com.apple.dt.xctest.tool) are made links to `.noindex`
+  folders beside them.
+- This script's results (below): a run's result bundles and logs are about
+  20,000 files.
 
 Writes build/test-results.noindex/: lane-<n>.log and lane-<n>.xcresult per lane, the
 merged Tabs.xcresult, durations.json, and lane-<n>.derived: the DerivedData each
 lane's xcodebuild logs to (given none, it makes one in ~/Library/Developer/Xcode
-for every .xctestrun path, and keeps it). A `.noindex` folder, which Spotlight
-skips: a run's result bundles and logs are about 20,000 files.
+for every .xctestrun path, and keeps it).
 
 Usage: Scripts/test-lanes.py [--lanes N] [--plan]
 """
@@ -106,24 +115,26 @@ def xctestrun():
     return runs[-1]
 
 
-def bundles(run):
-    """Every test bundle the .xctestrun lists: whether it runs its tests at once, whether an app hosts it."""
+def test_targets(run):
+    """Every test target the .xctestrun lists, as its dictionary (with its BlueprintName), in either format."""
     plist = plistlib.loads(run.read_bytes())
     if plist.get("__xctestrun_metadata__", {}).get("FormatVersion", 1) == 1:
-        targets = [value | {"BlueprintName": key} for key, value in plist.items() if not key.startswith("__")]
-    else:
-        targets = [target for configuration in plist["TestConfigurations"] for target in configuration["TestTargets"]]
+        return [value | {"BlueprintName": key} for key, value in plist.items() if not key.startswith("__")]
+    return [target for configuration in plist["TestConfigurations"] for target in configuration["TestTargets"]]
+
+
+def bundles(run):
+    """Every test bundle the .xctestrun lists: whether it runs its tests at once, whether an app hosts it."""
     return [
         Bundle(target["BlueprintName"], bool(target.get("ParallelizationEnabled")), target.get("TestHostPath", "").endswith(".app"))
-        for target in targets
+        for target in test_targets(run)
     ]
 
 
 def load_history():
+    """The last run's timings; none if there are none, or they aren't in the form this writes."""
     history = json.loads(DURATIONS.read_text()) if DURATIONS.exists() else {}
-    if "bundles" not in history:  # the older, flat form: bundle times only
-        history = {"bundles": history, "suites": {}}
-    return history
+    return history if {"bundles", "suites"} <= history.keys() else {"bundles": {}, "suites": {}}
 
 
 def listed_suites(run, serial):
@@ -290,10 +301,9 @@ def unindexed_web_data(run):
     """Points the WebKit container of each app the tests run as at a `.noindex` folder beside it
     (once; what it held moves along): the Debug app's, never an installed Tabs', and the unit
     tests' runner's (com.apple.dt.xctest.tool), which only tests use."""
-    plist = plistlib.loads(run.read_bytes())
     identifiers = {"com.apple.dt.xctest.tool"}
-    for key, value in plist.items():
-        host = "" if key.startswith("__") else value.get("TestHostPath", "")
+    for target in test_targets(run):
+        host = target.get("TestHostPath", "")
         info = Path(host.replace("__TESTROOT__", str(run.parent))) / "Contents/Info.plist"
         if host.endswith(".app") and info.exists():
             identifier = plistlib.loads(info.read_bytes()).get("CFBundleIdentifier", "")

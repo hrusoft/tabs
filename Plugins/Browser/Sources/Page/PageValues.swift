@@ -23,10 +23,11 @@ struct ConsoleEntry: Sequenced, Equatable, Sendable {
 
 /// Why a script didn't produce a value.
 enum PageScriptError: Error, Equatable, Sendable {
-    /// The page can't run script now: mid-navigation, its process gone, a viewer
-    /// that runs none.
+    /// The page can't run script now: mid-navigation, or the page gone.
     case unavailable
-    /// The script's value has no JSON form (a DOM node, a cycle).
+    /// WebKit's error 5: the script's value has no JSON form (a DOM node, a
+    /// cycle), or the page's content process has ended, after which every script
+    /// answers so until a load (measured: docs/BROWSER.md, Implementation notes).
     case unsupportedResult
     /// The script threw; the engine's message.
     case exception(String)
@@ -43,7 +44,7 @@ enum PageScriptError: Error, Equatable, Sendable {
 
 /// What a verb answers when the page can't run script at all.
 let pageScriptUnavailableMessage =
-    "the page could not run script — it may be mid-navigation, showing an error page, or a viewer (such as the PDF viewer) that runs none"
+    "the page could not run script — it may be mid-navigation, or its process may have ended (a reload brings it back)"
 
 /// How a wait for a load to end ended. `loaded: false` with no error means the
 /// page was still loading when the wait ran out (the caller's to keep polling,

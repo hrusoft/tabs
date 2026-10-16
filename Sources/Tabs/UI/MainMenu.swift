@@ -198,7 +198,8 @@ enum MainMenu {
         add(CoreCommands.paste, #selector(NSText.paste(_:)), to: edit)
         add(CoreCommands.selectAll, #selector(NSText.selectAll(_:)), to: edit)
 
-        menus[.view] = submenu("View", in: main)
+        let view = submenu("View", in: main)
+        menus[.view] = view
 
         let window = submenu("Window", in: main)
         menus[.window] = window
@@ -207,7 +208,7 @@ enum MainMenu {
         NSApp?.windowsMenu = window
 
         // Plugin commands, grouped per plugin in UI order. Chords of commands
-        // that apply to one content type are armed by `arm(_:for:shortcuts:)`.
+        // that apply to one content type are armed by `arm(_:for:runtime:)`.
         let commands = runtime.registry.contributions(to: .commands)
             .sorted { runtime.host.rank(of: $0.owner) < runtime.host.rank(of: $1.owner) }
         var lastOwner: [MenuPlacement: PluginID] = [:]
@@ -221,7 +222,12 @@ enum MainMenu {
             item.identifier = NSUserInterfaceItemIdentifier(command.value.id.rawValue)
             if command.value.appliesTo == nil { setChord(shortcuts.chord(for: command.value.id), on: item) }
         }
-        if menus[.view]?.items.isEmpty == true, let view = main.item(withTitle: "View") { main.removeItem(view) }
+        // Last in View, whatever the plugins add: the way out of full screen.
+        // AppKit adds none of its own unless the menu has one. Given this one,
+        // it shows its own fn-F item in its place (this one stays, hidden, so
+        // ⌃⌘F still works) and titles both Exit Full Screen in full screen.
+        if !view.items.isEmpty { view.addItem(.separator()) }
+        add(CoreCommands.enterFullScreen, #selector(NSWindow.toggleFullScreen(_:)), to: view)
         return main
     }
 

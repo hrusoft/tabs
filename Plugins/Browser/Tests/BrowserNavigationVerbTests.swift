@@ -132,7 +132,7 @@ import Testing
     /// caller's, the pane is not the active one's keyboard, and another caller is refused.
     @Test func anAgentCanCreateAndControlABrowserPaneItOwnsButNoOther() async throws {
         let pane = try await create("about:blank")
-        #expect(harness.runtime.panes.ownership.owner(of: pane) == harness.agentPane)
+        #expect(harness.runtime.panes.ownership.controller(of: pane) == harness.agentPane)
         let navigated = await ctl("navigate", ["pane": .string(pane.rawValue), "url": "about:blank"])
         #expect(navigated["ok"] == true)
         let rejected = await ctl("navigate", ["pane": "not-a-pane-this-agent-created", "url": "about:blank"])
@@ -237,7 +237,7 @@ import Testing
         let window = try #require(harness.engine.model.window(holding: pane))
         let float = try #require(window.floatingPane(holding: floater))
         #expect(float.content.leaves.map(\.id).contains(pane), "inside the caller's own floating window")
-        #expect(harness.runtime.panes.ownership.owner(of: pane) == floater)
+        #expect(harness.runtime.panes.ownership.controller(of: pane) == floater)
 
         plugin.services?.settings.update { $0.controlledPanePlacement = .unpinned }
         let other = result(await harness.tabsCtl("create-browser-pane", ["url": "about:blank"], from: floater))
@@ -285,7 +285,7 @@ import Testing
         }
         #expect(listed["panes"]?[0] != nil, "listed while the create is pending: \(listed)")
         let owned = try #require(listed["panes"]?[0]?["paneId"]?.stringValue)
-        #expect(harness.runtime.panes.ownership.owner(of: PaneID(owned)) == agent)
+        #expect(harness.runtime.panes.ownership.controller(of: PaneID(owned)) == agent)
         let browser = try #require(harness.controller(of: PaneID(owned), as: BrowserPane.self))
         #expect(browser.controller() == agent, "the guards read it live, from the first load")
         #expect(browser.page.isControlled())

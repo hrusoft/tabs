@@ -10,7 +10,6 @@ final class GitTreeView: GitFlippedView {
     var toolbar: GitTreeToolbar { pane.toolbar }
     let listScroll = NSScrollView()
     let list: CommitListView
-    let focusRing = ListFocusRing()
     let detailScroll = NSScrollView()
     let detail: CommitDetailView
     let divider: DetailDivider
@@ -37,13 +36,10 @@ final class GitTreeView: GitFlippedView {
         }
         listScroll.documentView = list
         detailScroll.documentView = detail
-        list.onFocusChange = { [weak self] in self?.focusRing.needsDisplay = true }
-        addSubview(focusRing)
         addSubview(listScroll)
         addSubview(detailScroll)
         addSubview(notice)
         addSubview(divider)
-        focusRing.list = list
         pane.onChange = { [weak self] in self?.refresh() }
         applyTheme()
         refresh()
@@ -69,7 +65,6 @@ final class GitTreeView: GitFlippedView {
         let state = state
         notice.isHidden = state == .list
         listScroll.isHidden = state != .list
-        focusRing.isHidden = state != .list
         let collapsed = pane.split.collapsed
         detailScroll.isHidden = state != .list || collapsed
         divider.isHidden = state != .list
@@ -91,7 +86,6 @@ final class GitTreeView: GitFlippedView {
         detail.theme = theme
         divider.theme = theme
         notice.theme = theme
-        focusRing.theme = theme
         needsDisplay = true
     }
 
@@ -99,8 +93,11 @@ final class GitTreeView: GitFlippedView {
 
     var toolbarHasFocus: Bool { toolbar.isEditingPath }
 
+    /// The list takes the keyboard whatever the pane shows: a pane activated
+    /// while it's still reading (a new or restored one is, since git runs
+    /// after it opens) has it when the rows land. Until then the list has no
+    /// rows, and its keys move nothing.
     func focusList() {
-        guard state == .list else { return }
         window?.makeFirstResponder(list)
     }
 
@@ -145,7 +142,6 @@ final class GitTreeView: GitFlippedView {
             let bottom = layout.detail.map { snap($0.minY) } ?? snap(listRect.maxY)
             let frame = CGRect(x: 0, y: snap(listRect.minY), width: bounds.width, height: max(bottom - snap(listRect.minY), 0))
             listScroll.frame = frame
-            focusRing.frame = frame
             list.frame = CGRect(x: 0, y: 0, width: frame.width, height: max(list.contentHeight, frame.height))
         }
         if let detailRect = layout.detail {
@@ -179,24 +175,6 @@ final class GitTreeView: GitFlippedView {
     }
 }
 
-/// The list's keyboard-focus ring: an inset 1pt accent line along the list's
-/// edge, under the rows.
-@MainActor
-final class ListFocusRing: GitFlippedView {
-    weak var list: CommitListView?
-    var theme = PaneTheme.dark { didSet { needsDisplay = true } }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let list, list.window?.firstResponder === list, list.showsFocusRing else { return }
-        theme.accent.setStroke()
-        let path = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
-        path.lineWidth = 1
-        path.stroke()
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 /// The notice in place of the list: "Reading history…", or a failure as a
 /// sentence with the hint under it (padding 16, 12pt, paragraphs 6 apart).
 @MainActor
@@ -207,7 +185,7 @@ final class GitTreeNoticeView: GitFlippedView {
     }
 
     var content = Content.loading { didSet { needsDisplay = true } }
-    var theme = PaneTheme.dark { didSet { needsDisplay = true } }
+    var theme = PaneTheme.placeholder { didSet { needsDisplay = true } }
 
     /// The hint under a failure (E-6): names the toolbar's folder button.
     static let hint = "Type a directory above, or use the folder button to choose one."

@@ -14,10 +14,6 @@ final class LaunchedApp: @unchecked Sendable {
     }
 
     let dataDirectory: URL
-    /// Variables of the test runner's environment the app is launched without.
-    let removedEnvironment: Set<String>
-    /// Variables the app is launched with on top of the test runner's.
-    let addedEnvironment: [String: String]
     private(set) var socketPath: String
     private var process: Process?
     private var client: ControlClient?
@@ -42,21 +38,17 @@ final class LaunchedApp: @unchecked Sendable {
         Bundle(for: LaunchedApp.self).resourceURL!.appending(path: "Fixtures", directoryHint: .isDirectory)
     }
 
-    private init(dataDirectory: URL, removedEnvironment: Set<String>, addedEnvironment: [String: String]) {
+    private init(dataDirectory: URL) {
         self.dataDirectory = dataDirectory
-        self.removedEnvironment = removedEnvironment
-        self.addedEnvironment = addedEnvironment
         self.socketPath = shortSocketPath("e2e")
     }
 
-    static func launch(
-        dataDirectory: URL? = nil, removingEnvironment removed: Set<String> = [], addingEnvironment added: [String: String] = [:]
-    ) async throws -> LaunchedApp {
+    static func launch(dataDirectory: URL? = nil) async throws -> LaunchedApp {
         let directory =
             dataDirectory
             ?? TestTemporary.directory("e2e")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let app = LaunchedApp(dataDirectory: directory, removedEnvironment: removed, addedEnvironment: added)
+        let app = LaunchedApp(dataDirectory: directory)
         try await app.start()
         return app
     }
@@ -71,10 +63,9 @@ final class LaunchedApp: @unchecked Sendable {
         environment["TABS_E2E_PLUGINS"] = Self.fixturesDirectory.path
         // Shells start on the tests' startup files, not the user's (`TestShell`).
         environment["ZDOTDIR"] = TestShell.directory
-        for key in environment.keys where key.hasPrefix("XCTest") || key.hasPrefix("DYLD_") || removedEnvironment.contains(key) {
+        for key in environment.keys where key.hasPrefix("XCTest") || key.hasPrefix("DYLD_") {
             environment[key] = nil
         }
-        environment.merge(addedEnvironment) { _, added in added }
         process.environment = environment
         // A fresh pipe per launch (a Process consumes its handles), drained as
         // it fills: reading it on demand would block while the app runs.

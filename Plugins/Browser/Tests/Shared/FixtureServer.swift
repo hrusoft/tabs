@@ -4,9 +4,10 @@ import Network
 
 /// A tiny HTTP server on the loopback interface, in the test process: the pages a
 /// browser test loads, with the failure modes a page engine has to be measured
-/// against and no network in sight. Shared by every tier that needs a page: the
-/// unhosted plugin tests, the in-process UI tier and the end-to-end tests (which
-/// run the app as its own process, so a real port is what it can reach).
+/// against and no network in sight. Shared by every tier of Browser's tests
+/// (`Tests/Shared`, which each of them compiles): the unhosted plugin tests, the
+/// in-process UI tier and the end-to-end tests (which run the app as its own
+/// process, so a real port is what it can reach).
 ///
 /// ```swift
 /// let server = try await FixtureServer.start()
@@ -28,8 +29,7 @@ import Network
 /// `reservePort()` one a test can then start a server on (`start(port:)`: "the
 /// dev server comes up").
 final class FixtureServer: @unchecked Sendable {
-    struct Request: Sendable, Equatable {
-        var method: String
+    struct Request: Sendable {
         /// The path and query, as sent.
         var target: String
         var headers: [String: String]
@@ -70,8 +70,8 @@ final class FixtureServer: @unchecked Sendable {
             body = data
         }
 
-        static func redirect(to location: String, status: Int = 302) -> Response {
-            Response(status: status, headers: ["Location": location])
+        static func redirect(to location: String) -> Response {
+            Response(status: 302, headers: ["Location": location])
         }
     }
 
@@ -272,7 +272,7 @@ final class FixtureServer: @unchecked Sendable {
                 headers[String(line[..<colon]).lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             }
         }
-        return Request(method: parts.first.map(String.init) ?? "GET", target: parts.count > 1 ? String(parts[1]) : "/", headers: headers)
+        return Request(target: parts.count > 1 ? String(parts[1]) : "/", headers: headers)
     }
 
     private func respond(to request: Request, on connection: NWConnection) {
@@ -308,41 +308,6 @@ final class FixtureServer: @unchecked Sendable {
             }
         }
         if let gate = response.gate { gate.whenOpen { queue.async(execute: delayed) } } else { delayed() }
-    }
-}
-
-/// The web data stores the browser tests' pages use, deleted when the test process exits. Every test's pages
-/// get a store of their own (a page bed's, or the one a fresh data directory names), so no test sees another's
-/// cookies, and WebKit keeps every store on disk for good. At exit no page of the process is left: a store is
-/// its directory in WebKit's container for the app that used it (`~/Library/WebKit/<bundle id>/WebsiteDataStore/
-/// <id>`), deleted if it is there; only stores a test names here are. (Not WebKit's own removal while tests
-/// run, `WKWebsiteDataStore.remove(forIdentifier:)`: a run sweeping with it hung a later test.)
-enum WebDataStores {
-    private final class Named: @unchecked Sendable {
-        let lock = NSLock()
-        var stores: Set<URL> = []
-        var armed = false
-    }
-
-    private static let named = Named()
-
-    /// Deletes the store `id` of the app `bundleIdentifier` (this process's own by default) when this process exits.
-    static func discard(_ id: UUID, ofApp bundleIdentifier: String? = Bundle.main.bundleIdentifier) {
-        guard let bundleIdentifier, !bundleIdentifier.isEmpty else { return }
-        let store = FileManager.default.homeDirectoryForCurrentUser.appending(
-            path: "Library/WebKit/\(bundleIdentifier)/WebsiteDataStore/\(id.uuidString.lowercased())", directoryHint: .isDirectory)
-        let arm = named.lock.withLock {
-            named.stores.insert(store)
-            defer { named.armed = true }
-            return !named.armed
-        }
-        if arm { atexit { WebDataStores.deleteAll() } }
-    }
-
-    private static func deleteAll() {
-        for store in named.lock.withLock({ named.stores }) where FileManager.default.fileExists(atPath: store.path) {
-            try? FileManager.default.removeItem(at: store)
-        }
     }
 }
 

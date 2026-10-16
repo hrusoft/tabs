@@ -1,5 +1,5 @@
 {
-  "description": "git-tree-default with the \"Uncommitted changes\" row selected: its detail has no commit fields, and 3 files (a modified one, an untracked one with only insertions, a binary).",
+  "description": "git-tree-default with the \"Uncommitted changes\" row selected: its detail has no commit fields, only Lines (the files' totals), and 3 files (a modified one, an untracked one with only insertions, a binary).",
   "size": {
     "width": 900,
     "height": 600

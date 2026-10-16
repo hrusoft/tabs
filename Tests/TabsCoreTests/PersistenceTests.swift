@@ -82,7 +82,7 @@ import Testing
         let expected = WindowLayout(
             id: "w", root: .tabs(TabGroup(id: "g", tabs: [Tab(id: "t", title: "", content: .leaf(LayoutLeaf(id: "a", type: "alpha")))])))
         #expect(layout == SavedLayout(windows: [expected]))
-        #expect(layout?.windows.first?.activePaneID == "g", "no saved active pane: the tree's first")
+        #expect(layout?.windows.first?.activePaneID == "a", "no saved active pane: the one the tree shows")
     }
 
     @Test func aMalformedPaneCostsOnlyItselfAndTheOriginalIsKept() throws {

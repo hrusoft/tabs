@@ -91,7 +91,7 @@ extension UITests {
             ui.raise("bell", "controlled", on: "b")
             let header = try #require(try ui.paneView("b").header)
             try ui.click(at: NSPoint(x: header.titleRect.minX + 10, y: header.titleRect.midY), in: header)
-            #expect(ui.activeNode == "b")
+            #expect(ui.activePane == "b")
             #expect(try ui.headerSignals("b") == ["controlled"])
             #expect(try ui.outline("b")?.shown?.kind.id == "controlled")
         }
@@ -194,7 +194,7 @@ extension UITests {
             #expect(told.value.contains("a dark \(depth)"), "told what it starts with: \(told.value)")
             told.value = []
             var appearance = ui.renderer.baseAppearance
-            appearance.theme = .light
+            appearance.theme = .standInLight
             ui.renderer.baseAppearance = appearance
             #expect(Set(told.value) == ["a light \(depth)", "b light \(depth)"], "a theme change reaches every pane once")
             told.value = []

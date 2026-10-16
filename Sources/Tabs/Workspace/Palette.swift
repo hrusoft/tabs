@@ -201,7 +201,7 @@ final class PaletteView: FlippedView {
     var highlighted: Int { state.highlighted }
     private(set) var scrollOffset: CGFloat = 0
     private let theme: Theme
-    private let panel = PalettePanel()
+    private let panel = OverlayPanel(passesClicksThrough: true)
     /// The row the pointer last entered.
     private var hoverRow: Int?
     private var lastPointer: CGPoint?
@@ -369,7 +369,7 @@ final class PaletteView: FlippedView {
     /// The icon's slot: 16 wide, except text standing in for one (the visual
     /// capture's "▣"), which is as wide as its glyph.
     private func iconWidth(of row: PaletteRow) -> CGFloat {
-        if case .type(.glyph(let glyph)) = row.icon { return Self.text.width(glyph) }
+        if case .type(let type) = row.icon { return type.width(glyphText: Self.text) }
         return Self.iconSize
     }
 
@@ -378,23 +378,16 @@ final class PaletteView: FlippedView {
         layoutFrame = bounds
         scrollOffset = min(scrollOffset, maxScroll)
         place(panel, panelLayout)
-        // 16pt down, a 40pt blur.
-        panel.layer?.shadowColor = theme.shadow(0.5).cgColor
-        panel.layer?.shadowOpacity = 1
-        panel.layer?.shadowRadius = 40
-        panel.layer?.shadowOffset = CGSize(width: 0, height: -16)
+        panel.layer?.applyOverlayShadow(.modal, theme: theme)
         panel.needsDisplay = true
     }
 
     // MARK: Drawing
 
     /// The backdrop holds the keyboard, and a focus ring around it says so —
-    /// the outermost point of the window, #99c8ff over the dark theme, #005fcc
-    /// over the light.
+    /// the outermost point of the window, in the theme's accent (L-12).
     override func draw(_ dirtyRect: NSRect) {
-        (theme.isDark
-            ? NSColor(srgbRed: 0x99 / 255, green: 0xc8 / 255, blue: 1, alpha: 1)
-            : NSColor(srgbRed: 0, green: 0x5f / 255, blue: 0xcc / 255, alpha: 1)).setStroke()
+        theme.accent.setStroke()
         let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 2, yRadius: 2)
         ring.lineWidth = 1
         ring.stroke()
@@ -439,23 +432,8 @@ final class PaletteView: FlippedView {
     private func drawIcon(_ icon: PaletteRow.Icon, in rect: CGRect, color: NSColor) {
         let box = panel.drawn(rect)
         switch icon {
-        case .chrome(let chrome):
-            chrome.draw(in: box, color: color)
-        case .type(.symbol(let name)):
-            guard
-                let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-                    .withSymbolConfiguration(.init(pointSize: 13, weight: .regular).applying(.init(paletteColors: [color])))
-            else { return }
-            image.draw(
-                in: CGRect(
-                    x: box.midX - image.size.width / 2, y: box.midY - image.size.height / 2, width: image.size.width,
-                    height: image.size.height),
-                from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        case .type(.image(let template)):
-            EmptyPaneView.tinted(template, color: color).draw(
-                in: box, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        case .type(.glyph(let glyph)):
-            Self.text.draw(glyph, at: CGPoint(x: box.minX, y: box.midY - Self.text.lineHeight / 2 + Self.text.ascent), color: color)
+        case .chrome(let chrome): chrome.draw(in: box, color: color)
+        case .type(let type): type.draw(in: box, color: color, glyphText: Self.text)
         }
     }
 
@@ -535,10 +513,7 @@ final class PaletteView: FlippedView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        tracking = replaceTrackingArea(tracking, events: .mouseMoved)
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -569,16 +544,6 @@ final class PaletteView: FlippedView {
         lastPointer = point
         updateHover(at: point)
     }
-}
-
-/// The panel's own box: its background, border and shadow are its layer's;
-/// the rows are drawn over them. Clicks fall through to the backdrop.
-@MainActor
-final class PalettePanel: FlippedView {
-    var drawContent: (() -> Void)?
-
-    override func draw(_ dirtyRect: NSRect) { drawContent?() }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// What the empty pane and the palette say when nothing can be created.

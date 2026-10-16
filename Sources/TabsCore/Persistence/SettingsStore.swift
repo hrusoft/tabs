@@ -10,13 +10,18 @@ package final class SettingsStore: SettingsBackend {
     /// How panes look and behave. Each field decodes on its own; one that
     /// doesn't takes its default and is reported.
     package struct PaneSettings: Codable, Equatable, Sendable {
-        /// `dark`, `light` or `system`.
+        /// A theme file's id (`dark`, `light`, any other file's), or `system`:
+        /// Light or Dark as macOS is. An id no file loaded draws Dark and is
+        /// kept (`ThemeCatalog.resolve`).
         package var colorTheme = "dark"
         package var showNavFlash = true
         package var dimInactivePanes = true
         /// 0 (no effect) to 1.
         package var dimInactivePanesIntensity = 0.34
         package var snapResizeSeparators = true
+        /// Whether a tab the user didn't name shows the title of the pane last
+        /// active in it (docs/TAB-TITLES.md). TT-1
+        package var tabTitlesFollowPanes = true
         /// Where a new unpinned pane spawns over the pane it comes from.
         package var newUnpinnedPanePosition = SpawnPosition.default.rawValue
         /// Whether every window's layout is saved to layout.json and restored
@@ -26,15 +31,20 @@ package final class SettingsStore: SettingsBackend {
         /// Kinds of pane signal the user switched off, by id (sorted). Sparse:
         /// every kind is on unless listed.
         package var disabledSignals: [String] = []
+        /// Fields a newer build wrote, carried through every save: a build that adds a pane
+        /// setting doesn't bump `version`, so nothing else would keep an older build's save
+        /// from erasing it.
+        package var unknown: [String: JSONValue] = [:]
 
         package init() {}
 
         private enum CodingKeys: String, CodingKey, CaseIterable {
             case colorTheme, showNavFlash, dimInactivePanes, dimInactivePanesIntensity, snapResizeSeparators, newUnpinnedPanePosition
-            case disabledSignals, persistLayoutOnExit
+            case disabledSignals, persistLayoutOnExit, tabTitlesFollowPanes
         }
 
         package init(from decoder: any Decoder) throws {
+            unknown = CoreSettings.unknownFields(in: decoder, known: CodingKeys.allCases.map(\.rawValue))
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let defaults = PaneSettings()
             /// The stored value, or the default when absent; a value that doesn't decode is
@@ -55,6 +65,21 @@ package final class SettingsStore: SettingsBackend {
             newUnpinnedPanePosition = field(.newUnpinnedPanePosition, defaults.newUnpinnedPanePosition)
             disabledSignals = field(.disabledSignals, defaults.disabledSignals)
             persistLayoutOnExit = field(.persistLayoutOnExit, defaults.persistLayoutOnExit)
+            tabTitlesFollowPanes = field(.tabTitlesFollowPanes, defaults.tabTitlesFollowPanes)
+        }
+
+        package func encode(to encoder: any Encoder) throws {
+            try CoreSettings.encode(unknown, to: encoder)
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(colorTheme, forKey: .colorTheme)
+            try container.encode(showNavFlash, forKey: .showNavFlash)
+            try container.encode(dimInactivePanes, forKey: .dimInactivePanes)
+            try container.encode(dimInactivePanesIntensity, forKey: .dimInactivePanesIntensity)
+            try container.encode(snapResizeSeparators, forKey: .snapResizeSeparators)
+            try container.encode(newUnpinnedPanePosition, forKey: .newUnpinnedPanePosition)
+            try container.encode(disabledSignals, forKey: .disabledSignals)
+            try container.encode(persistLayoutOnExit, forKey: .persistLayoutOnExit)
+            try container.encode(tabTitlesFollowPanes, forKey: .tabTitlesFollowPanes)
         }
 
         /// A stored position that isn't one of the nine spawns at the default.
@@ -68,12 +93,16 @@ package final class SettingsStore: SettingsBackend {
         /// form, or nil (JSON null) for unbound. Sparse: absent means the
         /// command's default. One that doesn't parse is kept but not used.
         package var shortcuts: [String: String?] = [:]
+        /// What the Caffeinate dialog last started it with, which the next
+        /// dialog starts from (docs/CAFFEINATE.md D-10). Nil until the first
+        /// Start: the dialog then shows its current defaults.
+        package var lastCaffeinate: CaffeinateFlags?
         /// Fields a newer build wrote, carried through every save.
         package var unknown: [String: JSONValue] = [:]
 
         package init() {}
 
-        private enum CodingKeys: String, CodingKey, CaseIterable { case disabledPlugins, shortcuts, panes }
+        private enum CodingKeys: String, CodingKey, CaseIterable { case disabledPlugins, shortcuts, panes, lastCaffeinate }
 
         /// Field by field, so one bad field never costs the others.
         package init(from decoder: any Decoder) throws {
@@ -88,6 +117,11 @@ package final class SettingsStore: SettingsBackend {
                 panes = try container.decodeIfPresent(PaneSettings.self, forKey: .panes) ?? PaneSettings()
             } catch {
                 decoder.diagnostics?.drop("panes did not decode and were reset")
+            }
+            do {
+                lastCaffeinate = try container.decodeIfPresent(CaffeinateFlags.self, forKey: .lastCaffeinate)
+            } catch {
+                decoder.diagnostics?.drop("lastCaffeinate did not decode and was reset")
             }
             let raw = (try? container.decodeIfPresent([String: JSONValue].self, forKey: .shortcuts)) ?? [:]
             for (command, value) in raw.sorted(by: { $0.key < $1.key }) {
@@ -108,6 +142,7 @@ package final class SettingsStore: SettingsBackend {
             try container.encode(disabledPlugins, forKey: .disabledPlugins)
             try container.encode(shortcuts, forKey: .shortcuts)
             try container.encode(panes, forKey: .panes)
+            try container.encodeIfPresent(lastCaffeinate, forKey: .lastCaffeinate)
         }
     }
 
@@ -156,7 +191,6 @@ package final class SettingsStore: SettingsBackend {
         loadNotes = outcome.notes
     }
 
-    package var core: CoreSettings { document.core }
     package var disabledPlugins: Set<PluginID> { Set(document.core.disabledPlugins) }
 
     package var isReadOnly: Bool { store.readOnly }
@@ -170,22 +204,18 @@ package final class SettingsStore: SettingsBackend {
 
     package var panes: PaneSettings { document.core.panes }
 
-    private var paneObservers: [Int: @MainActor (PaneSettings) -> Void] = [:]
-    private var nextPaneObserver = 0
+    private let paneObservers = ObserverList<PaneSettings>()
 
     package func setPanes(_ panes: PaneSettings) {
         guard panes != document.core.panes else { return }
         document.core.panes = panes
         store.save(document)
-        for observer in paneObservers.values { observer(panes) }
+        paneObservers.notify(panes)
     }
 
     /// Calls `handler` whenever the pane settings change.
     package func observePanes(_ handler: @escaping @MainActor (PaneSettings) -> Void) -> Subscription {
-        let token = nextPaneObserver
-        nextPaneObserver += 1
-        paneObservers[token] = handler
-        return Subscription(onCancel: { [weak self] in self?.paneObservers[token] = nil })
+        paneObservers.add(handler)
     }
 
     package var shortcutOverrides: [String: String?] { document.core.shortcuts }
@@ -204,6 +234,16 @@ package final class SettingsStore: SettingsBackend {
     /// Replaces every shortcut the user stored at once (empty: Restore Defaults).
     package func setShortcuts(_ shortcuts: [String: String?]) {
         document.core.shortcuts = shortcuts
+        store.save(document)
+    }
+
+    /// What the Caffeinate dialog last started it with; nil until it first has.
+    package var lastCaffeinate: CaffeinateFlags? { document.core.lastCaffeinate }
+
+    /// Records a Start from the Caffeinate dialog, for the next one to start from.
+    package func setLastCaffeinate(_ flags: CaffeinateFlags) {
+        guard flags != document.core.lastCaffeinate else { return }
+        document.core.lastCaffeinate = flags
         store.save(document)
     }
 

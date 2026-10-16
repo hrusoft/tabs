@@ -11,6 +11,10 @@ package struct NavRect: Equatable, Sendable {
         self.right = right
         self.bottom = bottom
     }
+
+    package init(_ rect: FloatRect) {
+        self.init(left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height)
+    }
 }
 
 /// Keyboard pane navigation and focus choices.
@@ -179,13 +183,8 @@ package enum Navigation {
     package static func navTarget(_ root: LayoutNode, _ paneID: NodeID, _ direction: NavDirection) -> Target? {
         let axis: SplitDirection = direction == .left || direction == .right ? .horizontal : .vertical
         let step = direction == .right || direction == .down ? 1 : -1
-        guard let start = Tree.findNode(root, paneID) else { return nil }
+        guard var node = Tree.findNode(root, paneID) else { return nil }
         var wrap: Target?
-        if axis == .horizontal, case .tabs(let group) = start {
-            wrap = tabTarget(group, group.tabs.firstIndex { $0.id == group.activeTabID } ?? -1, step)
-            if let wrap, !wrap.wrapped { return wrap }
-        }
-        var node = start
         while let ref = Tree.findParent(root, node.id) {
             switch ref {
             case .split(let parent, let index):

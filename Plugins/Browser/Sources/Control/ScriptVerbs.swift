@@ -83,7 +83,7 @@ enum ScriptVerbs {
             let answer: [String: JSONValue]
             switch await pane.page.evaluate(serializingScript(code, toFile: toFile)) {
             case .success(.object(let object)): answer = object
-            case .success: throw ControlVerbError(unexpectedAnswer)
+            case .success: throw ControlVerbError(VerbSupport.unexpectedAnswer)
             case .failure(.exception):
                 // Runtime throws are caught inside the page, so the only way to land here is
                 // code that isn't a valid expression.
@@ -97,7 +97,7 @@ enum ScriptVerbs {
                 }
                 throw ControlVerbError("script threw: \(answer["error"]?.stringValue ?? "unknown error")")
             }
-            guard let serialized = answer["serialized"]?.stringValue else { throw ControlVerbError(unexpectedAnswer) }
+            guard let serialized = answer["serialized"]?.stringValue else { throw ControlVerbError(VerbSupport.unexpectedAnswer) }
 
             // File output requested: the *full* serialization goes to the sink instead of the cap
             // applying, because the caller asked for a file precisely because the value is large. A
@@ -107,14 +107,11 @@ enum ScriptVerbs {
             if toFile {
                 let format = answer["format"]?.stringValue == "text" ? "text" : "json"
                 let bytes = Data(serialized.utf8)
-                switch files.write(
+                let path = try files.write(
                     bytes, out: invocation["outPath"], subdirectory: AgentFiles.Subdirectory.output, ext: format == "text" ? "txt" : "json",
-                    what: "result")
-                {
-                case .failure(let failure): throw ControlVerbError(failure.message)
-                case .success(let path):
-                    return ["path": .string(path), "bytes": .int(Int64(bytes.count)), "format": .string(format), "truncated": false]
-                }
+                    what: "result"
+                ).orThrow()
+                return ["path": .string(path), "bytes": .int(Int64(bytes.count)), "format": .string(format), "truncated": false]
             }
             let units = serialized.utf16
             if units.count > BrowserLimits.executeResultMax {
@@ -124,14 +121,11 @@ enum ScriptVerbs {
             // it is reported as null rather than dropping the key, so a caller can tell "ran, returned
             // nothing" from "no result field".
             guard let value = try? JSONDecoder().decode(JSONValue.self, from: Data(serialized.utf8)) else {
-                throw ControlVerbError(unexpectedAnswer)
+                throw ControlVerbError(VerbSupport.unexpectedAnswer)
             }
             return ["value": value, "truncated": false]
         }
     }
-
-    private static let unexpectedAnswer =
-        "the page's answer was not the shape this verb expects — the page may have replaced a built-in the verb relies on"
 
     /// The caller's code wrapped so the page answers with a string: `executeScript`'s outcome
     /// (`{ok, value}` or `{ok: false, error}`), the value serialized in the page. `JSON.stringify` is

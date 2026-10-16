@@ -5,9 +5,11 @@ import TabsPluginSDK
 /// Dragging tabs and panes. A press on a tab or on a pane's chrome arms a
 /// drag; 5pt of travel engages it: the source dims, a ghost follows the
 /// pointer, and the drop target under it previews (a tab-bar slot, an empty
-/// pane, or a dock zone). Hovering another bar's tab for 550ms opens it
-/// (Finder-style). Releasing on a target moves the tab or pane there — into
-/// another window too; anywhere else the ghost flies home. Escape cancels.
+/// pane, or a dock zone). Hovering a tab for 550ms opens it (Finder-style):
+/// any of the drag's tree but the one it leaves and those inside what's
+/// dragged, other tabs in its own bar included. Releasing on a target moves
+/// the tab or pane there — into another window too; anywhere else the ghost
+/// flies home. Escape cancels.
 @MainActor
 final class DragController {
     unowned let renderer: WorkspaceRenderer
@@ -120,7 +122,7 @@ final class DragController {
                 target = resolveInWindow(hovered, at: point, subject: current.subject)
             } else {
                 clearSpringLoad()
-                target = resolveExternal(hovered, at: point)
+                target = resolveExternal(hovered, at: point, subject: current.subject)
             }
             showGhost(in: hovered, at: point, title: current.title)
             ChromeHover.update(point, in: hovered.root)
@@ -143,10 +145,10 @@ final class DragController {
         if let frame = source.window?.frame, frame.contains(point) { return source }
         guard source.layout.canLeaveWindow(subject) else { return nil }
         // Windows that are never shown (tests, the hidden e2e app) stand in for visible ones.
-        for window in NSApp.orderedWindows where (window.isVisible || !renderer.presentsWindows) && !window.isMiniaturized {
+        for window in NSApp.orderedWindows where (window.isShownOnScreen || !renderer.presentsWindows) && !window.isMiniaturized {
             guard window !== source.window else { continue }
             guard let controller = renderer.windows.first(where: { $0.window === window }) else {
-                if window.isVisible, window.frame.contains(point), window.level == .normal { return nil }
+                if window.isShownOnScreen, window.frame.contains(point), window.level == .normal { return nil }
                 continue
             }
             if controller.window?.styleMask.contains(.fullScreen) == true, source.window?.styleMask.contains(.fullScreen) != true {
@@ -214,28 +216,6 @@ final class DragController {
         return nil
     }
 
-    /// The tree a subject lives in: the docked layout, or its floating pane's.
-    private func tree(of subject: DragSubject, in layout: WindowLayout) -> LayoutNode {
-        layout.ownerTree(of: subject.nodeKey)
-    }
-
-    private func subtree(of subject: DragSubject, in tree: LayoutNode) -> LayoutNode? {
-        switch subject {
-        case .pane(let paneID): Tree.findNode(tree, paneID)
-        case .tab(let tabID, _): Tree.findTab(tree, tabID)?.tab.content
-        }
-    }
-
-    /// The bar a drag leaves: a tab's own group, or the group whose tab holds the pane.
-    private func homeBarTab(_ subject: DragSubject, in tree: LayoutNode) -> (group: NodeID, tab: NodeID)? {
-        switch subject {
-        case .tab(let tabID, let group): return (group, tabID)
-        case .pane(let paneID):
-            if case .tab(let parent, let tab)? = Tree.findParent(tree, paneID) { return (parent.id, tab.id) }
-            return nil
-        }
-    }
-
     /// In precedence order: a tab bar, an edge dock zone, an empty pane, a
     /// center dock. Edge zones beat the empty pane (an empty tab's content
     /// covers its whole pane, which could never be edge-docked otherwise).
@@ -249,76 +229,55 @@ final class DragController {
         return dock.map { .dock(targetID: $0.targetID, zone: $0.zone) }
     }
 
+    /// A drop in the subject's own window: what's under the pointer, as core
+    /// takes it within the subject's own tree (`WindowLayout.canDrop`).
     private func resolveInWindow(_ controller: WorkspaceWindowController, at point: CGPoint, subject: DragSubject) -> DropTarget? {
         let layout = controller.layout
-        let tree = tree(of: subject, in: layout)
         let element = element(at: point, in: controller)
         if let tab = closest(TabView.self, from: element) {
-            springLoad(tab.tabID, in: controller, tree: tree, subject: subject)
+            springLoad(tab, in: controller, subject: subject)
         } else {
             clearSpringLoad()
         }
-        return byPrecedence(
-            tabBar: {
-                tabBarTarget(
-                    element, at: point, in: controller, tree: tree,
-                    accepts: { group in
-                        switch subject {
-                        case .pane(let paneID): Tree.canMovePaneToTabs(tree, paneID, group)
-                        case .tab(let tabID, _): Tree.canMoveTabToTabs(tree, tabID, group)
-                        }
-                    },
-                    departing: { group in
-                        let home = self.homeBarTab(subject, in: tree)
-                        return home?.group == group ? home?.tab : nil
-                    })
-            },
-            dock: {
-                dockTarget(element, at: point, in: controller, tree: tree) { target, zone in
-                    switch subject {
-                    case .tab(let tabID, _): Tree.canDockTab(tree, tabID, target, zone)
-                    case .pane(let paneID): Tree.canDockPane(tree, paneID, target, zone)
-                    }
-                }
-            },
-            emptyPane: {
-                guard let empty = closest(EmptyPaneView.self, from: element), Tree.contains(tree, empty.paneID) else { return nil }
-                if let moving = subtree(of: subject, in: tree), Tree.contains(moving, empty.paneID) { return nil }
-                return .emptyPane(empty.paneID)
-            })
+        return resolve(element, at: point, in: controller, subject: subject, tree: layout.ownerTree(of: subject.nodeKey)) {
+            layout.canDrop(subject, at: $0)
+        }
     }
 
     /// A drop from another window: the same geometry and precedence, judged
-    /// only by whether the target can take content from another tree.
-    private func resolveExternal(_ controller: WorkspaceWindowController, at point: CGPoint) -> DropTarget? {
-        let tree = controller.layout.rootNode
-        let element = element(at: point, in: controller)
-        let accepts = { (target: NodeID) in Tree.canDockExternalTarget(tree, target) }
-        return byPrecedence(
-            tabBar: { tabBarTarget(element, at: point, in: controller, tree: tree, accepts: accepts, departing: { _ in nil }) },
-            dock: { dockTarget(element, at: point, in: controller, tree: tree) { target, _ in accepts(target) } },
+    /// only by whether the target can take content from another tree
+    /// (`WindowLayout.accepts`).
+    private func resolveExternal(_ controller: WorkspaceWindowController, at point: CGPoint, subject: DragSubject) -> DropTarget? {
+        let layout = controller.layout
+        return resolve(element(at: point, in: controller), at: point, in: controller, subject: subject, tree: layout.rootNode) {
+            layout.accepts($0)
+        }
+    }
+
+    /// The target under `element`, in precedence order, among those `accepts` takes.
+    private func resolve(
+        _ element: NSView?, at point: CGPoint, in controller: WorkspaceWindowController, subject: DragSubject, tree: LayoutNode,
+        accepts: (DropTarget) -> Bool
+    ) -> DropTarget? {
+        byPrecedence(
+            tabBar: { tabBarTarget(element, at: point, in: controller, subject: subject).flatMap { accepts($0) ? $0 : nil } },
+            dock: { dockTarget(element, at: point, in: controller, tree: tree) { accepts(.dock(targetID: $0, zone: $1)) } },
             emptyPane: {
-                guard let empty = closest(EmptyPaneView.self, from: element), accepts(empty.paneID) else { return nil }
+                guard let empty = closest(EmptyPaneView.self, from: element), accepts(.emptyPane(empty.paneID)) else { return nil }
                 return .emptyPane(empty.paneID)
             })
     }
 
-    /// The bar under `element`, if it accepts the drop: an insertion index
-    /// beside the hovered tab (before or after it by which half the pointer
-    /// is in), or at the end over the bar's empty stretch.
-    private func tabBarTarget(
-        _ element: NSView?, at point: CGPoint, in controller: WorkspaceWindowController, tree: LayoutNode, accepts: (NodeID) -> Bool,
-        departing: (NodeID) -> NodeID?
-    ) -> DropTarget? {
-        guard let bar = closest(TabBarView.self, from: element), accepts(bar.pane.nodeID) else { return nil }
-        let groupID = bar.pane.nodeID
+    /// The bar under `element`: an insertion beside the hovered tab (before
+    /// or after it by which half the pointer is in), or at the end over the
+    /// bar's empty stretch, as core counts it (`WindowLayout.tabBarDrop`).
+    private func tabBarTarget(_ element: NSView?, at point: CGPoint, in controller: WorkspaceWindowController, subject: DragSubject)
+        -> DropTarget?
+    {
+        guard let bar = closest(TabBarView.self, from: element) else { return nil }
         let tab = closest(TabView.self, from: element)
-        let ids = Tree.findNode(tree, groupID)?.group?.tabs.map(\.id) ?? []
-        let departingTab = departing(groupID)
-        let remaining = ids.filter { $0 != departingTab }
-        guard let tab, let at = remaining.firstIndex(of: tab.tabID) else { return .tabBar(groupID: groupID, index: remaining.count) }
-        let rect = tab.convert(tab.bounds, to: controller.root)
-        return .tabBar(groupID: groupID, index: point.x < rect.midX ? at : at + 1)
+        let after = tab.map { point.x >= $0.convert($0.bounds, to: controller.root).midX } ?? false
+        return controller.layout.tabBarDrop(subject, on: bar.pane.nodeID, beside: tab?.tabID, after: after)
     }
 
     /// The dock target for the pane under the pointer. Over a tab's own
@@ -336,8 +295,7 @@ final class DragController {
         guard let group else { return nil }
         let dockedRoot = controller.layout.root.id
         func dock(_ pane: PaneView, _ zone: DockZone) -> (NodeID, DockZone)? {
-            if zone != .center && pane.nodeID == dockedRoot { return nil }
-            return allowed(pane.nodeID, zone) ? (pane.nodeID, zone) : nil
+            allowed(pane.nodeID, zone) ? (pane.nodeID, zone) : nil
         }
         func rect(_ pane: PaneView) -> CGRect { pane.convert(pane.bounds, to: controller.root) }
         if group === inner { return dock(inner, zone(in: rect(inner), at: point)) }
@@ -362,16 +320,15 @@ final class DragController {
 
     // MARK: Spring loading
 
-    /// Holding the drag over another tab opens it, so its content can be
-    /// docked into — never the tab driving the drag, one in another tree, or
-    /// one inside the dragged subtree.
-    private func springLoad(_ tabID: NodeID, in controller: WorkspaceWindowController, tree: LayoutNode, subject: DragSubject) {
+    /// Holding the drag over a tab opens it, so its content can be docked
+    /// into: any tab core lets open (`WindowLayout.canSpringLoad`).
+    private func springLoad(_ tab: TabView, in controller: WorkspaceWindowController, subject: DragSubject) {
+        let tabID = tab.tabID
         guard springKey != tabID else { return }
         clearSpringLoad()
         springKey = tabID
-        guard let ref = Tree.findTab(tree, tabID), tabID != homeBarTab(subject, in: tree)?.tab else { return }
-        if let moving = subtree(of: subject, in: tree), Tree.findTab(moving, tabID) != nil { return }
-        let groupID = ref.group.id
+        guard controller.layout.canSpringLoad(tabID, during: subject) else { return }
+        let groupID = tab.strip.pane.nodeID
         let windowID = controller.windowID
         let timer = Timer(timeInterval: Self.springLoadDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -400,23 +357,9 @@ final class DragController {
         }
         end()
         if over == current.source {
-            drop(current.subject, on: target, in: over)
+            engine.drop(current.subject, at: target, in: over)
         } else {
             engine.move(current.subject, from: current.source, to: over, at: target)
-        }
-    }
-
-    /// Applies an in-window drop.
-    private func drop(_ subject: DragSubject, on target: DropTarget, in window: WindowID) {
-        engine.perform(in: window) { layout, titles in
-            switch (target, subject) {
-            case (.tabBar(let group, let index), .tab(let tabID, _)): layout.moveTab(tabID, to: group, at: index, titles: titles)
-            case (.tabBar(let group, let index), .pane(let paneID)): layout.movePaneToTabs(paneID, to: group, at: index, titles: titles)
-            case (.emptyPane(let pane), .tab(let tabID, _)): layout.moveTab(tabID, to: pane, titles: titles)
-            case (.emptyPane(let pane), .pane(let paneID)): layout.dockPane(paneID, onto: pane, zone: .center, titles: titles)
-            case (.dock(let targetID, let zone), .tab(let tabID, _)): layout.dockTab(tabID, onto: targetID, zone: zone, titles: titles)
-            case (.dock(let targetID, let zone), .pane(let paneID)): layout.dockPane(paneID, onto: targetID, zone: zone, titles: titles)
-            }
         }
     }
 
@@ -490,7 +433,7 @@ final class DragController {
 @MainActor
 final class DragGhostView: FlippedView {
     private(set) var title = ""
-    private var theme = Theme.dark
+    private var theme = Theme.placeholder
     private static let text = ChromeText(size: 13)
 
     override init(frame: NSRect) {
@@ -503,11 +446,7 @@ final class DragGhostView: FlippedView {
 
     override func layout() {
         super.layout()
-        // Set here, not in `init`: AppKit resets a view layer's shadow before the view is shown.
-        layer?.shadowColor = theme.shadow(0.35).cgColor
-        layer?.shadowOpacity = 1
-        layer?.shadowRadius = 12
-        layer?.shadowOffset = CGSize(width: 0, height: -4)
+        layer?.applyOverlayShadow(.ghost, theme: theme)
     }
 
     func update(title: String, theme: Theme) {

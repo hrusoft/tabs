@@ -131,6 +131,6 @@ import Testing
         _ = take()
         let moved = engine.move(.pane("a"), from: "w", to: "v", at: .dock(targetID: "c", zone: .right))
         #expect(moved)
-        #expect(take() == ["-a"])
+        #expect(take() == ["+b", "-a"], "the pane left behind takes the focused window's active pane")
     }
 }

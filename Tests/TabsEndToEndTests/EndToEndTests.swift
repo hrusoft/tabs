@@ -87,7 +87,7 @@ import Testing
         try await app.quit()
         var status = stat()
         #expect(stat(path, &status) != 0, "removed at quit")
-        #expect(await app.eventually(3) { !OSProcess.isAlive(caffeinate) }, "the real caffeinate stopped with it")
+        #expect(await eventually(timeout: .seconds(3)) { !OSProcess.isAlive(caffeinate) }, "the real caffeinate stopped with it")
     }
 
     @Test func aCrashLosesOnlyWhatWasNotYetSavedAndCaffeinateStillEnds() async throws {  // P-15
@@ -101,13 +101,32 @@ import Testing
         #expect(OSProcess.argv(of: caffeinate).hasSuffix("-w \(pid)"), "it watches the app")
         // The save debounce writes it on its own, 400 ms after the change.
         let layout = app.dataDirectory.appending(path: "layout.json")
-        #expect(await app.eventually { ((try? String(contentsOf: layout, encoding: .utf8)) ?? "").contains(#""saved""#) })
+        #expect(await eventually(timeout: .seconds(5)) { ((try? String(contentsOf: layout, encoding: .utf8)) ?? "").contains(#""saved""#) })
         try await app.call("tabs.test.type", ["text": " and not"])
         app.terminate()  // SIGKILL: no quit path at all, no final save
         let relaunched = try await LaunchedApp.launch(dataDirectory: app.dataDirectory)
         defer { relaunched.terminate() }
         #expect(try await relaunched.text(of: pane) == "saved")
-        #expect(await app.eventually { !OSProcess.isAlive(caffeinate) }, "ended through -w, not the quit path")
+        #expect(await eventually(timeout: .seconds(5)) { !OSProcess.isAlive(caffeinate) }, "ended through -w, not the quit path")
+        try await relaunched.quit()
+    }
+
+    /// The dialog's side is `UITests.CaffeinateDialog`'s; this is the settings the app gives it.
+    @Test func theCaffeinateDialogStartsFromTheLastStartAfterARelaunch() async throws {  // CAFFEINATE.md D-17
+        let app = try await LaunchedApp.launch()
+        defer { app.terminate() }
+        try await app.call("tabs.test.menu", ["title": "Caffeinate…"])
+        try await app.call("tabs.test.caffeinateDialog", ["display": true, "idle": false, "timer": "12"])
+        try await app.call("tabs.test.click", ["window": "caffeinate", "identifier": "caffeinate-start-button"])
+        #expect(try await app.caffeinate()["running"] == true)
+        try await app.quit()
+
+        let relaunched = try await LaunchedApp.launch(dataDirectory: app.dataDirectory)
+        defer { relaunched.terminate() }
+        try await relaunched.call("tabs.test.menu", ["title": "Caffeinate…"])
+        let dialog = try await relaunched.caffeinate()["dialog"]
+        #expect(dialog?["flags"] == ["display": true, "idle": false, "disk": false, "system": true, "active": false])
+        #expect(dialog?["timer"] == "12")
         try await relaunched.quit()
     }
 }

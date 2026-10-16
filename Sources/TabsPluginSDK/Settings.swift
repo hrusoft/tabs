@@ -26,13 +26,12 @@ public final class PluginSettings<Value: PluginSettingsValue> {
     @ObservationIgnored private let pluginID: PluginID
     @ObservationIgnored private let backend: any SettingsBackend
     @ObservationIgnored private let log: Logger
-    @ObservationIgnored private var observers: [(token: Int, handler: @MainActor (Value) -> Void)] = []
-    @ObservationIgnored private var nextToken = 0
+    /// In order, for every observer: an update made from inside an observer
+    /// is delivered after the current one has reached everyone.
+    @ObservationIgnored private let observers = ObserverList<Value>()
     @ObservationIgnored private var isInvalidated = false
     /// Stored top-level fields `Value` doesn't have, kept on every write.
     @ObservationIgnored private let unknownFields: [String: JSONValue]
-    @ObservationIgnored private var pendingNotifications: [Value] = []
-    @ObservationIgnored private var isNotifying = false
 
     package init(pluginID: PluginID, backend: any SettingsBackend, log: Logger) {
         self.pluginID = pluginID
@@ -67,20 +66,7 @@ public final class PluginSettings<Value: PluginSettingsValue> {
         }
         value = next
         backend.store(encoded, for: pluginID)
-        notify(next)
-    }
-
-    /// In order, for every observer: an update made from inside an observer
-    /// is delivered after the current one has reached everyone.
-    private func notify(_ value: Value) {
-        pendingNotifications.append(value)
-        guard !isNotifying else { return }
-        isNotifying = true
-        defer { isNotifying = false }
-        while !pendingNotifications.isEmpty {
-            let next = pendingNotifications.removeFirst()
-            for observer in observers { observer.handler(next) }
-        }
+        observers.notify(next)
     }
 
     /// Stops the instance for good: later updates are ignored and observers are
@@ -92,10 +78,7 @@ public final class PluginSettings<Value: PluginSettingsValue> {
 
     /// Calls `handler` after every change (not initially).
     public func observe(_ handler: @escaping @MainActor (Value) -> Void) -> Subscription {
-        nextToken += 1
-        let token = nextToken
-        observers.append((token, handler))
-        return Subscription { [weak self] in self?.observers.removeAll { $0.token == token } }
+        observers.add(handler)
     }
 
     /// A SwiftUI binding to one field.

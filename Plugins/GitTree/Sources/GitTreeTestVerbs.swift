@@ -31,6 +31,24 @@ enum GitTreeTestVerbs {
                     pane.select(hash)
                     try await pane.settle()
                 }
+                if case .array(let paths)? = spec["expand"] {
+                    for path in paths.compactMap(\.stringValue) {
+                        guard let file = pane.detail?.files.first(where: { $0.path == path }) else {
+                            throw ControlVerbError("no file \(path) in the selected row's details")
+                        }
+                        pane.toggleFile(file)
+                    }
+                    try await pane.settle()
+                }
+                if case .object(let reveal)? = spec["reveal"] {
+                    for (path, gaps) in reveal {
+                        if gaps == "all" {
+                            pane.toggleFullFile(path)
+                        } else if case .array(let indices) = gaps {
+                            for gap in indices.compactMap(\.intValue) { pane.revealGap(path, Int(gap)) }
+                        }
+                    }
+                }
                 return .null
             })
 
@@ -76,6 +94,18 @@ extension ScriptedGitSource {
             for (hash, detail) in details { self.details[hash] = try detail.decode(CommitDetail.self) }
         }
         if let workingTree = fixture["workingTree"] { workingTreeDetail = try workingTree.decode(CommitDetail.self) }
+        // Each diff as git's patch text, parsed as a real one is, and the
+        // old file's text when the hidden lines should be showable.
+        if case .object(let byHash)? = fixture["diffs"] {
+            for (hash, byPath) in byHash {
+                guard case .object(let entries) = byPath else { continue }
+                for (path, entry) in entries {
+                    var diff = Git.parsePatch(entry["patch"]?.stringValue ?? entry.stringValue ?? "")
+                    diff.base = entry["base"]?.stringValue.map(Git.fileLines)
+                    fileDiffs[hash, default: [:]][path] = diff
+                }
+            }
+        }
         if let head = fixture["head"] {
             switch head["kind"]?.stringValue {
             case "detached": self.head = .detached(hash: head["hash"]?.stringValue ?? "")
@@ -111,6 +141,8 @@ extension GitTreePane {
             "collapsed": .bool(split.collapsed),
             "fraction": .double(split.fraction),
             "loading": .bool(log == nil),
+            "expandedFiles": .array(expandedFiles.keys.sorted().map(JSONValue.string)),
+            "diffs": .object(expandedFiles.mapValues(\.testState)),
         ]
         if case .failure(let error)? = log { state["notice"] = .string(failureMessage(error.reason)) }
         if case .success(let value)? = log {
@@ -129,14 +161,43 @@ extension GitTreePane {
     }
 
     /// Waits until the log is read and, unless collapsed, the selected row's
-    /// details are (the read is debounced).
+    /// details are (the read is debounced), and every expanded file's diff.
     func settle() async throws {
         for _ in 0..<200 {
             let detailDone = split.collapsed || selectedHash == nil || detail?.hash == selectedHash
-            if log != nil && !fetchPending && detailDone { return }
+            let diffsDone = expandedFiles.values.allSatisfy { if case .reading = $0.diff { false } else { true } }
+            if log != nil && !fetchPending && detailDone && diffsDone { return }
             try await Task.sleep(for: .milliseconds(10))
         }
         throw ControlVerbError("the git tree didn't settle")
+    }
+}
+
+extension FileExpansion {
+    /// An expanded file as the state verb reports it: whether its diff is
+    /// read, its rows' kinds and texts (a hidden run as `hidden:<count>`).
+    var testState: JSONValue {
+        var state: [String: JSONValue] = [:]
+        switch diff {
+        case .reading: state["state"] = "reading"
+        case .read: state["state"] = "read"
+        case .failed(let message):
+            state["state"] = "failed"
+            state["message"] = .string(message)
+        }
+        if let shown {
+            state["binary"] = .bool(shown.binary)
+            state["truncated"] = .bool(shown.truncated)
+            state["fullFile"] = .bool(showsFullFile)
+            state["rows"] = .array(
+                shown.rows(revealed: revealed).map { row in
+                    switch row {
+                    case .line(let line): .string("\(line.kind.rawValue):\(line.text)")
+                    case .hidden(_, let count, _): .string("hidden:\(count)")
+                    }
+                })
+        }
+        return .object(state)
     }
 }
 
@@ -209,15 +270,12 @@ extension GitTreeView {
                         ])
                     })
         }
-        guard state == .list, let listRect = layout.list else {
-            for key in ["list", "loadMore", "divider", "detail", "message"] { out[key] = .null }
-            out["rows"] = .object([:])
-            out["dividerCollapsed"] = .bool(false)
-            out["fields"] = .array([])
-            out["files"] = .array([])
-            out["detailNotes"] = .array([])
-            return .object(out)
-        }
+        // What a pane with no list, or no detail, reports for them.
+        for key in ["list", "loadMore", "divider", "detail", "message", "totals"] { out[key] = .null }
+        for key in ["fields", "files", "detailNotes"] { out[key] = .array([]) }
+        out["rows"] = .object([:])
+        out["dividerCollapsed"] = .bool(false)
+        guard state == .list, let listRect = layout.list else { return .object(out) }
         out["list"] = r(listRect)
         var rows: [String: JSONValue] = [:]
         for index in 0..<list.rowCount {
@@ -263,25 +321,35 @@ extension GitTreeView {
         out["loadMore"] = r(list.loadMoreRect?.offsetBy(dx: listRect.minX, dy: listRect.minY))
         out["divider"] = r(layout.divider)
         out["dividerCollapsed"] = .bool(layout.dividerCollapsed)
-        guard let detailRect = layout.detail else {
-            out["detail"] = .null
-            out["message"] = .null
-            out["fields"] = .array([])
-            out["files"] = .array([])
-            out["detailNotes"] = .array([])
-            return .object(out)
-        }
+        guard let detailRect = layout.detail else { return .object(out) }
         out["detail"] = r(detailRect)
         let detailLayout = detail.layout(width: bounds.width)
         func inDetail(_ rect: CGRect?) -> JSONValue { r(rect?.offsetBy(dx: detailRect.minX, dy: detailRect.minY)) }
         out["message"] = inDetail(detailLayout.message)
         out["fields"] = .array(detailLayout.fields.map { .object(["dt": inDetail($0.dt), "dd": inDetail($0.dd)]) })
+        out["totals"] =
+            detailLayout.totals.map { .object(["insertions": inDetail($0.insertions), "deletions": inDetail($0.deletions)]) } ?? .null
         out["files"] = .array(
             detailLayout.files.map { file in
-                .object([
-                    "row": inDetail(file.row), "stat": inDetail(file.stat), "insertions": inDetail(file.insertions),
-                    "deletions": inDetail(file.deletions), "binary": inDetail(file.binary), "path": inDetail(file.path),
-                ])
+                var entry: [String: JSONValue] = [
+                    "row": inDetail(file.row), "disclosure": inDetail(file.disclosure), "expanded": .bool(file.expanded),
+                    "stat": inDetail(file.stat), "insertions": inDetail(file.insertions), "deletions": inDetail(file.deletions),
+                    "binary": inDetail(file.binary), "path": inDetail(file.path), "diff": .null, "fullFile": .null,
+                    "diffLines": .array([]), "diffNotes": .array([]),
+                ]
+                if let diff = file.diff {
+                    entry["diff"] = inDetail(diff.box)
+                    entry["fullFile"] = inDetail(diff.fullFile?.button)
+                    entry["diffLines"] = .array(
+                        diff.rows.map { row in
+                            .object([
+                                "row": inDetail(row.rect), "kind": .string(row.kind.rawValue), "old": inDetail(row.old),
+                                "new": inDetail(row.new), "text": inDetail(row.text),
+                            ])
+                        })
+                    entry["diffNotes"] = .array(diff.notes.map { inDetail($0) })
+                }
+                return .object(entry)
             })
         out["detailNotes"] = .array(detailLayout.notes.map { inDetail($0) })
         return .object(out)

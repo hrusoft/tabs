@@ -36,7 +36,25 @@ import Testing
             let physical = USKeyboard.physicalKey(for: key)
             #expect(physical != nil, "\(key)")
         }
-        #expect(!USKeyboard.isKnown("Bogus"))
+    }
+
+    /// J-28: what `key` takes is exactly what its events can carry: a name as the keyboard spells it (its other
+    /// two names included), or any one character, typed as text when no key is behind it.
+    @Test func canSendANamedKeyOrOneCharacterAndNothingElse() {
+        for key in ["Enter", "Return", "Space", "Escape", "Tab", "Backspace", "Delete", "ArrowUp", "PageDown", "F1", "F20"] {
+            #expect(canSendKeystroke(key), "\(key)")
+        }
+        for key in ["a", "A", "!", " ", "é", "日", "😀"] { #expect(canSendKeystroke(key), "\(key)") }
+        for key in ["enter", "ENTER", "Esc", "return", "ab", "Bogus", "F21", ""] { #expect(!canSendKeystroke(key), "\(key)") }
+    }
+
+    /// J-28: the refusal lists every name the keyboard takes, and only those.
+    @Test func theKeyNamesAreTheOnesItCanSend() {
+        let listed = USKeyboard.keyNames.components(separatedBy: ", ")
+        #expect(listed.first == "Enter")
+        #expect(listed.contains("F1–F20"))
+        for name in listed where name != "F1–F20" { #expect(canSendKeystroke(name), "\(name)") }
+        for index in 1...20 { #expect(canSendKeystroke("F\(index)")) }
     }
 
     @Test func aChordWithMetaOrControlStaysAKeyDownAndKeyUpWithTheFlagSet() {

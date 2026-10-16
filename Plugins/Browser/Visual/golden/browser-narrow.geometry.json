@@ -87,7 +87,7 @@
   "tabBars": {
     "root": {
       "grip": null,
-      "newTab": [147.69, 13, 20, 14],
+      "newTab": [210.01, 13, 20, 14],
       "rect": [1, 1, 338, 30],
       "root": true,
       "settings": [306, 4.5, 23, 23],
@@ -96,12 +96,12 @@
         "tab-main": {
           "active": true,
           "baseline": 25,
-          "close": [127.69, 14.5, 15.01, 14],
+          "close": [190.01, 14.5, 15.01, 14],
           "dragging": false,
-          "rect": [90, 10, 55.69, 22],
-          "text": "Tabs",
-          "title": [101, 14, 24.69, 13],
-          "titleBox": [101, 14, 24.69, 13],
+          "rect": [90, 10, 118.01, 22],
+          "text": "Example Domain",
+          "title": [101, 14, 87.01, 13],
+          "titleBox": [101, 14, 87.01, 13],
           "truncated": false
         }
       }

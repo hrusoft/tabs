@@ -18,14 +18,6 @@ enum VerbSupport {
         return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// `evalInGuest`: a script's value, or the error a caller reads. A rejection is
-    /// turned into one sentence (`pageScriptUnavailableMessage`), never the engine's
-    /// plumbing; a caller for whom the answer is optional (reporting, never a gate)
-    /// degrades on the failure.
-    static func evalInGuest(_ page: BrowserPage, _ script: String) async -> Result<JSONValue, PageScriptError> {
-        await page.evaluate(script)
-    }
-
     /// `evalOutcomeInGuest`: a script that answers with an outcome object of its own
     /// making, which the caller then reads fields off. A non-object answer (a page
     /// that replaced a built-in the script relies on) is refused as such.
@@ -33,18 +25,38 @@ enum VerbSupport {
         switch await page.evaluate(script) {
         case .failure(let error): return .failure(VerbFailure(error.message))
         case .success(.object(let object)): return .success(object)
-        case .success:
-            return .failure(
-                VerbFailure(
-                    "the page's answer was not the shape this verb expects — the page may have replaced a built-in the verb relies on"))
+        case .success: return .failure(VerbFailure(unexpectedAnswer))
         }
     }
+
+    /// What a verb answers when the page's answer isn't the shape its script makes.
+    static let unexpectedAnswer =
+        "the page's answer was not the shape this verb expects — the page may have replaced a built-in the verb relies on"
 }
 
 /// A failure with the message the verb answers with.
 struct VerbFailure: Error, Equatable {
     let message: String
     init(_ message: String) { self.message = message }
+}
+
+/// A failure whose `message` is what a verb answers with: its own (`VerbFailure`),
+/// or a script's (`PageScriptError`, one sentence for the engine's plumbing).
+protocol VerbMessage: Error {
+    var message: String { get }
+}
+
+extension VerbFailure: VerbMessage {}
+extension PageScriptError: VerbMessage {}
+
+extension Result where Failure: VerbMessage {
+    /// The value, or the failure thrown as the verb's error, its message unchanged.
+    func orThrow() throws -> Success {
+        switch self {
+        case .success(let value): return value
+        case .failure(let failure): throw ControlVerbError(failure.message)
+        }
+    }
 }
 
 /// The guest expression and the words for naming one element by ref or by semantic

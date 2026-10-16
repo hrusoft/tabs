@@ -176,26 +176,6 @@ import Testing
         #expect(missing.error == "the resource returned HTTP 404")
     }
 
-    /// J-22 (guide): a PDF the built-in viewer shows is a page whose text is empty; the file comes out by the pane's own
-    /// address or by its `<embed>`, whole.
-    @Test func aPDFInTheBuiltInViewerIsSavedByItsAddressOrItsEmbed() async throws {
-        let document =
-            "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF"
-        let pdf = Data(document.utf8)
-        let bed = try await ScriptVerbBed.open(serving: {
-            $0.route("/doc.pdf", .init(status: 200, contentType: "application/pdf", data: pdf))
-        })
-        await bed.load("/doc.pdf")
-        #expect(await bed.value("document.body.innerText") == "", "the viewer draws the document itself")
-        let byAddress = await bed.ctl("save-resource", ["url": .string(bed.page.url)])
-        #expect(byAddress.ok, "\(byAddress.json)")
-        #expect(byAddress.result["path"]?.stringValue?.hasSuffix(".pdf") == true)
-        #expect(try bytes(byAddress.result["path"]?.stringValue) == pdf)
-        let byEmbed = await bed.ctl("save-resource", ["selector": "embed"])
-        #expect(byEmbed.ok, "\(byEmbed.json)")
-        #expect(try bytes(byEmbed.result["path"]?.stringValue) == pdf)
-    }
-
     /// J-24: read-back verbs refuse a pane this caller does not own, the waits too. (`pane-info`, `screenshot` and
     /// `get-page-text` are the other families'.)
     @Test func readBackVerbsRefuseAPaneThisCallerDoesNotOwn() async throws {

@@ -19,8 +19,9 @@ struct Git: Sendable {
     /// `childEnvironment`, never this process's own (`setenv` is every plugin's).
     var environment: [String: String]
 
-    /// How long one invocation may take before it's killed. A repository on a
-    /// stalled network mount must not wedge a pane.
+    /// How long one invocation may take: past it the call fails at once, and
+    /// git is stopped (SIGTERM, then SIGKILL: `GitProcess`). A repository on a
+    /// stalled network mount, or a hook that never ends, must not wedge a pane.
     static let timeout: Duration = .seconds(10)
     /// Output cap per invocation. A 5,000-file merge lands far under this.
     static let maxBuffer = 32 * 1024 * 1024
@@ -248,30 +249,42 @@ struct Git: Sendable {
 
     /// `--numstat` records into changed files, newline- or NUL-separated.
     /// Binary files read `-\t-\t<path>`: nil counts, since "binary" and
-    /// "changed nothing" are different facts.
+    /// "changed nothing" are different facts. With `-z` a rename or copy has
+    /// an empty path and names its old and new paths in the next two records:
+    /// the real paths, where the newline form only has git's display string.
     static func parseNumstat(_ stdout: String, separator: Character = "\n") -> (files: [ChangedFile], truncated: Bool) {
         var files: [ChangedFile] = []
         var truncated = false
-        for line in stdout.split(separator: separator, omittingEmptySubsequences: false) {
+        let records = stdout.split(separator: separator, omittingEmptySubsequences: false)
+        var index = 0
+        while index < records.count {
+            let line = records[index]
+            index += 1
             if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             if fields.count < 3 { continue }
+            var path = fields[2...].joined(separator: "\t")
+            var oldPath: String?
+            if separator == "\0", path.isEmpty, index + 1 < records.count {
+                oldPath = String(records[index])
+                path = String(records[index + 1])
+                index += 2
+            }
             if files.count >= fileCap {
                 truncated = true
                 break
             }
             files.append(
                 ChangedFile(
-                    path: fields[2...].joined(separator: "\t"),
-                    insertions: fields[0] == "-" ? nil : parseLeadingInt(fields[0]),
-                    deletions: fields[1] == "-" ? nil : parseLeadingInt(fields[1])))
+                    path: path, insertions: fields[0] == "-" ? nil : parseLeadingInt(fields[0]),
+                    deletions: fields[1] == "-" ? nil : parseLeadingInt(fields[1]), oldPath: oldPath))
         }
         return (files, truncated)
     }
 
     /// The leading digits as a number, nil if there are none.
     private static func parseLeadingInt(_ text: String) -> Int? {
-        let digits = text.trimmingCharacters(in: .whitespaces).prefix { $0.isASCII && $0.isNumber }
+        let digits = text.trimmingCharacters(in: .whitespacesAndNewlines).prefix { $0.isASCII && $0.isNumber }
         return Int(digits)
     }
 
@@ -283,10 +296,10 @@ struct Git: Sendable {
     ///
     /// `-m --first-parent` makes it work for every shape: a plain
     /// `show --numstat` prints nothing at all for a merge, and root commits
-    /// diff against the empty tree either way.
+    /// diff against the empty tree either way. `-z` for a rename's real paths.
     func readCommit(_ dir: String, hash: String) async -> GitCommitResult {
         async let meta = run(dir, ["show", "--no-patch", "--format=\(Self.detailFormat)%x1f%B", hash])
-        async let numstat = run(dir, ["show", "--numstat", "--format=", "-m", "--first-parent", hash])
+        async let numstat = run(dir, ["show", "--numstat", "-z", "--format=", "-m", "--first-parent", hash])
         let (metaResult, numstatResult) = await (meta, numstat)
         let output: Output
         switch metaResult {
@@ -299,7 +312,7 @@ struct Git: Sendable {
         guard fields.count >= 7 else { return .failure(GitError(.failed(message: "Could not read commit \(hash)"))) }
         var message = fields[6...].joined(separator: String(Self.sep))
         while message.hasSuffix("\n") { message.removeLast() }
-        let parsed = (try? numstatResult.get()).map { Self.parseNumstat($0.stdout) } ?? (files: [], truncated: false)
+        let parsed = (try? numstatResult.get()).map { Self.parseNumstat($0.stdout, separator: "\0") } ?? (files: [], truncated: false)
         return .success(
             CommitDetail(
                 hash: fields[0], parents: fields[1].isEmpty ? [] : fields[1].components(separatedBy: " "), author: fields[2],
@@ -329,20 +342,15 @@ struct Git: Sendable {
     /// One file's stats read off disk, for the working-tree files a tracked
     /// diff has nothing to compare against (untracked, or anything when the
     /// repository has no commits yet). Every line is an insertion. Binary by
-    /// git's own rule (a NUL in the first 8000 bytes), so it gets nil counts.
-    static func fileStatsFromDisk(_ dir: String, _ relativePath: String) -> ChangedFile {
-        guard let data = FileManager.default.contents(atPath: (dir as NSString).appendingPathComponent(relativePath)) else {
-            // Deleted, unreadable or renamed between the status read and this
-            // one: the same "unknown" a binary file gets, not a false zero.
-            return ChangedFile(path: relativePath, insertions: nil, deletions: nil)
+    /// git's own rule, so it gets nil counts. `root` is the repository's:
+    /// status names paths from there.
+    static func fileStatsFromDisk(_ root: String, _ relativePath: String) -> ChangedFile {
+        // Unreadable (deleted, or renamed between the status read and this
+        // one): the same "unknown" a binary file gets, not a false zero.
+        guard let file = readDiskFile((root as NSString).appendingPathComponent(relativePath)), !file.binary else {
+            return ChangedFile(path: relativePath, insertions: nil, deletions: nil, readFromDisk: true)
         }
-        if data.prefix(8000).contains(0) { return ChangedFile(path: relativePath, insertions: nil, deletions: nil) }
-        // A trailing newline ends the last line rather than starting another,
-        // as git counts.
-        let newlines = data.reduce(0) { $0 + ($1 == 0x0a ? 1 : 0) }
-        let endsWithNewline = data.last == 0x0a
-        return ChangedFile(
-            path: relativePath, insertions: endsWithNewline ? newlines : data.isEmpty ? 0 : newlines + 1, deletions: 0)
+        return ChangedFile(path: relativePath, insertions: file.lineCount, deletions: 0, readFromDisk: true)
     }
 
     /// Everything the working tree's uncommitted state touched, shaped like a
@@ -359,20 +367,212 @@ struct Git: Sendable {
         // `old => new`, which would list the file twice.
         async let numstat = run(dir, ["diff", "--numstat", "-z", "--no-renames", "HEAD"])
         let (rootResult, headResult, statusResult, numstatResult) = await (root, head, status, numstat)
-        if case .failure(let error) = rootResult { return .failure(GitError(error.reason)) }
+        let rootPath: String
+        switch rootResult {
+        case .failure(let error): return .failure(GitError(error.reason))
+        case .success(let path): rootPath = path
+        }
 
         let tracked = (try? numstatResult.get()).map { Self.parseNumstat($0.stdout, separator: "\0") } ?? (files: [], truncated: false)
         let trackedPaths = Set(tracked.files.map(\.path))
         let statusPaths = (try? statusResult.get()).map { Self.parseStatusPaths($0.stdout) } ?? []
         let remaining = statusPaths.filter { !trackedPaths.contains($0) }
         let budget = max(Self.fileCap - tracked.files.count, 0)
-        let extra = remaining.prefix(budget).map { Self.fileStatsFromDisk(dir, $0) }
+        let extra = remaining.prefix(budget).map { Self.fileStatsFromDisk(rootPath, $0) }
         let headHash = try? headResult.get().stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return .success(
             CommitDetail(
                 hash: uncommittedChangesHash, parents: headHash.map { [$0] } ?? [], author: "", authorEmail: "", date: "",
                 refs: [], message: "Uncommitted changes", files: tracked.files + extra,
                 filesTruncated: tracked.truncated || remaining.count > extra.count))
+    }
+
+    // MARK: One file's diff
+
+    /// Lines of a diff the panel keeps for one file: a generated file's
+    /// diff can run to hundreds of thousands, and past this it stops being
+    /// readable and becomes a drawing cost.
+    static let diffLineCap = 2000
+    /// Characters kept of one line (a minified file's single line).
+    static let diffLineLength = 1000
+    /// Unchanged lines shown around each change.
+    static let diffContext = 5
+
+    /// What every diff read carries: the patch alone, without the user's
+    /// colors, external diff tool or textconv filters (the panel parses git's
+    /// own patch, and a binary file's row already says "binary").
+    static let patchArgs = ["--patch", "--no-color", "--no-ext-diff", "--no-textconv", "-U\(diffContext)"]
+
+    /// One file of a commit, against its first parent (as its stats are), and
+    /// the old file's lines for the unchanged runs between hunks. A rename
+    /// names both paths, so git pairs them. Run from the root: pathspecs are
+    /// relative to git's directory, the files' paths to the root.
+    /// `--literal-pathspecs`: a `*` or `[` in a name is that character.
+    func readCommitFileDiff(_ root: String, hash: String, file: ChangedFile) async -> GitFileDiffResult {
+        let paths = (file.oldPath.map { [$0] } ?? []) + [file.path]
+        async let patch = run(
+            root, ["--literal-pathspecs", "show", "--format="] + Self.patchArgs + ["-m", "--first-parent", hash, "--"] + paths)
+        // The first parent's file: none for a root commit or an added file.
+        async let base = run(root, ["cat-file", "blob", "\(hash)^1:\(file.oldPath ?? file.path)"])
+        return Self.fileDiff(patch: await patch, base: await base)
+    }
+
+    /// One file of the uncommitted changes, as `readWorkingTreeChanges`
+    /// counted it: tracked against HEAD, or off disk (every line added).
+    func readWorkingTreeFileDiff(_ root: String, file: ChangedFile) async -> GitFileDiffResult {
+        if file.readFromDisk { return Self.diffFromDisk(root, file.path) }
+        async let patch = run(root, ["--literal-pathspecs", "diff"] + Self.patchArgs + ["--no-renames", "HEAD", "--", file.path])
+        async let base = run(root, ["cat-file", "blob", "HEAD:\(file.path)"])
+        return Self.fileDiff(patch: await patch, base: await base)
+    }
+
+    /// The patch parsed, with the old file's lines when there's one.
+    private static func fileDiff(patch: Result<Output, GitError>, base: Result<Output, GitError>) -> GitFileDiffResult {
+        switch patch {
+        case .failure(let error): return .failure(GitError(error.reason))
+        case .success(let output):
+            var diff = parsePatch(output.stdout)
+            diff.base = (try? base.get()).map { fileLines($0.stdout) }
+            return .success(diff)
+        }
+    }
+
+    /// git's unified patch for one file: the header lines (up to the first
+    /// `@@`, and again after any later `diff `) skipped, but for `Binary
+    /// files … differ`; every hunk line numbered from its header; cut at
+    /// `diffLineCap` lines.
+    static func parsePatch(_ stdout: String) -> FileDiff {
+        var diff = FileDiff()
+        var inHunk = false
+        var old = 0
+        var new = 0
+        var count = 0
+        for record in records(stdout) {
+            let line = withoutCR(record)
+            if line.hasPrefix("@@") {
+                guard let header = parseHunkHeader(line) else {
+                    inHunk = false
+                    continue
+                }
+                if count >= diffLineCap {
+                    diff.truncated = true
+                    break
+                }
+                diff.hunks.append(
+                    FileDiff.Hunk(
+                        oldStart: header.oldStart, oldCount: header.oldCount, newStart: header.newStart, newCount: header.newCount,
+                        lines: []))
+                (old, new) = (header.oldStart, header.newStart)
+                inHunk = true
+                continue
+            }
+            guard inHunk, !line.hasPrefix("diff ") else {
+                inHunk = false
+                if line.hasPrefix("Binary files ") && line.hasSuffix(" differ") { diff.binary = true }
+                continue
+            }
+            let kind: FileDiff.Kind
+            switch line.first {
+            case " ": kind = .context
+            case "+": kind = .added
+            case "-": kind = .removed
+            case "\\": kind = .note
+            // The patch's trailing newline, or anything git adds that isn't a line.
+            default: continue
+            }
+            if count >= diffLineCap {
+                diff.truncated = true
+                break
+            }
+            count += 1
+            var entry = FileDiff.Line(kind: kind, text: displayLine(kind == .note ? line : line.dropFirst()))
+            switch kind {
+            case .context:
+                (entry.old, entry.new) = (old, new)
+                old += 1
+                new += 1
+            case .added:
+                entry.new = new
+                new += 1
+            case .removed:
+                entry.old = old
+                old += 1
+            case .note: break
+            }
+            diff.hunks[diff.hunks.count - 1].lines.append(entry)
+        }
+        return diff
+    }
+
+    /// `@@ -a,b +c,d @@ …`: a count left out is 1.
+    static func parseHunkHeader(_ line: Substring) -> (oldStart: Int, oldCount: Int, newStart: Int, newCount: Int)? {
+        let parts = line.split(separator: " ")
+        guard parts.count >= 3, parts[0] == "@@", parts[1].hasPrefix("-"), parts[2].hasPrefix("+") else { return nil }
+        func range(_ text: Substring) -> (Int, Int)? {
+            let numbers = text.dropFirst().split(separator: ",", omittingEmptySubsequences: false)
+            guard let start = numbers.first.flatMap({ Int($0) }) else { return nil }
+            guard numbers.count > 1 else { return (start, 1) }
+            return Int(numbers[1]).map { (start, $0) }
+        }
+        guard let old = range(parts[1]), let new = range(parts[2]) else { return nil }
+        return (old.0, old.1, new.0, new.1)
+    }
+
+    /// A line as the panel keeps it: at most `diffLineLength` characters.
+    private static func displayLine(_ text: Substring) -> String {
+        text.count > diffLineLength ? String(text.prefix(diffLineLength)) + "…" : String(text)
+    }
+
+    /// A file's text as lines, as git counts them: a trailing newline ends
+    /// the last line rather than starting another; a CR before a newline
+    /// isn't shown.
+    static func fileLines(_ text: String) -> [String] {
+        var lines = Array(records(text))
+        if lines.last?.isEmpty == true { lines.removeLast() }
+        return lines.map { displayLine(withoutCR($0)) }
+    }
+
+    /// `text` split at each newline, read as it's asked for (a patch cut at
+    /// `diffLineCap` lines reads no further). On the scalar: Swift reads
+    /// `\r\n` as one Character, so a Character split would never break a
+    /// CRLF file's lines.
+    private static func records(_ text: String) -> UnfoldSequence<Substring, Substring?> {
+        sequence(state: Optional(text[...])) { rest in
+            guard let current = rest else { return nil }
+            guard let newline = current.utf8.firstIndex(of: UInt8(ascii: "\n")) else {
+                rest = nil
+                return current
+            }
+            rest = current[current.utf8.index(after: newline)...]
+            return current[..<newline]
+        }
+    }
+
+    /// `record` without the CR that ends a CRLF line.
+    private static func withoutCR(_ record: Substring) -> Substring {
+        record.utf8.last == UInt8(ascii: "\r") ? record[..<record.utf8.index(before: record.utf8.endIndex)] : record
+    }
+
+    /// An untracked file (or any, with no commits yet) as a diff: the whole
+    /// file added, binary by git's rule (`binaryProbe`). Its first
+    /// `diffLineCap` lines are kept, and no more of it is read than git may
+    /// print for a tracked file's diff (`maxBuffer`).
+    static func diffFromDisk(_ root: String, _ relativePath: String) -> GitFileDiffResult {
+        let path = (root as NSString).appendingPathComponent(relativePath)
+        guard let file = readDiskFile(path, keepLines: diffLineCap, limit: maxBuffer) else {
+            return .failure(GitError(.failed(message: "Couldn’t read \(relativePath).")))
+        }
+        if file.binary { return .success(FileDiff(binary: true)) }
+        guard file.lineCount > 0 else { return .success(FileDiff()) }
+        let kept = fileLines(String(decoding: file.head, as: UTF8.self))
+        let truncated = file.cut || file.lineCount > kept.count
+        var hunk = FileDiff.Hunk(
+            oldStart: 0, oldCount: 0, newStart: 1, newCount: file.lineCount,
+            lines: kept.enumerated().map { FileDiff.Line(kind: .added, text: $1, new: $0 + 1) })
+        if !file.endsWithNewline && !truncated {
+            hunk.lines.append(FileDiff.Line(kind: .note, text: "\\ No newline at end of file"))
+        }
+        return .success(FileDiff(hunks: [hunk], truncated: truncated))
     }
 
     /// Whether `dir` is inside a work tree: only to pick a starting directory.
@@ -456,6 +656,82 @@ struct Git: Sendable {
         case .failure(let error):
             let stderr = error.detail ?? ""
             return .failure(GitError(error.reason, detail: stderr.isEmpty ? nil : Self.capLines(stderr, Self.checkoutErrorMaxLines)))
+        }
+    }
+}
+
+// MARK: - Files off disk
+
+extension Git {
+    /// git's rule for a binary file: a NUL in its first 8000 bytes.
+    static let binaryProbe = 8000
+    /// How much of a file read off disk is held at once.
+    static let diskChunk = 64 * 1024
+
+    /// A working-tree file as read off disk.
+    struct DiskFile: Equatable {
+        /// By git's rule (`binaryProbe`); nothing else is read then.
+        var binary = false
+        /// Its lines as git counts them: a trailing newline ends the last line
+        /// rather than starting another.
+        var lineCount = 0
+        /// Its first lines' bytes, newlines included: as many as were asked for.
+        var head = Data()
+        var endsWithNewline = false
+        /// It goes on past the bytes read.
+        var cut = false
+    }
+
+    /// Reads the file at `path` a chunk at a time (`diskChunk`), holding no
+    /// more than one chunk and its first `keepLines` lines, and no further
+    /// than `limit` bytes. nil when it can't be read.
+    static func readDiskFile(_ path: String, keepLines: Int = 0, limit: Int = .max) -> DiskFile? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        var file = DiskFile()
+        var read = 0
+        var newlines = 0
+        var kept = 0
+        var last: UInt8?
+        while read < limit {
+            let chunk: Data
+            do {
+                // A directory opens, and fails here.
+                guard let next = try handle.read(upToCount: min(diskChunk, limit - read)), !next.isEmpty else { break }
+                chunk = next
+            } catch {
+                return nil
+            }
+            if read < binaryProbe, chunk.prefix(binaryProbe - read).contains(0) { return DiskFile(binary: true) }
+            if kept < keepLines {
+                // Up to and including the newline that ends the last line kept.
+                var end = chunk.startIndex
+                while kept < keepLines, let newline = chunk[end...].firstIndex(of: 0x0a) {
+                    kept += 1
+                    end = chunk.index(after: newline)
+                }
+                file.head.append(chunk[chunk.startIndex..<(kept < keepLines ? chunk.endIndex : end)])
+            }
+            newlines += newlineCount(chunk)
+            read += chunk.count
+            last = chunk.last
+        }
+        if read >= limit, let more = try? handle.read(upToCount: 1), !more.isEmpty { file.cut = true }
+        file.endsWithNewline = last == 0x0a
+        file.lineCount = newlines + (last == nil || file.endsWithNewline ? 0 : 1)
+        return file
+    }
+
+    private static func newlineCount(_ data: Data) -> Int {
+        data.withUnsafeBytes { bytes in
+            guard var cursor = bytes.baseAddress else { return 0 }
+            let end = cursor + bytes.count
+            var count = 0
+            while cursor < end, let newline = memchr(cursor, 0x0a, end - cursor) {
+                count += 1
+                cursor = UnsafeRawPointer(newline) + 1
+            }
+            return count
         }
     }
 }

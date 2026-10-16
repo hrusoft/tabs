@@ -56,71 +56,8 @@ final class WorkspaceInput {
         if renderer.drag.isDragging { return false }
         if let text = window.firstResponder as? NSTextView, text.isEditable { return false }
         if controller.appearance.showNavFlash { NavFlashView.flash(direction, in: controller) }
-        navigate(direction, in: controller)
+        renderer.engine.navigate(direction, in: controller.windowID)
         return true
-    }
-
-    /// One step through the layout from the active pane, staying inside its
-    /// tree (the docked layout, or one floating pane): a sibling across a
-    /// split, the next tab (left/right), or — when nothing lies that way —
-    /// around the outermost container, else the pane at the far edge.
-    func navigate(_ direction: NavDirection, in controller: WorkspaceWindowController) {
-        let layout = controller.layout
-        let active = layout.activePaneID
-        let tree = layout.ownerTree(of: active)
-        let engine = renderer.engine
-        guard let target = Navigation.navTarget(tree, active, direction) else {
-            if let wrap = Navigation.pickWrapTarget(
-                currentRect(active, in: controller), visiblePanes(in: tree, controller, excluding: active), direction)
-            {
-                engine.perform(in: controller.windowID) { layout, _ in layout.setActivePane(wrap) }
-            }
-            return
-        }
-        if let step = target.tabSwitch {
-            engine.perform(in: controller.windowID) { layout, titles in
-                layout.activateTab(step.groupID, step.tabID, titles: titles)
-                // The revealed content is still hidden (unmeasurable): the model decides.
-                return layout.setActivePane(Navigation.entryPaneID(target.node, direction)) || true
-            }
-            return
-        }
-        let candidates = visiblePanes(in: target.node, controller, excluding: active)
-        let picked =
-            controller.paneRect(active) == nil
-            ? nil
-            : target.wrapped
-                ? Navigation.pickWrapTarget(currentRect(active, in: controller), candidates, direction)
-                : Navigation.pickSpatialTarget(currentRect(active, in: controller), candidates, direction)
-        let pane = picked ?? Navigation.entryPaneID(target.node, direction)
-        engine.perform(in: controller.windowID) { layout, _ in layout.setActivePane(pane) }
-    }
-
-    private func currentRect(_ pane: NodeID, in controller: WorkspaceWindowController) -> NavRect {
-        guard let rect = controller.paneRect(pane) else { return NavRect(left: 0, top: 0, right: 0, bottom: 0) }
-        return NavRect(left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height)
-    }
-
-    /// The innermost panes on screen inside `subtree` (a group yields to the pane it shows).
-    private func visiblePanes(in subtree: LayoutNode, _ controller: WorkspaceWindowController, excluding active: NodeID) -> [(
-        id: NodeID, rect: NavRect
-    )] {
-        let ids = Set(subtree.nodeIDs)
-        let visible = ids.compactMap { id -> (NodeID, PaneView)? in
-            guard let view = controller.paneView(id), !view.isHiddenOrHasHiddenAncestor, view.bounds.width > 0, view.bounds.height > 0
-            else {
-                return nil
-            }
-            return (id, view)
-        }
-        let innermost = visible.filter { candidate in
-            !visible.contains { other in other.1 !== candidate.1 && other.1.isDescendant(of: candidate.1) }
-        }
-        return innermost.compactMap { id, _ in
-            guard id != active, let rect = controller.paneRect(id) else { return nil }
-            return (id, NavRect(left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height))
-        }
-        .sorted { $0.id < $1.id }
     }
 
     // MARK: Activation

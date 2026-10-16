@@ -41,7 +41,7 @@ enum InputVerbs {
         composition: .elementTarget
     ) { invocation in
         let pane = try VerbSupport.pane(invocation)
-        let target = try elementTarget(invocation["target"])
+        let target = try InputTarget.parse(invocation["target"]).orThrow()
         let input = PageInput(page: pane.page)
         return try await mounted {
             try await input.withHostFocusRestored {
@@ -49,8 +49,8 @@ enum InputVerbs {
                 //
                 // One round trip remains between the hit test and the events landing, unclosable
                 // without giving up real input events: dispatch is host-side by design.
-                let point = try await pointed(target, in: pane)
-                try await TargetingInput(page: pane.page).clickAt(x: point.x, y: point.y)
+                let point = try await TargetingInput(page: pane.page).resolveClickTarget(target).orThrow()
+                try await input.click(x: point.x, y: point.y)
                 return report(point)
             }
         }
@@ -77,11 +77,11 @@ enum InputVerbs {
         composition: .elementTarget
     ) { invocation in
         let pane = try VerbSupport.pane(invocation)
-        let target = try elementTarget(invocation["target"])
+        let target = try InputTarget.parse(invocation["target"]).orThrow()
         let input = PageInput(page: pane.page)
         return try await mounted {
             try await input.withHostFocusRestored {
-                let point = try await pointed(target, in: pane)
+                let point = try await TargetingInput(page: pane.page).resolveClickTarget(target).orThrow()
                 do {
                     try await input.move(x: point.x, y: point.y)
                 } catch PageInput.Failure.windowNotActive {
@@ -95,22 +95,6 @@ enum InputVerbs {
     }
 
     // MARK: Shared
-
-    /// The target of a request, or the message that names what is wrong with it.
-    static func elementTarget(_ wire: JSONValue?) throws -> ElementTarget {
-        switch InputTarget.parse(wire) {
-        case .success(let target): return target
-        case .failure(let failure): throw ControlVerbError(failure.message)
-        }
-    }
-
-    /// Where a target's input lands, or the error that says why it can't.
-    static func pointed(_ target: ElementTarget, in pane: BrowserPane) async throws -> TargetingInput.Point {
-        switch await TargetingInput(page: pane.page).resolveClickTarget(target) {
-        case .success(let point): return point
-        case .failure(let failure): throw ControlVerbError(failure.message)
-        }
-    }
 
     /// What click and hover answer: where the pointer went and what sits there.
     static func report(_ point: TargetingInput.Point) -> JSONValue {

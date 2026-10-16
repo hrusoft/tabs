@@ -10,7 +10,8 @@ detail below it, a divider between. Plugin `Plugins/GitTree` (id and content typ
 - Chrome is core's, never copied: theme tokens (`PaneContext.theme`,
   `paneAppearanceDidChange`), attention (`paneDidBecomeAttended`; no own active-pane tracking),
   menus (`showContextMenu`), dialogs (`confirm`/`choose`/`alert`: cards in the pane's window),
-  picker (`chooseDirectory`). Plugin-owned colors: `GitTreeColors` only (lanes, diff stats).
+  picker (`chooseDirectory`). Plugin-owned colors: `GitTreeColors` only (lanes, diff stats, diff
+  line washes).
 - git: the user's, with the pane's `childEnvironment`; always async; never throws (`GitError`
   values); nothing at quit.
 - AX ids: `git-tree`, `git-tree-list`, `git-tree-detail`, `git-tree-divider`,
@@ -22,21 +23,22 @@ Paths under `Plugins/GitTree/Sources/` unless rooted.
 
 | File | What |
 |---|---|
-| `GitTreePlugin.swift` | Type `git-tree`, `git-tree.refresh`, settings page; `GitTreeServices` (live panes, checkout refresh, copy) |
+| `GitTreePlugin.swift` | Type `git-tree`, `git-tree.refresh`, settings page; `GitTreeServices` (live panes, checkout refresh, copy, Show in Finder / Open) |
 | `Plugins/GitTree/Info.plist` | Manifest (`canDisable`) |
-| `Model/GitTypes.swift` | Wire shapes; `uncommittedChangesHash` (`""`) |
+| `Model/GitTypes.swift` | Wire shapes (`FileDiff` too); `uncommittedChangesHash` (`""`) |
+| `Model/DiffRows.swift` | A file's diff as rows: its hidden runs (`gaps`), `rows(revealed:)` |
 | `Model/Graph.swift` | `assignLanes` |
 | `Model/CheckoutTargets.swift` | `splitRemoteRef`, `decideCheckout`, `checkoutTargetLabel` |
 | `Model/DetailSplit.swift` | `readDetailSplit`, `resolveDetailDrag` |
-| `Model/Format.swift` | `shortHash`, `formatDate`, `baseName` |
+| `Model/Format.swift` | `shortHash`, `formatDate`, `baseName`, `renameLabel` |
 | `Model/GitTreeSettings.swift` | Settings value |
-| `Git/Git.swift`, `Git/GitProcess.swift` | Runner (process rules), parsers, reads, `checkout` |
+| `Git/Git.swift`, `Git/GitProcess.swift` | Runner (process rules), parsers (`parsePatch` too), reads, file diffs, `checkout` |
 | `Git/GitSource.swift` | `GitSource`: `GitRepositorySource` (reads, default directory); Debug `ScriptedGitSource` |
-| `UI/GitTreePane.swift` | Controller: loads, generations, selection, detail, paging, refresh, checkout, config |
-| `UI/GitTreeView.swift` | Loading / list + detail / notice; list focus ring |
+| `UI/GitTreePane.swift` | Controller: loads, generations, selection, detail, expanded files, paging, refresh, checkout, config |
+| `UI/GitTreeView.swift` | Loading / list + detail / notice |
 | `UI/GitTreeToolbar.swift` | The toolbar |
 | `UI/CommitListView.swift` | Rows, gutter, hover, keys, Load more, row menu |
-| `UI/CommitDetailView.swift` | Detail panel |
+| `UI/CommitDetailView.swift` | Detail panel: file rows, their diffs, the file menu |
 | `UI/DetailDivider.swift` | Divider drag |
 | `UI/GitTreeStyle.swift` | Metrics, text layout (`GitText`), edge snapping (`snap`), `GitTreeColors` |
 | `UI/GitTreeGlyphs.swift` | Pane and folder icons |
@@ -46,9 +48,14 @@ Paths under `Plugins/GitTree/Sources/` unless rooted.
 ## Git commands
 
 Every call: `git -c core.quotePath=false --no-pager …`, env `GIT_TERMINAL_PROMPT=0`,
-`GIT_OPTIONAL_LOCKS=0`, stdin null; killed after 10 s (`Git.timeout`) or past 32 MB of stdout
-(`Git.maxBuffer`). `git` is looked up on the env's `PATH` (none: `/usr/bin:/bin:/usr/sbin:/sbin`).
-Field separator U+001F.
+`GIT_OPTIONAL_LOCKS=0`, stdin null. It answers within 10 s (`Git.timeout`): failed then, at once,
+while git is sent SIGTERM, and SIGKILL 2 s later if it's still running (`GitProcess.killGrace`).
+Past 32 MB of stdout (`Git.maxBuffer`) git is stopped. Once git exits, all it wrote is read. A job a
+hook left in the background may hold the pipes: they're looked at 0.5 s after the exit and every 0.5 s
+on (`GitProcess.drainGrace`), and the first look finding them quiet (nothing waiting in them, no read
+under way) answers with what arrived, or the timeout does.
+`git` is looked up on the env's `PATH` (none: `/usr/bin:/bin:/usr/sbin:/sbin`). Field separator
+U+001F.
 
 | Read | Command |
 |---|---|
@@ -56,13 +63,26 @@ Field separator U+001F.
 | Page | `log <scope> --date-order --parents --max-count=<limit+1> --skip=<n> --pretty=format:%H%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s`; scope `HEAD` / `--branches` / `--branches --remotes`; the extra commit = `hasMore` |
 | HEAD | `symbolic-ref --quiet --short HEAD`; fails → detached at `rev-parse HEAD` |
 | Dirty (page 0 only) | `status --porcelain --ignore-submodules` |
-| Commit | `show --no-patch --format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%B <hash>` + `show --numstat --format= -m --first-parent <hash>` |
+| Commit | `show --no-patch --format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%B <hash>` + `show --numstat -z --format= -m --first-parent <hash>` |
 | Working tree | `rev-parse HEAD`, `status --porcelain -z --untracked-files=all --ignore-submodules`, `diff --numstat -z --no-renames HEAD` |
+| A commit's file (from the root) | `--literal-pathspecs show --format= <patch args> -m --first-parent <hash> -- [<old path>] <path>` + `cat-file blob <hash>^1:<old path or path>` |
+| A working-tree file (from the root) | `--literal-pathspecs diff <patch args> --no-renames HEAD -- <path>` + `cat-file blob HEAD:<path>`; a file counted off disk (P-6) is read off disk, no git |
 | Refs at a commit | `for-each-ref --format=%(objectname)<U+001F>%(refname) --sort=refname refs/heads refs/remotes` + `remote` |
 | Checkout | `switch <name>` / `switch -c <name> --track <remote>/<name>` / `switch --detach <hash>` (git ≥ 2.23) |
 
 - Two `show`s per commit: `%B` holds newlines and would interleave with the numstat block.
 - `-m --first-parent`: a plain `show --numstat` prints nothing for a merge.
+- The commit's numstat `-z`: a rename or copy is `ins<TAB>del<TAB><NUL>old<NUL>new<NUL>`, its real
+  paths; the newline form has only git's display string (`dir/{old => new}`), which is no path.
+- Patch args: `--patch --no-color --no-ext-diff --no-textconv -U5`: git's own patch, whatever the
+  user's `color.ui`, `diff.external`, textconv drivers or `diff.context`.
+- A file's diff runs from the repository root (`log.root`), not `cwd`: pathspecs are relative to
+  git's directory, numstat and status paths to the root. `--literal-pathspecs`: a `*` or `[` in a
+  name is that character. `cat-file blob` is the old file the diff compared against (the clean
+  side, as git saw it); it fails for an added file or a root commit, and then no hidden run can
+  be shown.
+- Split on the newline scalar (`components(separatedBy:)`), never on `Character("\n")`: Swift
+  reads `\r\n` as one Character, so a CRLF file would be one line.
 - `for-each-ref --format` doesn't interpret `%x1f`: the separator byte goes in literally.
 - `-z`: paths verbatim (porcelain quotes a path with a space even with `quotePath=false`).
   `--no-renames`: a staged rename keeps status's path, not `old => new` (else listed twice).
@@ -128,8 +148,8 @@ Field separator U+001F.
 | S-3 | ↓/↑ move one, clamped at the ends; Home/End jump (Home reaches the working-tree row); moved-to row scrolled into view minimally | `GitTreeListTests/arrows`, `GitTreeListTests/homeReachesWorkingTree` |
 | S-4 | Other keys go up to the app (pane navigation) | — |
 | S-5 | Click selects and gives the list the keyboard | `GitTreeListTests/clickSelects`, `UITests.GitTreeUITests/clickingARowSelectsIt` |
-| S-6 | The list holds focus as a whole; pane activation focuses it | `GitTreeListTests/listKeepsFocus` |
-| S-7 | Inset accent ring only when focused from the keyboard (focus arrived during a key event) | — |
+| S-6 | The list holds focus as a whole; pane activation focuses it, rows or not: a new or restored pane is still reading when activated, and has the keyboard when its rows land (not the pane it was made from); keys on a list with no rows (reading, a failure) move nothing | `GitTreeListTests/listKeepsFocus`, `GitTreeListTests/listFocusWithoutRows`, `UITests.GitTreeUITests/keyboardFocusShowsOnlyThePanesOutline`, `UITests.GitTreeUITests/aRestoredPaneActivatedWhileReadingHasTheKeyboardOnceItsHistoryLands`, `UITests.GitTreeUITests/aNewPaneTakesTheKeyboardFromThePaneItWasMadeFrom` |
+| S-7 | No focus ring of the list's own, by keyboard or click: the pane's active outline (core's) is the only cue | `UITests.GitTreeUITests/keyboardFocusShowsOnlyThePanesOutline` |
 
 ### The detail panel
 
@@ -140,11 +160,20 @@ Field separator U+001F.
 | P-3 | A merge lists its files against the first parent; a root commit lists its files | `ReadLogRealTests/mergeFiles`, `ReadLogRealTests/rootFiles` |
 | P-4 | No files: "No files changed against the first parent." (commit) / "No uncommitted changes." (working tree) | `GitTreeListTests/theDetailPanelsDimLinesSayWhatsMissing` |
 | P-5 | Over 500 files: the first 500, then "Only the first files are listed." | `GitParserTests/parseNumstatCutsAtTheFileCap` |
-| P-6 | Working-tree detail: message "Uncommitted changes", no Commit/Author/Date, Parent = HEAD. Files: tracked (staged + unstaged, one diff), then other status paths counted off disk (lines = insertions; NUL in the first 8000 bytes = binary; unreadable → no counts); no commits yet → all off disk; one 500 cap | `GitTreeListTests/selectWorkingTree`, `ReadWorkingTreeChangesTests`, `ReadLogRealTests/noCommitsButStaged` |
+| P-6 | Working-tree detail: message "Uncommitted changes", no Commit/Author/Date, Parent = HEAD. Files: tracked (staged + unstaged, one diff), then other status paths counted off disk from the repository root (lines = insertions, counted a chunk at a time; NUL in the first 8000 bytes = binary; unreadable → no counts); no commits yet → all off disk; one 500 cap | `GitTreeListTests/selectWorkingTree`, `ReadWorkingTreeChangesTests`, `ReadLogRealTests/noCommitsButStaged`, `DiskFileTests/binaryByGitsRule`, `DiskFileTests/linesAcrossChunks` |
 | P-7 | Nothing selected, not read yet, or a failed read: "Select a commit." | `GitTreeListTests/theDetailPanelsDimLinesSayWhatsMissing` |
 | P-8 | Read debounced 100 ms (a held arrow reads only where it settles); the same row's detail stays up while re-read. Tests read at once (`GitTreeServices.detailDebounceOverride`), but in the one that pins it | `GitTreeListTests/aHeldArrowReadsOnlyTheRowItRestsOn` |
 | P-9 | ⌘R re-reads the working-tree row's detail (keyed on the log too: its hash never changes) | `GitTreeListTests/refreshWorkingTree` |
 | P-10 | Collapsed: nothing read; reopening shows the kept detail, then re-reads | `GitTreeDividerTests/savedCollapse` |
+| P-11 | A click on a file row (a commit's or the working tree's; the row's whole height, across the panel) opens its diff under it (▾); another closes it (▸). Several can be open. The list keeps the keyboard. Clicks on the diff's lines do nothing | `GitTreeFileDiffTests/toggle`, `GitTreeFileDiffTests/several`, `GitTreeFileDiffTests/clickKeepsTheKeyboard`, `GitTreeFileDiffTests/layout`, `UITests.GitTreeUITests/clickingAFileRowOpensItsDiffAndRightClickOffersFinder` |
+| P-12 | The diff (Git commands): a commit's file against its first parent (both paths for a rename); a working-tree file against HEAD, or off disk for those P-6 counts off disk (every line added; no more of it read than git's 32 MB output cap). 5 unchanged lines around each change; every line numbered in the old and the new file | `ParsePatchTests`, `FileDiffRealTests`, `GitTreeFileDiffTests/toggle`, `DiskFileTests/longDiff`, `DiskFileTests/limit` |
+| P-13 | In the file's box instead of lines: "Reading diff…" (the first read), the failure's sentence, "Binary file: no text to show.", "No lines changed." (a mode change, a pure rename, an empty file) | `GitTreeFileDiffTests/readingAndFailed`, `ParsePatchTests/binaryFilesHaveNoHunks`, `FileDiffRealTests/binaryAndMode` |
+| P-14 | Over 2,000 lines: the first 2,000, then "Only the first 2,000 lines are shown."; a line over 1,000 characters is cut with "…" | `ParsePatchTests/cutsAtTheLineCapAndLongLinesAtTheLengthCap`, `DiskFileTests/longDiff` |
+| P-15 | The unchanged lines no hunk shows (before the first, between two, after the last) are one row each, "N unchanged lines"; a click shows them, numbered on both sides, read from the old file. With no old file (added, root commit, untracked) or one shorter than the headers say, the runs show but don't open, and the one after the last isn't known; nor is it for a cut diff | `DiffGapTests`, `GitTreeFileDiffTests/hiddenRuns` |
+| P-16 | Show full file (a strip on top of the box, only when a run can open) opens every run; it then reads Show changes only, which closes them all | `GitTreeFileDiffTests/hiddenRuns` |
+| P-17 | Open files belong to the row shown: another selection closes them all (a read under way lands nowhere). A re-read of the same row keeps those still listed: the working tree's are read again (the old diff shown meanwhile; all runs stay open only if all were), a commit's kept as they are | `GitTreeFileDiffTests/selectionCloses`, `GitTreeFileDiffTests/commitRefreshKeeps`, `GitTreeFileDiffTests/workingTreeRefresh` |
+| P-18 | A renamed file's row reads as git prints it (`src/{old => new}/a.txt`, git's `pprint_rename`), from the `-z` numstat's two paths | `GitParserTests/parseNumstatReadsANulRenamesTwoPaths`, `GitParserTests/renameLabelKeepsWhatBothPathsShareOutsideBraces`, `FileDiffRealTests/rename`, `GitTreeFileDiffTests/renameRow` |
+| P-19 | Lines, the last field: `+n −m` summed over the listed files with counts (a binary adds nothing; the working tree's files counted off disk count; a cut list, its first 500). No file with counts (none, or all binary): no Lines field, never `+0 −0` | `CommitDetailLineTotalsTests`, `GitTreeListTests/totals`, `GitTreeListTests/selectWorkingTree`, `GitTreeListTests/theDetailPanelsDimLinesSayWhatsMissing` |
 
 ### The divider
 
@@ -190,7 +219,7 @@ Field separator U+001F.
 | E-4 | Directory doesn't exist: "No directory at <path>." (not git-missing) | `GitTreeFailureTests/noSuchDirectory`, `ReadLogRealTests/noSuchDirectory` |
 | E-5 | Anything else: git's first non-empty stderr line | `GitTreeFailureTests/unclassified`, `GitParserTests/classifyReadsGitsStablePhrases` |
 | E-6 | Hint under every failure: "Type a directory above, or use the folder button to choose one." | `GitTreeFailureTests/notARepo` |
-| E-7 | Git runner rules (Git commands): 10 s timeout, 32 MB stdout cap, no prompts, no optional locks, raw non-ASCII paths, never throws | — |
+| E-7 | Git runner rules (Git commands): 10 s timeout, answered at once (git stopped, then killed); an exited git's output read in full, a job it left holding the pipes waited for until they're quiet, looked at every 0.5 s (the timeout at most); 32 MB stdout cap, no prompts, no optional locks, raw non-ASCII paths, never throws | `GitProcessTests/aBackgroundJobHoldingStderr`, `GitProcessTests/aProcessIgnoringSigterm`, `GitProcessTests/outputWaitingAtTheGrace` |
 
 ### Checking out
 
@@ -216,6 +245,8 @@ Field separator U+001F.
 | X-1 | Right-click a row: selects it; menu Checkout, then Copy SHA-1 (both always enabled) | `GitTreeCheckoutTests/menu`, `UITests.GitTreeUITests/rightClickSelectsTheRowAndOffersCheckoutThenCopy` |
 | X-2 | Both items act on the row right-clicked, not an earlier selection; Copy SHA-1 = full hash | `GitTreeCheckoutTests/copy` |
 | X-3 | No menu, and no selection, from a right-click on the working-tree row | `GitTreeCheckoutTests/workingTreeRow` |
+| X-4 | Right-click a file row in the details: Show in Finder (a Finder window with it selected), then Open (its default app, as Finder's Open). Both act on `<root>/<path>` in the working tree as it is now, whatever commit is shown. It opens and closes nothing; on the diff's lines, no menu | `GitTreeFileDiffTests/menu`, `UITests.GitTreeUITests/clickingAFileRowOpensItsDiffAndRightClickOffersFinder` |
+| X-5 | Nothing at the path (deleted by the commit, or since) → both items disabled | `GitTreeFileDiffTests/menu` |
 
 ### Title
 
@@ -279,16 +310,22 @@ letter-hyphens, never at `/` (an overlong word breaks where the line is full).
 | L-14 | Load more | full width − 16, margin 6 8, padding 4, 1pt `border`, radius 3 | 11 `textDim`, centered | — | hover: text `text`, fill `hover` at 0.12 |
 | L-15 | Detail panel | height = fraction of the body, padding 8 10, 1pt `border` on top, scrolls | 12 | — | — |
 | L-16 | Message | margin below 8, newlines kept, wraps (overlong words broken) | 12 `text` | — | — |
-| L-17 | Fields | two columns (labels as wide as the widest, values the rest), gap 2 10, margin below 8 (kept when empty) | 11; labels `textDim`; values mono, wrap anywhere | — | — |
-| L-18 | Files | 1pt `border` on top, padding-top 6; row gap 8, line height 17 | 11 | — | — |
-| L-19 | File stat | width 84, right-aligned, gap 5 | mono 11; `+n` `#59b871`, `−m` `#e0705a`; "binary" `textDim` | — | — |
+| L-17 | Fields | two columns (labels as wide as the widest, values the rest), gap 2 10, margin below 8 (kept when empty); Lines' `+n` and `−m` gap 5, `−m` on the next line when both don't fit | 11; labels `textDim`; values mono, wrap anywhere; Lines `+n` `#59b871`, `−m` `#e0705a` | — | — |
+| L-18 | Files | 1pt `border` on top, padding-top 6; row gap 8, line height 17 | 11 | — | hover: the row's height across the panel, `hover` at 0.08 |
+| L-19 | File stat | after the chevron's column; width 84, right-aligned, gap 5 | mono 11; `+n` `#59b871`, `−m` `#e0705a`; "binary" `textDim` | — | — |
 | L-20 | File path | wraps anywhere | mono 11 | — | — |
 | L-21 | Dim lines | margins 12 | `textDim` | — | — |
 | L-22 | Divider (open) | 0 tall; hit strip 7 (3 above, 4 below the detail's top border), up-down resize cursor | — | — | — |
 | L-23 | Divider (collapsed) | 8 tall, 1pt `border` on top; grip 24×2, radius 1, centered below the border | — | grip `textDim` at 0.6 | hit strip from 4 above to its bottom |
 | L-24 | Notice | padding 16; paragraphs margin below 6 | 12; hint `textDim` | — | — |
-| L-25 | List focus | inset 1pt `accent` ring | — | — | keyboard focus only |
+| L-25 | List focus | no ring: the pane's active outline only (S-7) | — | — | — |
 | L-26 | Folder button | header button: 13 icon, padding 2 5 → 23×17, radius 3 | — | icon `textDim`; hover fill `hover` at 0.12 | tooltip and AX label "Choose a repository" |
+| L-27 | File chevron | a 14 column at the row's start, the row's height; ▸ 3×6 / ▾ 6×3 of ink, centred 5 in, on the first line; stroke 1.5, round caps | — | `textDim` | ▸ closed, ▾ open |
+| L-28 | Diff box | the content box's width, 2 below its row, 6 above the next; 1pt `border`, radius 3, clips; padding 3 above and below the rows | — | — | — |
+| L-29 | Show full file strip | the box's top, 20 tall, 1pt `border` below; the button right-aligned, padding 0 8 | 11 `textDim` | — | hover: text `text`, fill `hover` at 0.12; "Show changes only" when all runs are open |
+| L-30 | Diff line | line height 15; old and new number columns (each the widest number in the file + 8, right-aligned, 4 in), a 12 marker column (`+`, `-`), then the text: wraps after a space (never in the indentation) or where full, tabs to 4 | mono 11; numbers `textDim`; `+` `#59b871`, `-` `#e0705a`; text `text`, a note `textDim` | added `#59b871` at 0.15, removed `#e0705a` at 0.15, across the box | — |
+| L-31 | Hidden run | 20 tall, across the box; "⋯" centred in the number columns, "N unchanged lines" at the text's x | 11 `textDim` | `hover` at 0.06 | revealable and hovered: `hover` at 0.12, text `text` |
+| L-32 | Diff note | padding 4 8, wraps | 11 `textDim` | — | — |
 
 ## Checking the look
 
@@ -296,8 +333,10 @@ letter-hyphens, never at `/` (an overlong word breaks where the line is full).
   `git-tree-light`, `git-tree-columns`, `git-tree-collapsed`, `git-tree-split`,
   `git-tree-working-tree`, `git-tree-hover-row`, `git-tree-lanes` (8 lanes, palette cycling),
   `git-tree-notice`, `git-tree-load-more`, `git-tree-load-more-hover`, `git-tree-empty-detail`,
-  `git-tree-truncated-files`, `git-tree-narrow`. Each seeds its history; dates pinned to UTC. The
-  scenario format and the capture's plugin hooks: `Visual/README.md`.
+  `git-tree-truncated-files`, `git-tree-narrow`, `git-tree-file-diff` (two files open: a diff
+  with hidden runs, a binary's note), `git-tree-file-diff-light` (one run shown). Each seeds its
+  history; dates pinned to UTC. The scenario format and the capture's plugin hooks:
+  `Visual/README.md`.
 - A git tree leaf's config is `{cwd, branchScope?, detailFraction?, detailCollapsed?}`; the git
   tree's settings, if any, go in `settings.plugins["git-tree"]`.
 - The real plugin bundle, its pane answered from the scenario's `content` entry by the Debug verb
@@ -315,6 +354,11 @@ The `content` entry:
   `{kind: "branch", name: "main"}`).
 - `select`: a hash, or `""` for the working-tree row (needs `hasUncommittedChanges`); default the
   newest commit.
+- `diffs` `{"<hash or ''>": {"<path>": {patch, base?}}}`: a file's diff as git's patch text
+  (parsed as a real one is) and the old file's text (`base`, for the hidden runs); a file without
+  one fails to read.
+- `expand`: paths of the selected row's files to open (after it settles, their diffs read), then
+  `reveal` `{"<path>": [run index, …] | "all"}`: the hidden runs to show (`"all"`: Show full file).
 - Shapes: `Plugins/GitTree/Sources/Model/GitTypes.swift`. Dates ISO, shown in UTC.
 
 Geometry: `content.<leaf id>`, window coordinates. `git-tree.test.visual` reports the toolbar's keys
@@ -358,9 +402,16 @@ header's title) and the rest in the git tree view's; the capture offsets each to
     "dividerCollapsed": bool,
     "detail": R | null,                       // the detail panel (null while collapsed)
     "message": R | null,                      // the commit message box
-    "fields": [{"dt": R, "dd": R}],           // label and value text rects, in order (Commit, Author, Date, Parent(s), Refs)
+    "fields": [{"dt": R, "dd": R}],           // label and value text rects, in order (Commit, Author, Date, Parent(s), Refs, Lines)
+    "totals": {"insertions": R, "deletions": R} | null,   // the Lines field's two numbers' text rects
     "files": [{"row": R, "stat": R,           // boxes
-               "insertions": R | null, "deletions": R | null, "binary": R | null, "path": R}],  // text rects
+               "insertions": R | null, "deletions": R | null, "binary": R | null, "path": R,  // text rects
+               "disclosure": R, "expanded": bool, // the chevron's column; open or not
+               "diff": R | null,              // the open file's box
+               "fullFile": R | null,          // its Show full file button
+               "diffLines": [{"row": R, "kind": "context" | "added" | "removed" | "note" | "hidden",
+                              "old": R | null, "new": R | null, "text": R | null}],  // number and text rects
+               "diffNotes": [R]}],            // text rects of the box's notes ("Reading diff…", "Binary file…")
     "detailNotes": [R]                        // text rects of the detail's dim paragraphs ("No files changed…")
   }
 }
@@ -378,11 +429,16 @@ header's title) and the rest in the git tree view's; the capture offsets each to
 
 - **Narrow window**: the title slot shrinks to nothing (`headerTitle` has no minimum width), so
   the toolbar clips. `git-tree-narrow` (460 pt) stays above that.
-- **Menus are core's** (`showContextMenu`): the row menu (X-1) and the branch select's pop-up
-  (B-1): no checkmark on the current scope (the label says it); it opens under the select. The
+- **Menus are core's** (`showContextMenu`): the row menu (X-1), the file menu (X-4) and the
+  branch select's pop-up (B-1): no checkmark on the current scope (the label says it); it opens under the select. The
   select never takes keyboard focus: no keyboard operation, no focus border (L-5).
 - **Path bar editor** is an `NSTextField`, shown only while editing; its text line sits 1 pt
   higher than the text the bar draws at rest.
 - **Auto-refresh on toolbar activation** still runs (D-12).
 - **Rows aren't accessibility elements**: the list is one AX element (list, "Commits"); the
   keys (S-3) still move the selection.
+- **File rows are the mouse's**: the detail panel takes no keyboard focus (the list keeps it), so
+  opening a file, a hidden run or Show full file, and the file menu, are clicks only.
+- **The detail's layout is kept** until the pane's detail, an open file or a diff changes
+  (`detailRevision`): a file shown in full is thousands of lines. Plain-ASCII code is wrapped and
+  measured by character count at Menlo's advance; other text is measured.

@@ -35,10 +35,86 @@ struct Commit: Equatable, Sendable, Codable {
 /// for a binary file instead of a number: hence nil rather than 0, so the pane
 /// can say "binary" instead of claiming zero lines changed.
 struct ChangedFile: Equatable, Sendable, Codable {
+    /// Where the file is after the change, relative to the repository root.
     var path: String
     var insertions: Int?
     var deletions: Int?
+    /// A rename's or copy's path before it (`-z` numstat names both); nil
+    /// for every other change.
+    var oldPath: String? = nil
+    /// Counted off disk, with nothing for git to diff it against (untracked,
+    /// or no commits yet): its diff is the file itself, every line added.
+    var readFromDisk = false
+
+    /// The row's text: the path, or a rename as git prints one
+    /// (`dir/{old => new}`).
+    var displayPath: String { oldPath.map { renameLabel($0, path) } ?? path }
 }
+
+extension ChangedFile {
+    /// A scenario names only what it sets: no `oldPath` is no rename, no
+    /// `readFromDisk` is a diffed file.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            path: try container.decode(String.self, forKey: .path),
+            insertions: try container.decodeIfPresent(Int.self, forKey: .insertions),
+            deletions: try container.decodeIfPresent(Int.self, forKey: .deletions),
+            oldPath: try container.decodeIfPresent(String.self, forKey: .oldPath),
+            readFromDisk: try container.decodeIfPresent(Bool.self, forKey: .readFromDisk) ?? false)
+    }
+}
+
+/// One file's diff as the detail panel shows it under the file's row: git's
+/// hunks (5 lines of context), each line numbered in the old and the new
+/// file, and the old file's lines, from which the unchanged lines between
+/// hunks are shown on request.
+struct FileDiff: Equatable, Sendable {
+    enum Kind: String, Equatable, Sendable {
+        case context, added, removed
+        /// `\ No newline at end of file`, after the line it's about.
+        case note
+    }
+
+    struct Line: Equatable, Sendable {
+        var kind: Kind
+        /// The line without git's marker column; a note's whole text.
+        var text: String
+        /// Its number in the old and the new file; nil where it isn't in
+        /// one, and on a note.
+        var old: Int?
+        var new: Int?
+    }
+
+    /// One `@@ -oldStart,oldCount +newStart,newCount @@` block.
+    struct Hunk: Equatable, Sendable {
+        var oldStart: Int
+        var oldCount: Int
+        var newStart: Int
+        var newCount: Int
+        var lines: [Line]
+
+        /// The first and last lines the hunk covers on each side. An empty
+        /// side (`-5,0`) names the line it comes after, so it covers none:
+        /// first = last + 1.
+        var oldFirst: Int { oldCount > 0 ? oldStart : oldStart + 1 }
+        var oldLast: Int { oldCount > 0 ? oldStart + oldCount - 1 : oldStart }
+        var newFirst: Int { newCount > 0 ? newStart : newStart + 1 }
+        var newLast: Int { newCount > 0 ? newStart + newCount - 1 : newStart }
+    }
+
+    var hunks: [Hunk] = []
+    /// git called it binary (`Binary files … differ`): no hunks.
+    var binary = false
+    /// The hunks were cut at `Git.diffLineCap` lines.
+    var truncated = false
+    /// The old file's lines, for the unchanged runs between hunks; nil when
+    /// there's no old file (added, untracked, a root commit) or it couldn't
+    /// be read. Then nothing is hidden that can be shown.
+    var base: [String]? = nil
+}
+
+typealias GitFileDiffResult = Result<FileDiff, GitError>
 
 /// Everything the detail panel shows for the selected commit.
 struct CommitDetail: Equatable, Sendable, Codable {
@@ -53,6 +129,20 @@ struct CommitDetail: Equatable, Sendable, Codable {
     var files: [ChangedFile]
     /// True when `files` was cut at the per-commit cap (`Git.fileCap`).
     var filesTruncated: Bool
+}
+
+extension CommitDetail {
+    /// The lines added and deleted across the listed files that have counts
+    /// (a binary has none, and adds nothing); nil when none has, rather than
+    /// claiming zero lines changed.
+    var lineTotals: (insertions: Int, deletions: Int)? {
+        var totals: (insertions: Int, deletions: Int)?
+        for file in files {
+            guard let insertions = file.insertions, let deletions = file.deletions else { continue }
+            totals = ((totals?.insertions ?? 0) + insertions, (totals?.deletions ?? 0) + deletions)
+        }
+        return totals
+    }
 }
 
 /// Why a git read produced nothing usable. Each is a state the pane shows as a
@@ -77,7 +167,7 @@ enum GitFailure: Equatable, Sendable {
 /// `current` is `git log HEAD`; `local` is `--branches` (every `refs/heads/*`);
 /// `all` is `--branches --remotes`. Tags are deliberately left out: the filter
 /// is about branches.
-enum GitBranchScope: String, CaseIterable, Sendable, Codable {
+enum GitBranchScope: String, Sendable {
     case current, local, all
 }
 

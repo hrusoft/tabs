@@ -48,9 +48,11 @@ import Testing
                     throw NotConfigured()
                 }
             ])
-        let plugins = makePluginsWindow(model: PluginsModel(host: runtime.host, fingerprint: runtime.sharedFingerprint) {})
+        let plugins = makePluginsWindow(
+            model: PluginsModel(host: runtime.host, fingerprint: runtime.sharedFingerprint), themes: runtime.themes)
         let settings = makeSettingsWindow(
-            pages: runtime.settingsPages(), settings: runtime.settings, signals: runtime.signals.settingKinds, shortcuts: runtime.shortcuts)
+            pages: runtime.settingsPages(), settings: runtime.settings, signals: runtime.signals.settingKinds, shortcuts: runtime.shortcuts,
+            themes: runtime.themes)
         for (name, controller) in [("plugins", plugins), ("settings", settings)] {
             let image = try #require(controller.window?.contentView.flatMap(renderCached))
             #expect(distinctColors(in: image, from: 0) > 8, "\(name) rendered blank")

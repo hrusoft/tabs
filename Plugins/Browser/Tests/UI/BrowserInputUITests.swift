@@ -37,7 +37,7 @@ extension UITests {
             let b = Fixture.leaf("b", "browser", config: ["url": .string(server.url("/page"))])
             let ui = UIDriver(
                 layout: hidden ? Fixture.saved(Fixture.tabsWindow("w", [a, b], active: 1)) : Fixture.sideBySide(a, b, active: "a"))
-            ui.runtime.panes.grantOwnership(of: "b", to: "a")
+            ui.runtime.panes.ownership.enableControl(of: "b", from: "a")
             try await ui.browserState("b") { $0["title"] == "Fixture" }
             if hidden { try ui.click(tab: "t-a") }
             ui.layoutAll()

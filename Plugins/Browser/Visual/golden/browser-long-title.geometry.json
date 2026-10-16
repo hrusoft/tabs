@@ -87,7 +87,7 @@
   "tabBars": {
     "root": {
       "grip": null,
-      "newTab": [147.69, 13, 20, 14],
+      "newTab": [312, 13, 20, 14],
       "rect": [1, 1, 898, 30],
       "root": true,
       "settings": [866, 4.5, 23, 23],
@@ -96,13 +96,13 @@
         "tab-main": {
           "active": true,
           "baseline": 25,
-          "close": [127.69, 14.5, 15.01, 14],
+          "close": [291.99, 14.5, 15.01, 14],
           "dragging": false,
-          "rect": [90, 10, 55.69, 22],
-          "text": "Tabs",
-          "title": [101, 14, 24.69, 13],
-          "titleBox": [101, 14, 24.69, 13],
-          "truncated": false
+          "rect": [90, 10, 220, 22],
+          "text": "Getting started with the Tabs browser pane: navigation, the address bar, and everything else you can do from a terminal",
+          "title": [101, 14, 188.99, 13],
+          "titleBox": [101, 14, 188.99, 13],
+          "truncated": true
         }
       }
     }

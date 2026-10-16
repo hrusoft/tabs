@@ -133,7 +133,8 @@ import Testing
                 "type": "object",
                 "properties": [
                     "type": ["const": "probeIt"], "targetPaneId": ["type": "string"], "url": ["type": "string"],
-                    "count": ["type": "integer", "minimum": 1], "ratio": ["type": "number"], "on": ["type": "boolean"], "out": [:],
+                    "count": ["type": "integer", "minimum": 1], "ratio": ["type": "number"], "on": ["type": "boolean"],
+                    "out": ["anyOf": [["type": "string"], ["const": true]]],
                     "tags": ["type": "array", "items": ["type": "string"]], "blob": [:], "mode": ["enum": ["a", "b"]],
                 ],
                 "required": ["type", "targetPaneId", "url"], "additionalProperties": false,

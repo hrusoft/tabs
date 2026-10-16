@@ -37,7 +37,7 @@ Under `Plugins/Terminal/Sources/` unless marked core or shell.
 | core `PaneSignals` | Bell |
 | core `PaneContext.setTitle`, `titleIsManual` | OSC titles |
 | core `PaneCreation.origin`, `PaneCapability.workingDirectory` | cwd inheritance, both ways |
-| core `PaneContext.childEnvironment` | App env minus `TABS_DATA_DIR`/`TABS_LISTEN_SOCKET`/`TABS_E2E_HIDDEN`/`TABS_E2E_PLUGINS`, plus `TABS_CONTROL_SOCKET`, `TABS_PANE_ID` |
+| core `PaneContext.childEnvironment` | App env minus `TABS_DATA_DIR`/`TABS_LISTEN_SOCKET`/`TABS_E2E_HIDDEN`/`TABS_E2E_PLUGINS` (and, in Debug, `TABS_TEST_WINDOWS_SEEN`), plus `TABS_CONTROL_SOCKET`, `TABS_PANE_ID` |
 | shell main-menu key equivalents, `WorkspaceInput` | App shortcuts beat the shell (T-126) |
 
 ## Shell process (`ShellProcess`)
@@ -66,8 +66,8 @@ Under `Plugins/Terminal/Sources/` unless marked core or shell.
 ## Cases
 
 Pane, UI and end-to-end tests run real `$SHELL -l` login shells on the tests' own startup
-files: `ZDOTDIR` is a temp directory per test process (`TestShell`, in `Tests/Support` and
-`Tests/EndToEndSupport`) whose `.zprofile` exports `TABS_TEST_ZPROFILE=1` and whose `.zshrc`
+files: `ZDOTDIR` is a temp directory per test process (`TestShell`, in `Tests/Support`) whose
+`.zprofile` exports `TABS_TEST_ZPROFILE=1` and whose `.zshrc`
 sets `TABS_TEST_ZSHRC=1` and unsets `HISTFILE` (no history written). One canary runs your own
 dotfiles: `UITests.TerminalUITests/aNewTerminalIsALoginShellWithTheKeyboard`. Only zsh reads
 `ZDOTDIR`: with another `$SHELL` every test runs your dotfiles, and
@@ -227,8 +227,8 @@ Keys in the plugin's `terminal` settings blob.
 | T-111 | Inherit working directory `inheritCwdOnNewPane`: on; new panes | `TerminalPaneTests/withInheritanceOffANewTerminalStartsAtHome` |
 | T-112 | Scrollback `scrollback`: 1000 lines above the screen, 0 = none; field + stepper, step 100; negative ignored; live, open panes too; capped at 100,000 (`TerminalSettings.maxScrollback`: SwiftTerm reserves the whole ring up front) | `TerminalPaneTests/scrollbackAppliesLiveDownToNone`, `…/aHugeScrollbackIsCapped` |
 | T-113 | Font family `appearance.fontFamily`: JetBrains Mono NL; picker of `NSFontManager` families, current one always listed; live | `UITests.TerminalUITests/theSettingsPageRendersAndAFontSizeChangeAppliesLive` (renders; list untested) |
-| T-114 | Font size: 15; 8–32 step 1; live, re-fits | `TerminalPaneTests/appearanceAppliesLive`, `UITests.TerminalUITests/theSettingsPageRendersAndAFontSizeChangeAppliesLive` |
-| T-115 | Line height: 1; 0.8–2 step 0.05; live, re-fits; extra height goes above the text (SwiftTerm `lineSpacing`) | — |
+| T-114 | Font size: 15; 8–32 step 1; live, re-fits; a stored size outside 8–32 is drawn clamped to it | `TerminalPaneTests/appearanceAppliesLive`, `…/anOutOfRangeLineHeightOrFontSizeIsClamped`, `UITests.TerminalUITests/theSettingsPageRendersAndAFontSizeChangeAppliesLive` |
+| T-115 | Line height: 1; 0.8–2 step 0.05; live, re-fits; extra height goes above the text (SwiftTerm `lineSpacing`); a stored height outside 0.8–2 is drawn clamped to it (SwiftTerm takes any: at 0 or below its rows are 1 pt tall, a huge one leaves one row) | `TerminalPaneTests/anOutOfRangeLineHeightOrFontSizeIsClamped` |
 | T-116 | Cursor style: bar; block / bar / underline; live | — |
 | T-117 | Cursor blink: on; live | — |
 | T-118 | Background / Foreground / Cursor / Selection: `#06225f` / `#e0e0e0` / `#ffffff` / `#273d4c`; live | `TerminalPaneTests/appearanceAppliesLive` (background), `TerminalSettingsTests/colorsRoundTripAsHex` |
@@ -327,8 +327,8 @@ key/active observers for all windows; global statics; an `NSView.pending(_:)` ex
 - **The pty** is the plugin's own (Shell process), held by the pane controller, and
   the AppKit view survives core's moves: nothing reattaches, holds, replays or serializes
   output (T-50…T-62).
-- **Clear scrollback** is a `PaneController.headerActions` entry, drawn by core: a
-  `headerAccessory` view can't match header buttons drawn from core's private theme.
+- **Clear scrollback** is a `PaneController.headerActions` entry, drawn by core like its own
+  header buttons.
 - **Font list**: `NSFontManager`'s families.
 
 ## Notes

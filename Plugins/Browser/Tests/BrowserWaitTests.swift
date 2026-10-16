@@ -136,7 +136,10 @@ import Testing
 
     /// `--idle` resolves once the DOM has been quiet for the quiet period, and not before: the page changes
     /// every 100 ms for 600 ms, from before the wait starts. By the page's own clock: changes made from here
-    /// are as far apart as a busy main actor makes them, and could leave a real quiet period between them.
+    /// are as far apart as a busy main actor makes them, and could leave a real quiet period between them. The page's
+    /// own timer keeps time only on a page someone can see, as every test's is (`OnScreenWindow`): on a hidden one, in
+    /// a full gate on a busy machine, a churn tick came at least 0.45 s late, after the wait had found the DOM quiet
+    /// (a second wait then took 514 ms, not at once).
     @Test func idleSettlesOnlyOnceTheDOMStopsChurning() async throws {
         let bed = try await PageBed(serving: { $0.installStandardPages() })
         await bed.load("/waity")
@@ -149,6 +152,15 @@ import Testing
         // Already quiet: at once, without a quiet period of its own.
         let again = await wait(bed, PageWaitSpec(idle: true), options(5_000))
         #expect((settled(again)?.elapsedMs ?? 9_999) < BrowserLimits.waitIdleQuietMs, "\(again)")
+    }
+
+    /// A deadline any time away has a millisecond left, never 0: a wait answers "out of time" only once it is.
+    @Test func aDeadlineAnyTimeAwayHasAMillisecondLeft() {
+        let now = Date()
+        #expect(millisecondsLeft(until: now.addingTimeInterval(0.00016), now: now) == 1, "truncated, 0: a wait 0.16 ms short")
+        #expect(millisecondsLeft(until: now.addingTimeInterval(0.2005), now: now) == 201)
+        #expect(millisecondsLeft(until: now, now: now) == 0)
+        #expect(millisecondsLeft(until: now.addingTimeInterval(-0.0015), now: now) < 0)
     }
 
     /// A closed pane aborts the wait instead of burning the rest of the budget.

@@ -159,7 +159,7 @@ import Testing
         #expect(
             fixed == [
                 "tabs.hide", "tabs.hideOthers", "tabs.quit", "tabs.undo", "tabs.redo", "tabs.cut", "tabs.copy", "tabs.paste",
-                "tabs.selectAll", "tabs.minimize",
+                "tabs.selectAll", "tabs.minimize", "tabs.enterFullScreen",
             ])
         #expect(throws: Shortcuts.Refusal("tabs.copy is fixed: its shortcut is the system's")) {
             try shortcuts.bind("tabs.copy", to: KeyChord("j", [.command]))

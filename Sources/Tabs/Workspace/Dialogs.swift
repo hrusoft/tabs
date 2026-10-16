@@ -16,7 +16,7 @@ final class DialogCard: FlippedView {
     let paneID: PaneID
     private let theme: Theme
     private weak var controller: WorkspaceWindowController?
-    private let card = DialogPanel()
+    private let card = OverlayPanel(passesClicksThrough: false)
     private(set) var buttons: [DialogButton] = []
     private(set) var select: DialogSelect?
     /// The option a choose dialog would answer.
@@ -165,11 +165,7 @@ final class DialogCard: FlippedView {
         super.layout()
         let metrics = metrics
         card.frame = metrics.card.snapped
-        // Set here, not in `init`: AppKit resets a view layer's shadow before the view is shown.
-        card.layer?.shadowColor = theme.shadow(0.5).cgColor
-        card.layer?.shadowOpacity = 1
-        card.layer?.shadowRadius = 40
-        card.layer?.shadowOffset = CGSize(width: 0, height: -16)
+        card.layer?.applyOverlayShadow(.modal, theme: theme)
         if let rect = metrics.select { select?.frame = rect.snapped }
         for (button, rect) in zip(buttons, metrics.buttons) { button.frame = rect.snapped }
         card.needsDisplay = true
@@ -254,71 +250,31 @@ final class DialogCard: FlippedView {
     }
 }
 
-/// The card's own box: its border and shadow are its layer's; the title and
-/// message are drawn over them.
-@MainActor
-final class DialogPanel: FlippedView {
-    var drawContent: (() -> Void)?
-
-    override func draw(_ dirtyRect: NSRect) { drawContent?() }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
 /// A card's button: 12pt in a bordered, 5-radius box (padding 6 12); the
 /// primary one is the accent's.
 @MainActor
-final class DialogButton: FlippedView {
-    let label: String
+final class DialogButton: ChromeControl {
     private let primary: Bool
     private let theme: Theme
-    var onPress: (() -> Void)?
-    private var hovered = false { didSet { needsDisplay = true } }
-    private var tracking: NSTrackingArea?
 
     init(label: String, primary: Bool, theme: Theme) {
-        self.label = label
         self.primary = primary
         self.theme = theme
-        super.init(frame: .zero)
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(label)
+        super.init(label: label)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)
         // Hovered, the primary fades to 0.9; the plain one takes the card's own shade.
-        let fill = primary ? theme.accent.withAlphaComponent(hovered ? 0.9 : 1) : hovered ? theme.bgElevated : theme.bg
+        let fill = primary ? theme.accent.withAlphaComponent(isHovered ? 0.9 : 1) : isHovered ? theme.bgElevated : theme.bg
         fill.setFill()
         path.fill()
-        (primary ? theme.accent.withAlphaComponent(hovered ? 0.9 : 1) : theme.border).setStroke()
+        (primary ? theme.accent.withAlphaComponent(isHovered ? 0.9 : 1) : theme.border).setStroke()
         path.lineWidth = 1
         path.stroke()
         let text = DialogCard.buttonText
         text.draw(
             label, at: CGPoint(x: 1 + 12, y: text.baseline(centeredIn: bounds.height)), color: primary ? theme.onAccent : theme.text)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { hovered = true }
-    override func mouseExited(with event: NSEvent) { hovered = false }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override var mouseDownCanMoveWindow: Bool { false }
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        onPress?()
-        return true
     }
 }
 

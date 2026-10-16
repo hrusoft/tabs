@@ -21,7 +21,7 @@ import Testing
     @Test func aPaneOpenedWithoutTheKeyboardIsPlacedAndActiveAsUsualButSkipsTheKeyboardOnce() throws {
         let pane = try #require(panes.openPane(PaneRequest(type: "web", placement: .tab(near: "t1"), activates: false)))
         #expect(window().isShowing(pane), "placed as a tab, shown")
-        #expect(window().activeLeafID == pane, "and the window's active pane")
+        #expect(window().activePaneID == pane, "and the window's active pane")
         let live = try #require(engine.live(pane))
         #expect(live.consumeKeyboardExemption(), "the shell's focus-follows-active skips it")
         #expect(!live.consumeKeyboardExemption(), "once: the user activating it later focuses it as always")
@@ -46,7 +46,7 @@ import Testing
         let pane = try #require(panes.openPane(PaneRequest(type: "web", placement: .floating(near: "t1"))))
         let float = try #require(window().floatingPane(holding: pane))
         #expect(float.rect == Floating.spawnRect(in: FloatRect(x: 100, y: 50, width: 800, height: 600), at: .topRight))
-        #expect(window().activeLeafID == pane, "newest, on top and active")
+        #expect(window().activePaneID == pane, "newest, on top and active")
         #expect(window().isShowing(pane))
         #expect(window().root.tabs.count == 2, "nothing was wrapped into the docked root")
     }
@@ -105,7 +105,7 @@ import Testing
         let response = await fixture.ctl("open-float", from: "t2")
         let pane = PaneID(try #require(response["result"]?["paneId"]?.stringValue, "\(response)"))
         #expect(fixture.engine.model.window("w")?.floatingPane(holding: pane) != nil)
-        #expect(fixture.runtime.panes.ownership.owner(of: pane) == "t2")
+        #expect(fixture.runtime.panes.ownership.controller(of: pane) == "t2")
     }
 
     // MARK: revealPane
@@ -114,10 +114,10 @@ import Testing
         let pane = try #require(panes.openPane(PaneRequest(type: "web", placement: .tab(near: "t1"))))
         engine.perform(in: "w") { layout, titles in layout.reveal("t2", titles: titles) }
         #expect(!window().isShowing(pane))
-        #expect(window().activeLeafID == "t2")
+        #expect(window().activePaneID == "t2")
         panes.revealPane(pane)
         #expect(window().isShowing(pane))
-        #expect(window().activeLeafID == "t2", "still the user's")
+        #expect(window().activePaneID == "t2", "still the user's")
     }
 
     @Test func aPluginRevealsOnlyItsOwnPanes() throws {

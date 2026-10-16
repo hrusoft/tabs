@@ -72,7 +72,7 @@ public struct CommandInvocation {
     public let contentType: ContentTypeID?
     public let pane: (any PaneController)?
 
-    public init(windowID: WindowID?, paneID: PaneID?, contentType: ContentTypeID?, pane: (any PaneController)?) {
+    package init(windowID: WindowID?, paneID: PaneID?, contentType: ContentTypeID?, pane: (any PaneController)?) {
         self.windowID = windowID
         self.paneID = paneID
         self.contentType = contentType
@@ -133,7 +133,7 @@ public struct KeyChord: Hashable, Sendable, CustomStringConvertible, Codable {
     /// Why this chord can't be bound, or nil. Character, arrow and editing
     /// keys need ⌘ or ⌃ — without one they are ordinary typing and would be
     /// stolen from text views; function keys may stand alone.
-    public var problem: String? {
+    package var problem: String? {
         switch key {
         case .character(let character):
             if character.isWhitespace || character.isNewline { return "use .space, .return or .tab for whitespace keys" }
@@ -150,8 +150,6 @@ public struct KeyChord: Hashable, Sendable, CustomStringConvertible, Codable {
         return modifiers.contains(.command) || modifiers.contains(.control) ? nil : "needs ⌘ or ⌃"
     }
 
-    public var isWellFormed: Bool { problem == nil }
-
     /// The stored form: modifiers in the order ctrl, opt, shift, cmd, then the
     /// key — a character, `return`, `tab`, `escape`, `delete`, `space`,
     /// `left`/`right`/`up`/`down`, or `f1`–`f20`. E.g. `cmd+shift+d`.
@@ -167,7 +165,7 @@ public struct KeyChord: Hashable, Sendable, CustomStringConvertible, Codable {
 
     /// Parses the stored form. Modifiers may come in any order and also be
     /// spelled `control`, `option`, `alt` or `command`.
-    public init?(string: String) {
+    package init?(string: String) {
         let aliases: [(name: String, modifier: Modifiers)] = [
             ("ctrl", .control), ("control", .control), ("opt", .option), ("option", .option), ("alt", .option),
             ("shift", .shift), ("cmd", .command), ("command", .command),
@@ -201,11 +199,7 @@ public struct KeyChord: Hashable, Sendable, CustomStringConvertible, Codable {
     }
 
     public var description: String {
-        var text = ""
-        if modifiers.contains(.control) { text += "⌃" }
-        if modifiers.contains(.option) { text += "⌥" }
-        if modifiers.contains(.shift) { text += "⇧" }
-        if modifiers.contains(.command) { text += "⌘" }
+        var text = modifiers.symbols
         switch key {
         case .character(let character): text += String(character).uppercased()
         case .return: text += "↩"
@@ -224,9 +218,17 @@ public struct KeyChord: Hashable, Sendable, CustomStringConvertible, Codable {
 
 }
 
-public extension KeyChord.Key {
+extension KeyChord.Modifiers {
+    /// The modifiers held, as macOS shows them and in its order: ⌃⌥⇧⌘.
+    package var symbols: String {
+        (contains(.control) ? "⌃" : "") + (contains(.option) ? "⌥" : "") + (contains(.shift) ? "⇧" : "")
+            + (contains(.command) ? "⌘" : "")
+    }
+}
+
+extension KeyChord.Key {
     /// The key in `KeyChord.stringValue`.
-    var name: String {
+    package var name: String {
         switch self {
         case .character(let character): String(character)
         case .return: "return"
@@ -242,7 +244,7 @@ public extension KeyChord.Key {
         }
     }
 
-    init?(name: String) {
+    package init?(name: String) {
         let named: [String: KeyChord.Key] = [
             "return": .return, "tab": .tab, "escape": .escape, "esc": .escape, "delete": .delete, "space": .space,
             "left": .arrow(.left), "right": .arrow(.right), "up": .arrow(.up), "down": .arrow(.down),
@@ -258,7 +260,7 @@ public extension KeyChord.Key {
         }
     }
 
-    var isFunctionKey: Bool {
+    package var isFunctionKey: Bool {
         if case .function = self { true } else { false }
     }
 }

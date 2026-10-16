@@ -32,7 +32,14 @@ final class GitTreePane: PaneController {
     private(set) var commits: [Commit] = []
     private(set) var graph = CommitGraph(rows: [], laneCount: 0)
     private(set) var selectedHash: String?
-    private(set) var detail: CommitDetail?
+    private(set) var detail: CommitDetail? { didSet { if detail != oldValue { detailRevision += 1 } } }
+    /// The detail's files shown expanded, by path, with their diffs: they
+    /// close whenever the detail becomes another commit's.
+    private(set) var expandedFiles: [String: FileExpansion] = [:] { didSet { if expandedFiles != oldValue { detailRevision += 1 } } }
+    private var diffTasks: [String: Task<Void, Never>] = [:]
+    /// Bumped whenever what the detail panel draws changes (the detail, an
+    /// expansion, a diff): the panel's layout is kept until it does.
+    private(set) var detailRevision = 0
     /// A divider drag in progress: shown, not saved until release.
     private(set) var draftSplit: DetailSplit?
 
@@ -138,6 +145,7 @@ final class GitTreePane: PaneController {
     func paneWillClose() {
         defaultLookup?.cancel()
         detailTask?.cancel()
+        closeExpansions()
         fetchGeneration += 1
         settingsObservation?.cancel()
         services.forget(self)
@@ -278,10 +286,15 @@ final class GitTreePane: PaneController {
         if collapsed { return }
         guard let dir = configuredDir, let hash = selectedHash, log != nil else {
             detail = nil
+            closeExpansions()
             return
         }
-        // Kept while the same row is re-read, so a refresh doesn't flash it.
-        if detail?.hash != hash { detail = nil }
+        // Kept while the same row is re-read, so a refresh doesn't flash it;
+        // another row's files start closed.
+        if detail?.hash != hash {
+            detail = nil
+            closeExpansions()
+        }
         let source = source
         let debounce = services.detailDebounce
         detailTask = Task { [weak self] in
@@ -290,8 +303,113 @@ final class GitTreePane: PaneController {
             let result = hash == uncommittedChangesHash ? await source.workingTree(dir) : await source.commit(dir, hash: hash)
             guard !Task.isCancelled, let self else { return }
             self.detail = try? result.get()
+            self.followExpansions()
             self.changed()
         }
+    }
+
+    // MARK: Expanded files
+
+    /// Click on a file row: opens it, reading its diff, or closes it.
+    func toggleFile(_ file: ChangedFile) {
+        guard let detail, detail.files.contains(file) else { return }
+        if expandedFiles[file.path] != nil {
+            expandedFiles[file.path] = nil
+            diffTasks.removeValue(forKey: file.path)?.cancel()
+        } else {
+            expandedFiles[file.path] = FileExpansion(diff: .reading(previous: nil))
+            readDiff(file, hash: detail.hash)
+        }
+        changed()
+    }
+
+    /// Click on a hidden run of unchanged lines: shows them.
+    func revealGap(_ path: String, _ gap: Int) {
+        guard var expansion = expandedFiles[path], expansion.shown?.revealableGaps.contains(gap) == true else { return }
+        expansion.revealed.insert(gap)
+        expandedFiles[path] = expansion
+        changed()
+    }
+
+    /// Show full file / Show changes only: every hidden run opened, or all
+    /// closed again.
+    func toggleFullFile(_ path: String) {
+        guard var expansion = expandedFiles[path], let diff = expansion.shown else { return }
+        expansion.revealed = expansion.showsFullFile ? [] : diff.revealableGaps
+        expandedFiles[path] = expansion
+        changed()
+    }
+
+    private func readDiff(_ file: ChangedFile, hash: String) {
+        guard case .success(let value) = log else { return }
+        diffTasks[file.path]?.cancel()
+        let source = source
+        let root = value.root
+        diffTasks[file.path] = Task { [weak self] in
+            let result = await source.fileDiff(root, hash: hash, file: file)
+            guard !Task.isCancelled, let self, self.detail?.hash == hash, var expansion = self.expandedFiles[file.path] else { return }
+            self.diffTasks[file.path] = nil
+            switch result {
+            case .success(let diff):
+                // A re-read keeps everything open if everything was: the
+                // runs themselves may have moved.
+                expansion.revealed = expansion.showsFullFile ? diff.revealableGaps : []
+                expansion.diff = .read(diff)
+            case .failure(let error):
+                expansion.diff = .failed(failureMessage(error.reason))
+            }
+            self.expandedFiles[file.path] = expansion
+            self.changed()
+        }
+    }
+
+    /// A detail read landed: files it no longer lists close, and the working
+    /// tree's open files are read again (a commit's diff never changes), the
+    /// old diff shown meanwhile.
+    private func followExpansions() {
+        guard let detail else {
+            closeExpansions()
+            return
+        }
+        var listed: [String: ChangedFile] = [:]
+        for file in detail.files where listed[file.path] == nil { listed[file.path] = file }
+        for path in expandedFiles.keys where listed[path] == nil {
+            expandedFiles[path] = nil
+            diffTasks.removeValue(forKey: path)?.cancel()
+        }
+        guard detail.hash == uncommittedChangesHash else { return }
+        for (path, var expansion) in expandedFiles {
+            guard let file = listed[path] else { continue }
+            expansion.diff = .reading(previous: expansion.shown)
+            expandedFiles[path] = expansion
+            readDiff(file, hash: detail.hash)
+        }
+    }
+
+    private func closeExpansions() {
+        for task in diffTasks.values { task.cancel() }
+        diffTasks = [:]
+        if !expandedFiles.isEmpty { expandedFiles = [:] }
+    }
+
+    // MARK: A file's place on disk
+
+    /// The file in the working tree as it is now, whatever the commit shown.
+    func fileURL(_ file: ChangedFile) -> URL? {
+        guard case .success(let value) = log else { return nil }
+        return URL(fileURLWithPath: value.root, isDirectory: true).appending(path: file.path)
+    }
+
+    /// Whether anything is at the file's path right now (a deleted file
+    /// has nothing to show or open).
+    func fileExists(_ file: ChangedFile) -> Bool {
+        fileURL(file).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+
+    /// Show in Finder or Open, on what is at the file's path now.
+    func fileAction(_ action: GitTreeServices.FileAction, _ file: ChangedFile) {
+        guard let url = fileURL(file), FileManager.default.fileExists(atPath: url.path) else { return }
+        services.fileAction(action, url)
     }
 
     // MARK: What the user does
@@ -387,7 +505,7 @@ final class GitTreePane: PaneController {
         if settings.value.autoRefreshOnFocus { refresh() }
     }
 
-    // MARK: Checking out
+    // MARK: Views
 
     /// The pane's own view, once built.
     private(set) var viewIfLoaded: GitTreeView?
@@ -404,6 +522,8 @@ final class GitTreePane: PaneController {
         viewIfLoaded = built
         return built
     }
+
+    // MARK: Checking out
 
     /// Double-click, or the menu's Checkout: reads the refs at the commit
     /// fresh, then checks out. One target goes straight ahead; none asks
@@ -460,6 +580,35 @@ final class GitTreePane: PaneController {
     /// Copy SHA-1: the full hash of the row asked about.
     func copyHash(_ hash: String) {
         services.copyText(hash)
+    }
+}
+
+/// One expanded file: its diff as read, and which of its hidden runs of
+/// unchanged lines are open (`FileDiff.Gap` indices).
+struct FileExpansion: Equatable {
+    enum Diff: Equatable {
+        /// Being read; on a re-read, the diff shown before.
+        case reading(previous: FileDiff?)
+        case read(FileDiff)
+        case failed(String)
+    }
+
+    var diff: Diff
+    var revealed: Set<Int> = []
+
+    /// The diff to draw: the one read, or while re-read the one before.
+    var shown: FileDiff? {
+        switch diff {
+        case .read(let diff): diff
+        case .reading(let previous): previous
+        case .failed: nil
+        }
+    }
+
+    /// Every run that can open is open (nothing hidden that can be shown).
+    var showsFullFile: Bool {
+        guard let gaps = shown?.revealableGaps, !gaps.isEmpty else { return false }
+        return revealed.isSuperset(of: gaps)
     }
 }
 

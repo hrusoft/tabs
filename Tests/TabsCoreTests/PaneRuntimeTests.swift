@@ -38,6 +38,10 @@ final class FakeShell: WorkspaceShell {
     }
 
     func focus(_ pane: PaneID) { activate(pane) }
+    func reveal(_ pane: PaneID) {}
+    func controlTitle(of pane: PaneID) -> String { "" }
+    /// The panes placed here, in the order they were placed.
+    func layoutPaneOrder() -> [PaneID] { placed.map(\.0) }
     func requestClose(_ pane: PaneID) { closeRequests.append(pane) }
     func paneTitleDidChange(_ pane: PaneID) { titleChanges.append(pane) }
     func paneStateDidChange(_ pane: PaneID) { stateChanges.append(pane) }
@@ -520,13 +524,26 @@ final class TitledProbePane: PaneController {
         runtime.controlSocketPath = "/tmp/tabs.sock"
         runtime.panes.baseEnvironment = [
             "PATH": "/usr/bin", "TABS_DATA_DIR": "/tmp/test-data", "TABS_LISTEN_SOCKET": "/tmp/own.sock", "TABS_E2E_HIDDEN": "1",
-            "TABS_E2E_PLUGINS": "/tmp/fixtures", "TABS_PANE_ID": "the-parent-app's",
+            "TABS_E2E_PLUGINS": "/tmp/fixtures", "TABS_TEST_WINDOWS_SEEN": "1", "TABS_PANE_ID": "the-parent-app's",
         ]
         let id = try #require(runtime.panes.openPane(PaneRequest(type: "probe")))
         #expect(
             runtime.panes.pane(id)?.context.childEnvironment
                 == ["PATH": "/usr/bin", "TABS_CONTROL_SOCKET": "/tmp/tabs.sock", "TABS_PANE_ID": id.rawValue],
             "the app's own launch settings never reach a child")
+    }
+
+    /// The strip list is `LaunchSetting` itself: a setting added there never reaches a child.
+    @Test func everyLaunchSettingIsKeptFromAChild() throws {
+        _ = startWithEventLog()
+        var environment = ["PATH": "/usr/bin"]
+        for setting in LaunchSetting.allCases { environment[setting.rawValue] = "1" }
+        runtime.panes.baseEnvironment = environment
+        let id = try #require(runtime.panes.openPane(PaneRequest(type: "probe")))
+        let child = try #require(runtime.panes.pane(id)?.context.childEnvironment)
+        #expect(LaunchSetting.allCases.count == 5, "Debug: TABS_TEST_WINDOWS_SEEN too")
+        for setting in LaunchSetting.allCases { #expect(child[setting.rawValue] == nil, "\(setting.rawValue)") }
+        #expect(child["PATH"] == "/usr/bin")
     }
 }
 

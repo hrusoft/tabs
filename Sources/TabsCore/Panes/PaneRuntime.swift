@@ -1,8 +1,8 @@
 import AppKit
 import TabsPluginSDK
 
-/// What the layout (today the AppKit workspace; later a split/tab tree) does
-/// for the pane runtime: place, focus, close, and say which pane is active.
+/// What the layout (`LayoutEngine`) does for the pane runtime: place,
+/// focus, close, and say which pane is active.
 /// Everything a plugin can observe about panes lives in `PaneRuntime`, so the
 /// layout can be replaced without changing what plugins see.
 @MainActor
@@ -11,10 +11,11 @@ package protocol WorkspaceShell: AnyObject {
     var frontmostWindowID: WindowID? { get }
     /// The active pane of the key (or frontmost) window.
     var activePaneID: PaneID? { get }
-    /// Puts a created pane where `placement` asks — degrading what the layout
-    /// can't do yet — and calls `PaneRuntime.attach` once it is in a window:
-    /// at once, or (placed from plugin code during a layout pass) by the pass
-    /// that follows. Returns false if there is nowhere to put it.
+    /// Puts a created pane where `placement` asks (naming a pane that isn't in
+    /// the layout, a tab or split goes where `.automatic` would, a floating pane
+    /// over the front window's active pane) and calls `PaneRuntime.attach` once
+    /// it is in a window: at once, or (placed from plugin code during a layout
+    /// pass) by the pass that follows. Returns false if there is nowhere to put it.
     func place(_ pane: LivePane, placement: PanePlacement) -> Bool
     func focus(_ pane: PaneID)
     /// A plugin asked to close its pane; the shell may confirm with the user.
@@ -36,13 +37,7 @@ package protocol WorkspaceShell: AnyObject {
     func controlTitle(of pane: PaneID) -> String
     /// Every pane in the layout, in layout order (each window's docked tree,
     /// then its floating panes).
-    func layoutPaneOrder() -> [PaneID]?
-}
-
-extension WorkspaceShell {
-    func reveal(_ pane: PaneID) {}
-    func controlTitle(of pane: PaneID) -> String { "" }
-    func layoutPaneOrder() -> [PaneID]? { nil }
+    func layoutPaneOrder() -> [PaneID]
 }
 
 /// A pane with plugin content: the controller the plugin made, the context
@@ -89,15 +84,6 @@ package final class LivePane {
     package var title: String { context.title ?? contribution.displayName }
 }
 
-/// A saved leaf, turned back into a pane body.
-@MainActor
-package enum RestoredPane {
-    case empty
-    case live(LivePane)
-    /// No active plugin provides the type: keep the leaf verbatim, show why.
-    case unavailable(reason: String)
-}
-
 /// The pane half of the plugin contract: creation (behind the creation
 /// gate), restoration, contexts, titles, snapshots, capabilities, visibility
 /// and the pane events — in a defined order:
@@ -132,20 +118,20 @@ package final class PaneRuntime: Workspace {
     package var controlSocketPath: String?
     /// The environment children start from: the app's own (tests replace it).
     package var baseEnvironment = ProcessInfo.processInfo.environment
-    /// How the app itself was launched — never passed on, or a Tabs started
-    /// from a pane would share this one's data, socket, hidden mode or test plugins.
-    package static let launchSettings: Set<String> = ["TABS_DATA_DIR", "TABS_LISTEN_SOCKET", "TABS_E2E_HIDDEN", "TABS_E2E_PLUGINS"]
+    /// How the app itself was launched (`LaunchSetting`): never passed on.
+    package static let launchSettings = Set(LaunchSetting.allCases.map(\.rawValue))
     /// For panes asking whether a key is an app shortcut.
     package weak var shortcuts: Shortcuts?
     /// Where panes' signals go.
     package weak var signals: PaneSignals?
-    /// Which pane controls which (control verbs' created panes).
-    package let ownership = PaneOwnership()
+    /// Which pane controls which: enable, disable and list control there.
+    package private(set) lazy var ownership = PaneOwnership { [weak self] pane in self?.contentType(of: pane) != nil }
 
     package init(registry: ContributionRegistry, hub: EventHub, host: PluginHost) {
         self.registry = registry
         self.hub = hub
         self.host = host
+        ownership.observe { [weak self] change in self?.showControl(of: change.pair.controlled) }
     }
 
     /// Declares one of core's capabilities (and its change channel).
@@ -196,7 +182,7 @@ package final class PaneRuntime: Workspace {
     /// working even when its type is disabled for creation. If the plugin
     /// refuses the saved config, the pane stays unavailable — and its leaf is
     /// saved back verbatim — rather than being replaced by an empty one.
-    package func restore(_ leaf: LayoutLeaf, in window: WindowID) -> RestoredPane {
+    package func restore(_ leaf: LayoutLeaf, in window: WindowID) -> PaneBody {
         guard let type = leaf.type else { return .empty }
         guard let contribution = registry.contribution(to: .contentTypes, id: type.rawValue) else {
             return .unavailable(reason: unavailableReason(for: type))
@@ -244,9 +230,8 @@ package final class PaneRuntime: Workspace {
         pane.context.windowID = window
         guard !pane.isAttached else { return }
         pane.isAttached = true
-        // Owned since before it was placed: the cue goes up with the pane
-        // (the layout keeps signals only for panes it holds).
-        if ownership.isOwned(pane.id) { signals?.raise(ControlledSignal.signal, on: pane.id, by: nil) }
+        // Controlled since before it was placed: the cue goes up with the pane.
+        showControl(of: pane.id)
         hub.publish(.paneOpened, PaneEvent(paneID: pane.id, windowID: window, contentType: pane.contentType))
         if lastActive?.pane == pane.id { activePaneDidChange(to: pane.id, in: window) }
     }
@@ -300,9 +285,8 @@ package final class PaneRuntime: Workspace {
         pane.controller.paneWillClose()
         pane.context.runtime = nil
         signals?.paneClosed(id)
-        // Gone for good: its owner is told so, everyone else nothing. (A pane
-        // that never opened was never anyone's to remember.)
-        if pane.isAttached { ownership.release(id) } else { ownership.forget(id) }
+        // Gone for good: every control pair it is in ends, either side.
+        ownership.paneClosed(id)
         if pane.isAttached {
             hub.publish(.paneClosed, PaneEvent(paneID: id, windowID: pane.windowID, contentType: pane.contentType))
         }
@@ -454,28 +438,43 @@ package final class PaneRuntime: Workspace {
         }
         // Provisional: the shell may open a window for it; attach records where it landed.
         let window = placementWindow(for: request.placement) ?? shell.frontmostWindowID ?? WindowID("unplaced")
-        // Owned from the instant it exists — before its plugin builds it, so
-        // before its view and whatever it loads first; the cue goes up on attach.
+        // Controlled from the instant it exists — before its plugin builds it,
+        // so before its view and whatever it loads first; the cue goes up on
+        // attach. A controller that has closed meanwhile is refused.
         let id = PaneID.make()
-        if let controller = request.controlledBy { ownership.grant(id, to: controller) }
+        if let controller = request.controlledBy, !ownership.enableControl(ofNewPane: id, from: controller) {
+            // The agent's terminal closed while its verb ran: a race, not a fault.
+            Log.core.notice(
+                "refused to open a \(request.type.rawValue, privacy: .public) pane controlled by \(controller.rawValue, privacy: .public): it is not an open pane"
+            )
+            return nil
+        }
+        // Never opened: it leaves the registry without a tombstone (nobody
+        // learned its id).
+        let unbind = { if let controller = request.controlledBy { self.ownership.disableControl(of: id, from: controller) } }
         guard let pane = create(request, id: id, in: window) else {
-            ownership.forget(id)
+            unbind()
             return nil
         }
         pane.keyboardExempt = !request.activates
         guard shell.place(pane, placement: request.placement) else {
             // Never shown: let the plugin release what it made, publish nothing.
+            unbind()
             detach(pane.id)
             return nil
         }
         return pane.id
     }
 
-    /// Owns `pane` from now on (it is already open): the ledger, and the cue if
-    /// it is on screen.
-    package func grantOwnership(of pane: PaneID, to owner: PaneID) {
-        ownership.grant(pane, to: owner)
-        if panes[pane]?.isAttached == true { signals?.raise(ControlledSignal.signal, on: pane, by: nil) }
+    /// The `controlled` cue says what the registry says: up while the pane has
+    /// a controller and is open (the layout keeps signals only for panes it
+    /// holds), down otherwise. Every change to control comes through here.
+    private func showControl(of pane: PaneID) {
+        if ownership.isControlled(pane), panes[pane]?.isAttached == true {
+            signals?.raise(ControlledSignal.signal, on: pane, by: nil)
+        } else {
+            signals?.withdraw(ControlledSignal.signal, from: pane, by: nil)
+        }
     }
 
     package func revealPane(_ pane: PaneID) {
@@ -501,7 +500,9 @@ package final class PaneRuntime: Workspace {
     /// pane's own summary merged over it.
     package func controlListing(ownedBy caller: PaneID) -> [JSONValue] {
         openPaneOrder.compactMap { id in
-            guard ownership.owner(of: id) == caller, let pane = panes[id], let summary = pane.controller.controlSummary else { return nil }
+            guard ownership.controller(of: id) == caller, let pane = panes[id], let summary = pane.controller.controlSummary else {
+                return nil
+            }
             var entry: [String: JSONValue] = [
                 "paneId": .string(id.rawValue), "type": .string(pane.contentType.rawValue), "title": .string(controlTitle(of: id)),
             ]
@@ -541,7 +542,7 @@ package final class PaneContextImpl: PaneContext {
     /// The plugin that made the pane.
     package let owner: PluginID
     package let initialConfig: JSONValue
-    package fileprivate(set) var theme = PaneTheme.dark
+    package fileprivate(set) var theme = PaneTheme.placeholder
     package fileprivate(set) var depth = 0
     /// The plugin's title for the pane, or the saved one until it sets one.
     package private(set) var title: String?
@@ -561,7 +562,7 @@ package final class PaneContextImpl: PaneContext {
         self.title = title
     }
 
-    package var controller: PaneID? { runtime?.ownership.owner(of: paneID) }
+    package var controller: PaneID? { runtime?.ownership.controller(of: paneID) }
 
     package func setTitle(_ title: String) {
         self.title = title

@@ -95,12 +95,12 @@ import Testing
         #expect(shown("a") == ["bell"])
     }
 
-    @Test func aTabGroupBeingActiveIsntLookingAtItsPanes() {
+    @Test func aGroupSavedAsActiveHandsItToThePaneItShows() {
         let root = split("s", leaf("a"), group("g", [("t-x", leaf("x"))], active: "t-x"))
         _ = engine(windows: [WindowLayout(id: "w", root: root, active: "g")])
         renderer.focusedWindows = ["w"]
-        #expect(raise("bell", on: "x"), "the group is active, not the pane in it")
-        #expect(shown("x") == ["bell"])
+        #expect(!raise("bell", on: "x"), "a group is never active: the pane it shows is, and is looked at")
+        #expect(raise("bell", on: "a"))
     }
 
     @Test func raisingAgainChangesNothing() {

@@ -8,7 +8,7 @@ import Testing
 /// Drives the real AppKit shell with synthesized input, in windows that are
 /// never shown: the in-process UI tier. Builds a runtime with the shipped
 /// plugins, a workspace and the real main menu (installed as NSApp's for the
-/// driver's lifetime, so suites using it live under the serialized `AppUI`).
+/// driver's lifetime, so suites using it live under the serialized `UITests`).
 /// The stand-in plugins (`StandIns`: text and inert panes) run beside them when
 /// the layout uses its types or `standIns` asks for it.
 ///
@@ -27,9 +27,9 @@ final class UIDriver {
     init(
         layout: SavedLayout? = nil, disabled: [PluginID] = [], inProcess: [PluginCandidate] = [],
         panes: SettingsStore.PaneSettings? = nil, requiring: Set<ContentTypeID> = [], standIns: Bool = false,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:], themes: URL? = nil
     ) {
-        runtime = TestSupport.runtime()
+        runtime = TestSupport.runtime(themes: themes)
         // Over the app's own, for every pane's process (a terminal's shell).
         runtime.panes.baseEnvironment.merge(environment) { $1 }
         for id in disabled { runtime.settings.setDisabled(true, for: id) }
@@ -83,11 +83,8 @@ final class UIDriver {
         }
     }
 
-    /// The leaf with the keyboard in the frontmost window (what the Workspace API calls the active pane).
-    var activePane: PaneID? { renderer.frontmostController?.layout.activeLeafID }
-
-    /// The frontmost window's active node (a leaf or a tab group).
-    var activeNode: NodeID? { renderer.frontmostController?.layout.activePaneID }
+    /// The frontmost window's active pane (always a leaf, holding the keyboard).
+    var activePane: PaneID? { renderer.frontmostController?.layout.activePaneID }
 
     /// The pane whose body holds the frontmost window's keyboard focus.
     var focusedPane: PaneID? {
@@ -354,6 +351,20 @@ final class UIDriver {
         let deadline = Date().addingTimeInterval(timeout)
         while try !done(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
         layoutAll()
+    }
+
+    /// `eventually`, laying every window out before each look (what's drawn
+    /// follows the model). Suspends between looks, so main-actor tasks run
+    /// meanwhile (a pane's title waiting out its delay, a process's exit),
+    /// which spinning the run loop from a synchronous test doesn't let them.
+    @discardableResult
+    func wait(
+        until done: () throws -> Bool, timeout: Duration = .seconds(10), sourceLocation: SourceLocation = #_sourceLocation
+    ) async rethrows -> Bool {
+        try await eventually(timeout: timeout, sourceLocation: sourceLocation) {
+            layoutAll()
+            return try done()
+        }
     }
 
     /// Chooses a menu item as a user would: validated first, and only if enabled.

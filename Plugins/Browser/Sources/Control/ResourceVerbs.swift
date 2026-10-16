@@ -49,33 +49,23 @@ enum ResourceVerbs {
             if let givenURL {
                 resourceURL = givenURL
             } else if invocation["ref"] != nil || invocation["selector"] != nil {
-                switch await ResourceFetch.resolveElementSrc(
-                    in: pane.page, ref: invocation["ref"]?.stringValue, selector: invocation["selector"]?.stringValue)
-                {
-                case .failure(let failure): throw ControlVerbError(failure.message)
-                case .success(let url): resourceURL = url
-                }
+                resourceURL = try await ResourceFetch.resolveElementSrc(
+                    in: pane.page, ref: invocation["ref"]?.stringValue, selector: invocation["selector"]?.stringValue
+                ).orThrow()
             } else {
                 throw ControlVerbError("save-resource needs one of --url, --ref or --selector")
             }
 
-            let fetched: FetchedResource
             let cap = services?.maxResourceBytes ?? BrowserLimits.maxResourceBytes
-            switch await ResourceFetch.fetch(resourceURL, page: pane.page, maxBytes: cap) {
-            case .failure(let failure): throw ControlVerbError(failure.message)
-            case .success(let resource): fetched = resource
-            }
+            let fetched = try await ResourceFetch.fetch(resourceURL, page: pane.page, maxBytes: cap).orThrow()
 
             let ext = ResourceFetch.extensionFor(url: resourceURL, contentType: fetched.contentType, bytes: fetched.bytes)
-            switch files.write(
-                fetched.bytes, out: invocation["outPath"], subdirectory: AgentFiles.Subdirectory.resources, ext: ext, what: "resource")
-            {
-            case .failure(let failure): throw ControlVerbError(failure.message)
-            case .success(let path):
-                var result: [String: JSONValue] = ["path": .string(path), "bytes": .int(Int64(fetched.bytes.count))]
-                if let type = fetched.contentType, !type.isEmpty { result["contentType"] = .string(type) }
-                return .object(result)
-            }
+            let path = try files.write(
+                fetched.bytes, out: invocation["outPath"], subdirectory: AgentFiles.Subdirectory.resources, ext: ext, what: "resource"
+            ).orThrow()
+            var result: [String: JSONValue] = ["path": .string(path), "bytes": .int(Int64(fetched.bytes.count))]
+            if let type = fetched.contentType, !type.isEmpty { result["contentType"] = .string(type) }
+            return .object(result)
         }
     }
 }

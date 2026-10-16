@@ -204,6 +204,31 @@ import Testing
         #expect(!bed.page.canGoForward, "a new navigation drops the forward entries")
     }
 
+    /// C-11: a commit is recorded at its own document's address when the next load or step was already asked for as
+    /// it reached the app (the web view's `url` shows the one asked for by then). Back turns on as WebKit adds /b's
+    /// history entry, a moment before /b's commit arrives: what is asked for in that change is pending at the commit.
+    @Test(arguments: ["load", "back"]) func aCommitIsRecordedAtItsOwnAddressWhenTheNextIsAlreadyAskedFor(next: String) async throws {
+        let bed = try await PageBed { server in
+            server.page("/a", title: "A"); server.page("/b", title: "B"); server.page("/c", title: "C")
+        }
+        await bed.load("/a")
+        let asked = Ref(false)
+        bed.page.onChange = {
+            guard !asked.value, bed.page.canGoBack else { return }
+            asked.value = true
+            #expect(bed.page.url == bed.url("/a"), "/b's commit hasn't arrived yet")
+            if next == "load" { bed.page.load(bed.url("/c")) } else { bed.page.goBack() }
+        }
+        bed.clearEvents()
+        bed.page.load(bed.url("/b"))
+        let last = bed.url(next == "load" ? "/c" : "/a")
+        #expect(await eventually { asked.value && bed.page.url == last && !bed.page.isLoading })
+        let commits = bed.events.compactMap { event -> String? in
+            if case .didNavigate(let url) = event { url } else { nil }
+        }
+        #expect(commits == [bed.url("/b"), last])
+    }
+
     /// The load records: `isLoading`, and the wait for a load to end.
     @Test func waitForLoadEndTimesOutOnALoadThatNeverEnds() async throws {
         let bed = try await PageBed(serving: { $0.route("/hang", .init(body: "<title>never</title>", hangs: true)) })
@@ -218,29 +243,6 @@ import Testing
         let started = ContinuousClock.now
         #expect(await bed.page.waitForLoadEnd(timeoutMs: 5_000) == LoadOutcome(loaded: true, loadError: nil))
         #expect(ContinuousClock.now - started < .seconds(2), "the poll fallback answers within a tick or two")
-    }
-
-    /// E-5: a pane that is not shown (a background tab: its view is in no window, or hidden) keeps its page running.
-    @Test func aPageThatIsNotOnScreenKeepsLoadingAndRunning() async throws {
-        let bed = try await PageBed(
-            serving: {
-                $0.page(
-                    "/ticking", title: "Ticking", head: "<script>let n = 0; setInterval(() => console.log('tick ' + n++), 100)</script>")
-            },
-            mounted: false)
-        await bed.load("/ticking")
-        #expect(bed.page.url == bed.url("/ticking"), "it loaded with no window")
-        #expect(await eventually { bed.page.title == "Ticking" })
-        #expect(await eventually { bed.page.console.list().count >= 3 }, "and its timers run")
-        #expect(bed.page.console.list().contains { $0.text == "tick 2" || $0.text == "tick 1" })
-        #expect(await bed.value("document.title") == "Ticking", "and it can be asked things")
-        // Hidden in a window, the same.
-        let hidden = try await PageBed(serving: {
-            $0.page("/ticking", title: "Ticking", head: "<script>let n = 0; setInterval(() => console.log('tick ' + n++), 100)</script>")
-        })
-        hidden.page.webView.isHidden = true
-        await hidden.load("/ticking")
-        #expect(await eventually { hidden.page.console.list().count >= 3 })
     }
 
     /// The page's identity: stable for the life of the object.
@@ -286,13 +288,16 @@ import Testing
         #expect(await answer(of: pending, within: 10_000) == .failure(.unavailable))
     }
 
+    /// The answer is a few main-actor hops (the cancellation's, the call's, this wait's) and nothing of WebKit's,
+    /// so the deadline only tells "answers" from "never": on a main thread shared with three other tests' pages
+    /// in a full gate on a busy machine, 5 s once ran out.
     @Test func aCancelledScriptCallAnswersUnavailable() async throws {
         let bed = try await PageBed(serving: { $0.page("/a", title: "A") })
         await bed.load("/a")
         let pending = Task { await bed.page.evaluate("new Promise(() => {})") }
         await delay(milliseconds: 100)
         pending.cancel()
-        #expect(await answer(of: pending, within: 5_000) == .failure(.unavailable))
+        #expect(await answer(of: pending, within: 30_000) == .failure(.unavailable))
     }
 
     /// A load of the same page with a new fragment ends, though it starts no navigation of its own, whatever

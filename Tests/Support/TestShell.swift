@@ -11,8 +11,8 @@ import Foundation
 /// both; `.zshrc` also unsets `HISTFILE` (`/etc/zshrc` points it into
 /// `ZDOTDIR`): no test writes history anywhere.
 ///
-/// The end-to-end tier keeps its own copy (Tests/EndToEndSupport), as it
-/// compiles none of this folder's helpers but the socket client.
+/// In-process tiers add `environment` to their panes'; the end-to-end tier
+/// (which compiles this file too) launches the app with it (`LaunchedApp`).
 enum TestShell {
     /// What a pane's environment needs for its shell to start on these files.
     static var environment: [String: String] { ["ZDOTDIR": directory] }

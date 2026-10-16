@@ -120,3 +120,18 @@ final class TextPane: NSObject, PaneController, NSTextViewDelegate {
         pane.setTitle(textView.string.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? "Untitled")
     }
 }
+
+/// Two themes for the tests whose subject is how a theme travels, not how one looks: any two
+/// distinct sets of tokens, one dark and one light. The themes the app ships are files
+/// (`Contents/Resources/Themes`, docs/THEMES.md) that no test copies.
+extension PaneTheme {
+    static let standInDark = PaneTheme(
+        bg: .hex(0x101418), bgElevated: .hex(0x1c2128), border: .hex(0x2e3540), text: .hex(0xf2f3f5), textDim: .hex(0xa4a8b0),
+        accent: .hex(0x3d8bfd), onAccent: .hex(0xffffff), bellAlert: .hex(0xf2433b), agent: .hex(0xae86fc), hover: .hex(0xffffff),
+        shadow: .hex(0x000000), shadowStrength: 1, isDark: true)
+
+    static let standInLight = PaneTheme(
+        bg: .hex(0xfbfbfa), bgElevated: .hex(0xe9eaee), border: .hex(0xc9cbd3), text: .hex(0x16171c), textDim: .hex(0x5c5e68),
+        accent: .hex(0x2563d9), onAccent: .hex(0xffffff), bellAlert: .hex(0xc8001a), agent: .hex(0x6f3fcc), hover: .hex(0x000000),
+        shadow: .hex(0x000000), shadowStrength: 0.45, isDark: false)
+}

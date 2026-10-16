@@ -3,7 +3,7 @@ import TabsCore
 import TabsPluginSDK
 
 /// The chrome's colors: the SDK's `PaneTheme`, the one definition core and
-/// plugins paint with.
+/// plugins paint with. The themes themselves are files (`runtime.themes`, docs/THEMES.md).
 typealias Theme = PaneTheme
 
 extension NSColor {
@@ -31,39 +31,48 @@ extension NSColor {
     /// inactive pane's content is dimmed.
     func dimmed(grayscale g: Double, brightness b: Double) -> NSColor {
         guard let c = usingColorSpace(.sRGB) else { return self }
-        let r = c.redComponent
-        let gr = c.greenComponent
-        let bl = c.blueComponent
-        let k = 1 - g
-        let nr = (0.2126 + 0.7874 * k) * r + (0.7152 - 0.7152 * k) * gr + (0.0722 - 0.0722 * k) * bl
-        let ng = (0.2126 - 0.2126 * k) * r + (0.7152 + 0.2848 * k) * gr + (0.0722 - 0.0722 * k) * bl
-        let nb = (0.2126 - 0.2126 * k) * r + (0.7152 - 0.7152 * k) * gr + (0.0722 + 0.9278 * k) * bl
+        let (r, gr, bl) = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
+        let next = Dimming.grayscale(g).map { row in row.r * r + row.g * gr + row.b * bl }
         func clamp(_ x: Double) -> CGFloat { CGFloat(min(max(x * b, 0), 1)) }
-        return NSColor(srgbRed: clamp(nr), green: clamp(ng), blue: clamp(nb), alpha: c.alphaComponent)
+        return NSColor(srgbRed: clamp(next[0]), green: clamp(next[1]), blue: clamp(next[2]), alpha: c.alphaComponent)
+    }
+}
+
+/// How an inactive pane's content is dimmed: CSS `grayscale(g)`, then
+/// `brightness(b)` scaling the result. One source for the colors the chrome
+/// dims itself (`NSColor.dimmed`) and the filter over a plugin's view
+/// (`PaneBodyHost`).
+enum Dimming {
+    /// `grayscale(g)`'s matrix over sRGB: one row per channel of the result,
+    /// its weights for red, green and blue.
+    static func grayscale(_ g: Double) -> [(r: Double, g: Double, b: Double)] {
+        let k = 1 - g
+        return [
+            (0.2126 + 0.7874 * k, 0.7152 - 0.7152 * k, 0.0722 - 0.0722 * k),
+            (0.2126 - 0.2126 * k, 0.7152 + 0.2848 * k, 0.0722 - 0.0722 * k),
+            (0.2126 - 0.2126 * k, 0.7152 - 0.7152 * k, 0.0722 + 0.9278 * k),
+        ]
     }
 }
 
 extension NSAppearance {
-    /// What the Theme setting pins the whole app to; nil (`system`) leaves it to the OS. Set on
-    /// `NSApp`, it reaches every window, alert, file panel, menu and web page the app puts up.
-    /// Unknown values are dark, as in `PaneTheme.resolve`.
-    static func pinned(by setting: String) -> NSAppearance? {
-        switch setting {
-        case "system": nil
-        case "light": NSAppearance(named: .aqua)
-        default: NSAppearance(named: .darkAqua)
-        }
+    /// What the Theme setting pins the whole app to: dark or light Aqua as the theme it resolved
+    /// to is (`isDark`); nil for `system`, which leaves it to the OS. Set on `NSApp`, it reaches
+    /// every window, alert, file panel, menu and web page the app puts up.
+    static func pinned(by setting: String, theme: Theme) -> NSAppearance? {
+        setting == ThemeCatalog.system ? nil : NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
     }
 }
 
 /// What the chrome is drawn with: the pane settings, and the state it follows.
 struct PaneAppearance: Equatable {
-    var theme: Theme = .dark
+    var theme: Theme = .placeholder
     var dimInactivePanes = true
     var dimIntensity = 0.34
     var showNavFlash = true
     var snapResizeSeparators = true
-    var spawnPosition: SpawnPosition = .default
+    /// Tabs the user didn't name show their pane's title (`LayoutEngine.tabTitle`).
+    var tabTitlesFollowPanes = true
     /// The OS window's corner radius, which the bottom corners of the
     /// outermost panes follow (0 in fullscreen).
     var cornerRadius: CGFloat = 16

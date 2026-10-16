@@ -33,6 +33,26 @@ extension UITests {
             #expect(bar.settingsButton.toolTip == "Settings")
         }
 
+        @Test func everyChromeButtonIsAnAccessibilityButtonNamedLikeItsToolTip() throws {
+            let ui = UIDriver(layout: Fixture.saved(Fixture.window("w", Fixture.leaf("a"))))
+            let bar = try #require(try ui.paneView("root-w").tabBar)
+            let buttons: [ChromeIconButton] = [
+                try ui.control(HeaderAction.splitHorizontal.accessibilityID, of: "a"),
+                try ui.control(HeaderAction.close.accessibilityID, of: "a"),
+                try ui.control(HeaderAction.newTab.accessibilityID, of: "root-w"), bar.strip.newTabButton, bar.settingsButton,
+                bar.caffeinateButton,
+            ]
+            for button in buttons {
+                #expect(button.isAccessibilityElement(), "\(button.label)")
+                #expect(button.accessibilityRole() == .button, "\(button.label)")
+                #expect(button.accessibilityLabel() == button.toolTip, "\(button.label)")
+            }
+            // Pressed through accessibility, the bar's "+" adds a tab.
+            let tabs = try ui.layout.root.tabs.count
+            #expect(bar.strip.newTabButton.accessibilityPerformPress())
+            #expect(try ui.layout.root.tabs.count == tabs + 1)
+        }
+
         @Test func aTabsCloseButtonNamesTheTabEvenOnceRenamed() throws {
             let ui = UIDriver(layout: Fixture.saved(Fixture.tabsWindow("w", [Fixture.leaf("a"), Fixture.leaf("b")], active: 1)))
             let tab = try ui.tabView("t-b")

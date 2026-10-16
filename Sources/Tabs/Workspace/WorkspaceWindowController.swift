@@ -28,8 +28,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
     private(set) var isFullScreen = false
     private var reclampTimer: Timer?
     lazy var resizer = SplitResizer(window: self)
+    /// The keyboard moving: into a text field, its field editor takes the theme's caret and selection.
+    private var firstResponderObservation: NSKeyValueObservation?
 
-    static let defaultSize = NSSize(width: 1200, height: 800)
+    static let defaultSize = NSSize(width: Viewport.newWindow.width, height: Viewport.newWindow.height)
 
     init(layout: WindowLayout, renderer: WorkspaceRenderer) {
         windowID = layout.id
@@ -58,9 +60,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
         root.separatorMouseDown = { [unowned self] event in self.resizer.mouseDown(event) }
         root.separatorCursorRects = { [unowned self] in self.resizer.cursorRects() }
         root.separatorCursor = { [unowned self] point in self.resizer.cursor(at: point) }
-        window.layoutTrafficLights = { [weak window] in window?.placeTrafficLights() }
         window.placeTrafficLights()
         applyAppearance()
+        firstResponderObservation = window.observe(\.firstResponder) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.themeFieldEditor() }
+        }
     }
 
     @available(*, unavailable)
@@ -77,6 +81,17 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
         root.background = theme.bg
         window?.backgroundColor = theme.bg
         window?.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        themeFieldEditor()
+    }
+
+    /// The field editor a text field of the window edits in (a tab's title, a plugin's toolbar
+    /// field) in the theme: its caret in `text`, a selection `onAccent` on `accent`. Applied once
+    /// the field has set the editor up (which resets its selection's colors), as it takes the keyboard.
+    private func themeFieldEditor() {
+        guard let editor = window?.firstResponder as? NSTextView, editor.isFieldEditor else { return }
+        let theme = appearance.theme
+        editor.insertionPointColor = theme.text
+        editor.selectedTextAttributes = [.backgroundColor: theme.accent, .foregroundColor: theme.onAccent]
     }
 
     // MARK: Drawing the layout
@@ -85,15 +100,14 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
         self.layout = layout
         var used: [NodeID: NodeView] = [:]
         let rootView = build(
-            .tabs(layout.root), depth: 0, edges: Edges(cornerLeft: true, cornerRight: true), dockedRoot: true, floatingRoot: nil,
-            used: &used)
+            .tabs(layout.root), depth: 0, edges: Edges(cornerLeft: true, cornerRight: true), dockedRoot: true, used: &used)
         root.docked.setRoot(rootView)
 
         var keptFloating: [NodeID: FloatingWindowView] = [:]
         for entry in layout.floating {
             let view = floatingViews[entry.id] ?? FloatingWindowView(floatID: entry.id, host: self)
             if view.superview !== root.floatingLayer { root.floatingLayer.addSubview(view) }
-            let content = build(entry.content, depth: 0, edges: Edges(), dockedRoot: false, floatingRoot: entry.content.id, used: &used)
+            let content = build(entry.content, depth: 0, edges: Edges(), dockedRoot: false, used: &used)
             view.tree.setRoot(content)
             root.floatingLayer.layoutFrame = root.bounds
             root.floatingLayer.place(view, CGRect(x: entry.rect.x, y: entry.rect.y, width: entry.rect.width, height: entry.rect.height))
@@ -116,12 +130,12 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
         ChromeHover.dropStale(in: root)
         refreshOverlays()
         followActivePane()
-        window?.title = engine.paneTitle(of: layout.activeLeafID ?? layout.activePaneID)
+        window?.title = engine.paneTitle(of: layout.activePaneID)
     }
 
     /// The view for `node`, reused while the node lives, and its subtree.
     private func build(
-        _ node: LayoutNode, depth: Int, edges: Edges, dockedRoot: Bool, floatingRoot: NodeID?, used: inout [NodeID: NodeView]
+        _ node: LayoutNode, depth: Int, edges: Edges, dockedRoot: Bool, used: inout [NodeID: NodeView]
     ) -> NodeView {
         switch node {
         case .split(let split):
@@ -139,7 +153,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
                     cornerRight: touches.right && touches.bottom && edges.cornerRight,
                     suppressLeft: touches.left && edges.suppressLeft, suppressRight: touches.right && edges.suppressRight,
                     suppressBottom: touches.bottom && edges.suppressBottom)
-                return build(child, depth: depth, edges: childEdges, dockedRoot: false, floatingRoot: floatingRoot, used: &used)
+                return build(child, depth: depth, edges: childEdges, dockedRoot: false, used: &used)
             }
             view.setChildren(children)
             used[node.id] = view
@@ -149,15 +163,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
             view.depth = depth
             view.edges = edges
             view.isDockedRoot = dockedRoot
-            view.isFloatingRoot = floatingRoot == node.id
             // A tab's content sits flush against this group's border on three sides.
             let contentEdges = Edges(
                 cornerLeft: edges.cornerLeft, cornerRight: edges.cornerRight, suppressLeft: true, suppressRight: true, suppressBottom: true)
             let contents = group.tabs.map { tab in
-                (
-                    tab.id,
-                    build(tab.content, depth: depth + 1, edges: contentEdges, dockedRoot: false, floatingRoot: floatingRoot, used: &used)
-                )
+                (tab.id, build(tab.content, depth: depth + 1, edges: contentEdges, dockedRoot: false, used: &used))
             }
             view.setTabContents(contents, active: group.activeTabID)
             used[node.id] = view
@@ -167,7 +177,6 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
             view.depth = depth
             view.edges = edges
             view.isDockedRoot = false
-            view.isFloatingRoot = floatingRoot == node.id
             view.setBody(renderer.bodyHost(for: leaf))
             used[node.id] = view
             return view
@@ -202,7 +211,6 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
                 (body.content as? EmptyPaneView)?.isDropTarget = dragVisuals.target == .emptyPane(leaf.id)
                 (body.content as? UnavailablePaneView)?.theme = appearance.theme
                 pane.header?.setTitleView(body.headerTitle)
-                pane.header?.controls.setAccessory(body.accessory)
                 pane.header?.controls.setActions(body.actions, from: body.content)
             }
         }
@@ -234,7 +242,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
 
     /// The keyboard follows the active pane (or new content in it).
     private func followActivePane() {
-        guard let active = layout.activeLeafID, layout.isShowing(active), let leaf = layout.findNode(active)?.leaf else { return }
+        let active = layout.activePaneID
+        guard layout.isShowing(active), let leaf = layout.findNode(active)?.leaf else { return }
         let host = renderer.bodyHost(for: leaf)
         guard focused?.pane != active || focused?.body != host.bodyKey else { return }
         focused = (active, host.bodyKey)
@@ -250,10 +259,6 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
     /// Every split view on screen, docked and floating, with the tree it's in.
     var splitViews: [SplitNodeView] { nodeViews.values.compactMap { $0 as? SplitNodeView }.filter { !$0.isHiddenOrHasHiddenAncestor } }
 
-    func tree(containing view: NSView) -> TreeHostView? {
-        trees.first { view.isDescendant(of: $0) }
-    }
-
     /// A pane's rect in the content area (top-left origin), if it's on screen.
     func paneRect(_ id: NodeID) -> FloatRect? {
         guard let view = paneView(id), !view.isHiddenOrHasHiddenAncestor, view.window != nil else { return nil }
@@ -265,23 +270,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
 
     func paneTitle(of node: LayoutNode) -> String { engine.paneTitle(of: node) }
 
-    func bodyHost(for leaf: LayoutLeaf) -> PaneBodyHost { renderer.bodyHost(for: leaf) }
+    func tabTitle(_ tab: Tab) -> String {
+        engine.tabTitle(of: tab, in: layout, followingPanes: appearance.tabTitlesFollowPanes)
+    }
 
     func activate(_ node: NodeID) {
         engine.perform(in: windowID) { layout, _ in layout.setActivePane(node) }
     }
 
     func activateTab(_ tab: NodeID, in group: NodeID) {
-        engine.perform(in: windowID) { layout, titles in
-            guard let ref = layout.trees.lazy.compactMap({ Tree.findTab($0, tab) }).first else { return false }
-            if ref.group.activeTabID != tab {
-                // Switching moves focus with it, down to the tab's own leaf.
-                layout.activateTab(group, tab, titles: titles)
-                layout.setActivePane(Navigation.entryPaneID(ref.tab.content))
-                return true
-            }
-            return layout.setActivePane(group)
-        }
+        engine.perform(in: windowID) { layout, titles in layout.selectTab(tab, in: group, titles: titles) }
     }
 
     func closeTab(_ tab: NodeID) { engine.closeTab(tab) }
@@ -305,13 +303,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
 
     /// A new pane like `origin`, floating over the section of it the setting names.
     func newUnpinnedPane(from origin: NodeID) {
-        engine.newPane(like: origin, in: windowID, placement: .floating(spawnRect(from: origin)))
-    }
-
-    /// Where a new unpinned pane made from `origin` spawns: the section of it
-    /// the setting names, or the default rect when it has no measurable box.
-    private func spawnRect(from origin: NodeID) -> FloatRect {
-        paneRect(origin).map { Floating.spawnRect(in: $0, at: appearance.spawnPosition) } ?? Floating.defaultRect
+        engine.newPane(like: origin, in: windowID, placement: .unpinned)
     }
 
     /// The palette's commit: a new pane of the chosen `type`, made from and
@@ -322,7 +314,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
             case .tab: .tab
             case .splitHorizontal: .split(.horizontal)
             case .splitVertical: .split(.vertical)
-            case .unpinned: .floating(spawnRect(from: origin))
+            case .unpinned: .unpinned
             }
         engine.newPane(ofType: type, from: origin, in: windowID, placement: placed)
     }
@@ -340,7 +332,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
     }
 
     func tabMouseDown(_ event: NSEvent, tab: NodeID, group: NodeID, in view: NSView) {
-        let title = layout.trees.lazy.compactMap { Tree.findTab($0, tab) }.first?.tab.title ?? ""
+        let title = layout.trees.lazy.compactMap { Tree.findTab($0, tab) }.first.map { tabTitle($0.tab) } ?? ""
         renderer.drag.press(event, subject: .tab(tabID: tab, sourceGroupID: group), title: title, in: self) { [weak self] in
             self?.activateTab(tab, in: group)
         }
@@ -349,23 +341,23 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
     func chromeMenu(_ event: NSEvent, for node: NodeID, tab: NodeID?, group: NodeID?, in view: NSView) {
         var items: [ContextMenu.Item] = []
         let floating = layout.floatingPane(holding: node)
-        func pinItem(_ id: NodeID, origin: NodeID? = nil) -> ContextMenu.Item? {
+        func pinItem(_ id: NodeID) -> ContextMenu.Item? {
             if let floating {
                 guard floating.content.id == id else { return nil }
                 return ContextMenu.Item(title: "Pin") { [weak self] in self?.pin(floating.id) }
             }
-            return ContextMenu.Item(title: "Unpin") { [weak self] in self?.unpin(id, origin: origin) }
+            guard layout.canUnpin(id) else { return nil }
+            return ContextMenu.Item(title: "Unpin") { [weak self] in self?.unpin(id) }
         }
-        if let tab, let group {
+        if let tab, group != nil {
             items.append(
                 ContextMenu.Item(title: "Edit title") { [weak self, weak view] in
                     if let view { self?.rename(tab: tab, pane: nil, from: view) }
                 })
-            if let unpin = pinItem(node, origin: group) { items.append(unpin) }
+            if let unpin = pinItem(node) { items.append(unpin) }
         } else if let group {
-            let isRoot = group == layout.root.id
-            if !isRoot, let pin = pinItem(group) { items.append(pin) }
-            if !isRoot, case .tabs(let node)? = layout.findNode(group), node.tabs.count == 1 {
+            if let pin = pinItem(group) { items.append(pin) }
+            if layout.canUngroup(group) {
                 items.append(
                     ContextMenu.Item(title: "Ungroup") { [weak self] in
                         guard let self else { return }
@@ -386,23 +378,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
         ContextMenu.open(items, at: root.convert(event.locationInWindow, from: nil), in: self)
     }
 
-    /// Where each pane's floating window was when it was pinned back: unpinning
-    /// it again puts it there (this session only).
-    private static var lastRects: [NodeID: FloatRect] = [:]
+    func unpin(_ node: NodeID) { engine.unpin(node) }
 
-    func unpin(_ node: NodeID, origin: NodeID? = nil) {
-        let rect = Self.lastRects[node] ?? paneRect(node) ?? origin.flatMap(paneRect) ?? Floating.defaultRect
-        let viewport = viewport
-        engine.perform(in: windowID) { layout, titles in layout.unpinPane(node, rect: rect, viewport: viewport, titles: titles) }
-    }
-
-    func pin(_ floatID: NodeID) {
-        if let entry = layout.floating.first(where: { $0.id == floatID }) {
-            if Self.lastRects.count > 200 { Self.lastRects.removeAll() }
-            Self.lastRects[entry.content.id] = entry.rect
-        }
-        engine.perform(in: windowID) { layout, titles in layout.repinPane(floatID, titles: titles) }
-    }
+    func pin(_ floatID: NodeID) { engine.pin(floatID, in: windowID) }
 
     func rename(tab: NodeID?, pane: NodeID?, from view: NSView) {
         TitleEditor.begin(tab: tab, pane: pane, in: self, from: view)
@@ -488,12 +466,24 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
     }
     #endif
 
-    func windowWillEnterFullScreen(_ notification: Notification) { setFullScreen(true) }
-    func windowDidExitFullScreen(_ notification: Notification) { setFullScreen(false) }
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        (window as? WorkspaceWindow)?.leavesTrafficLightsToAppKit = true
+        setFullScreen(true)
+    }
 
-    func windowDidEnterFullScreen(_ notification: Notification) { (window as? WorkspaceWindow)?.placeTrafficLights() }
+    func windowDidFailToEnterFullScreen(_: NSWindow) { didLeaveFullScreen() }
 
     func windowWillExitFullScreen(_ notification: Notification) { setFullScreen(false) }
+
+    func windowDidExitFullScreen(_ notification: Notification) { didLeaveFullScreen() }
+
+    /// The title bar is back in this window: the traffic lights go back into the root bar.
+    private func didLeaveFullScreen() {
+        setFullScreen(false)
+        guard let window = window as? WorkspaceWindow else { return }
+        window.leavesTrafficLightsToAppKit = false
+        window.placeTrafficLights()
+    }
 
     private func setFullScreen(_ fullScreen: Bool) {
         guard fullScreen != isFullScreen else { return }
@@ -515,7 +505,21 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
 /// (`Metrics.trafficLightOrigin`), centered in the root bar.
 @MainActor
 final class WorkspaceWindow: NSWindow {
-    var layoutTrafficLights: (() -> Void)?
+    /// Set from entering full screen until it has been left. Meanwhile AppKit
+    /// hosts the title bar in a short window of its own at the top of the
+    /// screen; placed for the root bar there, the traffic lights would fall
+    /// outside it and never show, leaving no way out of full screen.
+    var leavesTrafficLightsToAppKit = false
+
+    #if DEBUG
+    /// On screen to AppKit and WebKit while `AppDelegate.windowsCountAsSeen`, though never shown (UI tests).
+    override var isVisible: Bool { AppDelegate.windowsCountAsSeen || super.isVisible }
+    override var occlusionState: NSWindow.OcclusionState { AppDelegate.windowsCountAsSeen ? .visible : super.occlusionState }
+    /// Whether the window is really on screen, whatever the test switch says.
+    var isOnScreen: Bool { super.isVisible }
+    #else
+    var isOnScreen: Bool { isVisible }
+    #endif
 
     override func layoutIfNeeded() {
         super.layoutIfNeeded()
@@ -525,6 +529,7 @@ final class WorkspaceWindow: NSWindow {
     /// The title-bar container is the buttons' height plus twice the y margin,
     /// and the buttons start at the x margin.
     func placeTrafficLights() {
+        guard !leavesTrafficLightsToAppKit else { return }
         guard let close = standardWindowButton(.closeButton), let mini = standardWindowButton(.miniaturizeButton),
             let zoom = standardWindowButton(.zoomButton), let container = close.superview?.superview
         else { return }
@@ -544,4 +549,10 @@ final class WorkspaceWindow: NSWindow {
             x += button.frame.width + spacing
         }
     }
+}
+
+extension NSWindow {
+    /// Whether the window is really on screen: `isVisible`, less a workspace window's test switch
+    /// (`AppDelegate.windowsCountAsSeen`), which is for WebKit's eyes only.
+    var isShownOnScreen: Bool { (self as? WorkspaceWindow)?.isOnScreen ?? isVisible }
 }

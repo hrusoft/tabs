@@ -10,11 +10,13 @@ import Foundation
 ///
 /// Routes: `/page` (the busy fixture, title "Fixture"; the default path, so `/` and every path nothing else
 /// claims answer it too), `/other` ("Elsewhere"), `/shifty`, `/waity`, `/nested` and
-/// `/nested-frame`, `/listing`, `/smooth`, `/hovery`, `/form`, `/controls`, `/blobpage` (strict CSP),
-/// `/asset.png` (`Standard.assetBytes`), `/script.js`, `/api/secret`, `/slow` (answered once the test opens
-/// `slowGate`), `/bigtext` (`Standard.bigTextSize` characters, then an end marker), `/missing` (404),
-/// `/redirect` (302 to `/other`), `/late-title` (no title until the test calls the page's `setLateTitle()`)
-/// and `/bounce-once/<token>` (redirects the first request per token, serves "Deep link" after).
+/// `/nested-frame`, `/listing`, `/smooth`, `/hovery`, `/form`, `/controls`, `/framed-field` (a text field in
+/// a frame), `/blobpage` (strict CSP), `/asset.png` (`Standard.assetBytes`), `/script.js`, `/api/secret`,
+/// `/slow` (answered once the test opens `slowGate`), `/bigtext` (`Standard.bigTextSize` characters, then an
+/// end marker), `/missing` (404), `/redirect` (302 to `/other`), `/js-redirect` and `/onload-redirect` (to
+/// `/other` from script, while parsing and from the load event), `/late-title` (no title until the test calls
+/// the page's `setLateTitle()`) and `/bounce-once/<token>` (redirects the first request per token, serves
+/// "Deep link" after).
 extension FixtureServer {
     /// A server with every standard page installed.
     static func startStandard() async throws -> FixtureServer {

@@ -22,6 +22,10 @@ package struct Viewport: Equatable, Sendable {
         self.width = width
         self.height = height
     }
+
+    /// A new window's content size, and what floating panes are kept inside
+    /// while a window's own size isn't known.
+    package static let newWindow = Viewport(width: 1200, height: 800)
 }
 
 /// Where a floating pane came from, so pinning it back can put it there:
@@ -47,6 +51,8 @@ package indirect enum FloatAnchor: Equatable, Sendable {
         package var index: Int
         /// The tab's own title (a user rename can't be derived again).
         package var title: String
+        /// Whether the user named it (it keeps their name back in place).
+        package var titleIsManual = false
         package var beforeTabID: NodeID?
         package var afterTabID: NodeID?
         /// The group's other tabs, in order: what rebuilds a group the departure collapsed.
@@ -56,11 +62,15 @@ package indirect enum FloatAnchor: Equatable, Sendable {
         package var groupAnchor: FloatAnchor?
         /// Whether the group was the docked root (never rebuilt: its collapse is rewrapped).
         package var groupWasRoot: Bool
+
+        /// The tab put back around `content`, under its own name.
+        func tab(holding content: LayoutNode) -> Tab { Tab(title: title, titleIsManual: titleIsManual, content: content) }
     }
 
     package struct Sibling: Equatable, Sendable {
         package var id: NodeID
         package var title: String
+        package var titleIsManual = false
         package var contentID: NodeID
     }
 }
@@ -149,10 +159,12 @@ package enum Floating {
             let groupAnchor = group.tabs.count == 1 ? captureAnchor(root, group.id) : nil
             return .tab(
                 .init(
-                    groupID: group.id, index: index, title: tab.title,
+                    groupID: group.id, index: index, title: tab.title, titleIsManual: tab.titleIsManual,
                     beforeTabID: index > 0 ? group.tabs[index - 1].id : nil,
                     afterTabID: index + 1 < group.tabs.count ? group.tabs[index + 1].id : nil,
-                    siblings: group.tabs.filter { $0.id != tab.id }.map { .init(id: $0.id, title: $0.title, contentID: $0.content.id) },
+                    siblings: group.tabs.filter { $0.id != tab.id }.map {
+                        .init(id: $0.id, title: $0.title, titleIsManual: $0.titleIsManual, contentID: $0.content.id)
+                    },
                     wasActive: group.activeTabID == tab.id, groupAnchor: groupAnchor, groupWasRoot: group.id == root.id))
         }
     }
@@ -183,14 +195,14 @@ package enum Floating {
         switch anchor {
         case .tab(let tab):
             if let group = Tree.findNode(root, tab.groupID), group.isTabs {
-                return Tree.normalize(Tree.addTab(root, tab.groupID, Tab(title: tab.title, content: node), at: tab.index))
+                return Tree.normalize(Tree.addTab(root, tab.groupID, tab.tab(holding: node), at: tab.index))
             }
             // The group is gone: aim at a neighbouring tab that survived, on its side.
             let before = tab.beforeTabID.flatMap { Tree.findTab(root, $0) }
             let after = tab.afterTabID.flatMap { Tree.findTab(root, $0) }
             if let ref = before ?? after {
                 let at = before != nil ? ref.index + 1 : ref.index
-                return Tree.normalize(Tree.addTab(root, ref.group.id, Tab(title: tab.title, content: node), at: at))
+                return Tree.normalize(Tree.addTab(root, ref.group.id, tab.tab(holding: node), at: at))
             }
             if let rebuilt = rebuildGroup(root, node, tab, titleOf, fallbackTarget: fallbackTarget) { return rebuilt }
         case .split(let split):
@@ -219,7 +231,7 @@ package enum Floating {
     private static func rebuildGroup(
         _ root: LayoutNode, _ node: LayoutNode, _ anchor: FloatAnchor.TabAnchor, _ titleOf: TabTitler, fallbackTarget: NodeID
     ) -> LayoutNode? {
-        let moved = Tab(title: anchor.title, content: node)
+        let moved = anchor.tab(holding: node)
         if anchor.groupWasRoot {
             for sibling in anchor.siblings {
                 guard case .tab(let parent, _)? = Tree.findParent(root, sibling.contentID) else { continue }
@@ -234,7 +246,7 @@ package enum Floating {
         }
         guard anchor.siblings.count == 1, let survivorNode = Tree.findNode(root, anchor.siblings[0].contentID) else { return nil }
         let survivor = anchor.siblings[0]
-        let kept = Tab(id: survivor.id, title: survivor.title, content: survivorNode)
+        let kept = Tab(id: survivor.id, title: survivor.title, titleIsManual: survivor.titleIsManual, content: survivorNode)
         let group = TabGroup(
             id: anchor.groupID, tabs: anchor.index == 0 ? [moved, kept] : [kept, moved],
             activeTabID: anchor.wasActive ? moved.id : kept.id)

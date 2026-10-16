@@ -14,14 +14,17 @@ struct VerbResponse {
 }
 
 /// The browser plugin in a real core runtime, with an agent's terminal beside it and a browser pane the agent
-/// owns, its page in a window that is never shown (so real input reaches it) and served by the standard
+/// owns, its page in a window that is never shown but tells WebKit it is (`OnScreenWindow`: real input reaches it,
+/// and the page is an active one) and served by the standard
 /// fixture pages: what the input verbs' plugin-tier tests drive, through the control plane (`tabs-ctl`'s
 /// flags, or a wire request) as an agent does.
 @MainActor
 final class InputVerbBed {
     let harness: PluginHarness
     let server: FixtureServer
-    let window: KeyableWindow
+    let window: OnScreenWindow
+    /// Where an unmounted bed keeps its page: a view in no window.
+    private let parking = NSView()
     /// The browser pane the agent owns.
     let pane: PaneID
     let browser: BrowserPane
@@ -41,10 +44,15 @@ final class InputVerbBed {
                     type: "browser", config: ["url": .string(server.url(path))], placement: .tab(near: agent), activates: false,
                     controlledBy: agent)))
         browser = try #require(harness.controller(of: pane, as: BrowserPane.self))
-        window = KeyableWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        if mounted { window.contentView = page.webView }
+        window = OnScreenWindow.make(width: 800, height: 600)
+        // The layout shows the new pane, so the harness put its page in a window (`PluginHarness.browser`): taken from
+        // there into this bed's bigger one, or, unmounted, into a view that is in no window.
+        page.webView.window?.contentView = NSView()
+        if mounted {
+            window.contentView = page.webView
+        } else {
+            parking.addSubview(page.webView)
+        }
         _ = await page.waitForLoadEnd(timeoutMs: 10_000)
     }
 

@@ -21,7 +21,6 @@ package struct ControlFlag: Equatable {
     package var enumValues: [String]?
     package var minimum: Double?
     package var defaultValue: JSONValue?
-    package var flagValue: JSONValue?
     package var placeholder: String?
     package var doc: String
     /// A flag of the element-target composition: `composeElementTarget` is its
@@ -52,19 +51,16 @@ package struct ControlFlag: Equatable {
                 ControlFlag(
                     name: argument.flagName, wire: argument.name, coercion: coercion, declaresType: argument.kind != .string,
                     required: argument.required, enumValues: argument.enumValues, minimum: argument.minimum,
-                    defaultValue: argument.defaultValue, flagValue: argument.flagValue, placeholder: argument.placeholder,
-                    doc: argument.summary))
+                    defaultValue: argument.defaultValue, placeholder: argument.placeholder, doc: argument.summary))
         }
         return flags
     }
 
     /// `--ref`, `--x`, `--y`, `--role`, `--name`, `--selector`, `--nth`.
-    package static let elementTargetFlagNames = ["ref", "x", "y", "role", "name", "selector", "nth"]
-
     private static let elementTarget: [ControlFlag] = [
         ControlFlag(
             name: "ref", wire: "ref", coercion: .string, declaresType: false, required: false,
-            doc: "An opaque ref from a previous read-page/find.",
+            doc: "An opaque element ref, as an earlier command answered it.",
             composed: true),
         ControlFlag(
             name: "x", wire: "x", coercion: .number, declaresType: true, required: false, doc: "Viewport CSS-pixel x — pair with --y.",

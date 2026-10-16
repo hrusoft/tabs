@@ -21,7 +21,8 @@ protocol ChromeHost: AnyObject {
     var isFullScreen: Bool { get }
     var dragVisuals: DragVisuals { get }
     func paneTitle(of node: LayoutNode) -> String
-    func bodyHost(for leaf: LayoutLeaf) -> PaneBodyHost
+    /// What a tab shows: its pane's title while tab titles follow panes, else its own.
+    func tabTitle(_ tab: Tab) -> String
     func activate(_ node: NodeID)
     func activateTab(_ tab: NodeID, in group: NodeID)
     func closeTab(_ tab: NodeID)
@@ -98,8 +99,6 @@ class NodeView: FlippedView {
 final class PaneView: NodeView {
     /// The docked root: its bar is the window's title bar.
     var isDockedRoot = false
-    /// The pane a floating window is built around: its chrome moves the window.
-    var isFloatingRoot = false
     private(set) var header: PaneHeaderView?
     private(set) var tabBar: TabBarView?
     /// The leaf's body, or the group's tab contents.
@@ -126,7 +125,6 @@ final class PaneView: NodeView {
     }
 
     var isLeaf: Bool { node.isLeaf }
-    var isActive: Bool { host.layout.activePaneID == nodeID }
 
     /// Where this pane's chrome bar ends, below its top border.
     var chromeBottom: CGFloat {
@@ -262,7 +260,7 @@ enum ChromeHover {
 
     /// Where the real pointer is in `window` (window coordinates); nil for a
     /// window that isn't on screen, whose chrome hovers only through `update`.
-    static var pointerLocation: (NSWindow) -> CGPoint? = { $0.isVisible ? $0.mouseLocationOutsideOfEventStream : nil }
+    static var pointerLocation: (NSWindow) -> CGPoint? = { $0.isShownOnScreen ? $0.mouseLocationOutsideOfEventStream : nil }
 
     private struct WeakHover {
         weak var view: (any PointerHover)?
@@ -336,8 +334,8 @@ final class SplitNodeView: NodeView {
 
     /// Where each child is laid out (layout coordinates, unsnapped): each at
     /// its share of the length, flush against its neighbours.
-    func childLayoutRects(sizes: [Double]? = nil) -> [CGRect] {
-        let sizes = sizes ?? self.sizes
+    func childLayoutRects() -> [CGRect] {
+        let sizes = self.sizes
         let horizontal = direction == .horizontal
         let size = layoutSize
         let length = horizontal ? size.width : size.height
@@ -495,10 +493,7 @@ final class PaneHeaderView: FlippedView, PointerHover {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        tracking = replaceTrackingArea(tracking)
     }
 
     override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
@@ -556,7 +551,6 @@ final class HeaderControlsView: FlippedView {
     private let separator = FlippedView()
     var groupButtons: [MenuGroupButton] { buttons }
     var separatorView: NSView { separator }
-    private var accessory: NSView?
     /// The pane's plugin's header actions, leftmost.
     private(set) var actionButtons: [PaneActionButton] = []
     private(set) var isRevealed = false
@@ -582,14 +576,6 @@ final class HeaderControlsView: FlippedView {
         return [creation, [(.close, .closePane, "Close pane"), (.clear, .clearPane, "Clear pane")]]
     }
 
-    func setAccessory(_ view: NSView?) {
-        guard view !== accessory else { return }
-        accessory?.removeFromSuperview()
-        accessory = view
-        if let view { addSubview(view) }
-        needsLayout = true
-    }
-
     /// The content the current action buttons came from.
     private weak var actionsOwner: NSView?
 
@@ -607,9 +593,8 @@ final class HeaderControlsView: FlippedView {
 
     var intrinsicSize: CGSize {
         let actionsWidth = CGFloat(actionButtons.count) * (Metrics.headerButtonSize.width + Metrics.headerControlsGap)
-        let accessoryWidth = accessory.map { $0.fittingSize.width + Metrics.headerControlsGap } ?? 0
-        // Two buttons around a 1pt separator with 2pt margins, 2pt gaps between.
-        let width = actionsWidth + accessoryWidth + Metrics.headerButtonSize.width * 2 + 5 + Metrics.headerControlsGap * 2
+        // Two buttons around the separator's slot, gaps between.
+        let width = actionsWidth + Metrics.headerButtonSize.width * 2 + Metrics.headerSeparatorSlot + Metrics.headerControlsGap * 2
         return CGSize(width: width, height: Metrics.headerButtonSize.height)
     }
 
@@ -636,17 +621,16 @@ final class HeaderControlsView: FlippedView {
             place(button, CGRect(origin: CGPoint(x: x, y: 0), size: Metrics.headerButtonSize))
             x += Metrics.headerButtonSize.width + Metrics.headerControlsGap
         }
-        if let accessory {
-            let size = accessory.fittingSize
-            accessory.frame = CGRect(x: x, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
-            x += size.width + Metrics.headerControlsGap
-        }
         let size = Metrics.headerButtonSize
         if buttons.count == 2 {
             place(buttons[0], CGRect(origin: CGPoint(x: x, y: 0), size: size))
             x += size.width + Metrics.headerControlsGap
-            place(separator, CGRect(x: x + 2, y: 3, width: 1, height: size.height - 6))
-            x += 5 + Metrics.headerControlsGap
+            place(
+                separator,
+                CGRect(
+                    x: x + Metrics.headerSeparatorMargin, y: Metrics.headerSeparatorInset, width: 1,
+                    height: size.height - Metrics.headerSeparatorInset * 2))
+            x += Metrics.headerSeparatorSlot + Metrics.headerControlsGap
             place(buttons[1], CGRect(origin: CGPoint(x: x, y: 0), size: size))
         }
     }
@@ -664,7 +648,7 @@ final class HeaderControlsView: FlippedView {
 /// A header button: an icon in a 23×17 box that washes on hover. One root
 /// action; hovering it opens its group's menu over it (`HeaderMenu`).
 @MainActor
-final class MenuGroupButton: FlippedView, PointerHover {
+final class MenuGroupButton: ChromeIconButton {
     struct Item: Equatable {
         var action: HeaderAction
         var icon: ChromeIcon
@@ -673,59 +657,30 @@ final class MenuGroupButton: FlippedView, PointerHover {
 
     var items: [Item] {
         didSet {
-            needsDisplay = true
-            toolTip = items.first?.label
+            if let root = items.first { icon = root.icon }
+            label = items.first?.label ?? ""
         }
     }
-    unowned let pane: PaneView
-    private var tracking: NSTrackingArea?
-    private var isHovered = false
 
     init(items: [Item], pane: PaneView) {
         self.items = items
-        self.pane = pane
-        super.init(frame: .zero)
+        super.init(
+            pane: pane, icon: items.first?.icon ?? ChromeIcon.splitHorizontal, iconBox: Metrics.headerButtonIconBox,
+            label: items.first?.label ?? "")
         setAccessibilityIdentifier(items.first.map { $0.action.accessibilityID } ?? "")
-        toolTip = items.first?.label
     }
-
-    var theme: Theme { pane.host.appearance.theme }
 
     override func draw(_ dirtyRect: NSRect) {
+        guard !items.isEmpty else { return }
+        super.draw(dirtyRect)
+    }
+
+    override func hoverDidChange() {
+        if isHovered, items.count > 1 { HeaderMenu.open(for: self) }
+    }
+
+    override func press() {
         guard let root = items.first else { return }
-        if isHovered {
-            theme.hover(0.12).setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
-        }
-        let icon = Metrics.headerButtonIcon
-        root.icon.draw(in: drawn(CGRect(x: 5, y: 2, width: icon, height: icon)), color: theme.textDim)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
-    override func mouseExited(with event: NSEvent) { pointerHover(at: nil) }
-
-    func pointerHover(at point: CGPoint?) {
-        let hovered = point != nil
-        guard hovered != isHovered else { return }
-        isHovered = hovered
-        needsDisplay = true
-        if hovered, items.count > 1 { HeaderMenu.open(for: self) }
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        guard let root = items.first, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         pane.host.perform(root.action, on: pane.nodeID)
     }
 
@@ -740,65 +695,16 @@ final class MenuGroupButton: FlippedView, PointerHover {
 /// others — 23×17, a 13pt icon in the dim text color, washed on hover — that
 /// performs the plugin's action, on its own pane whichever pane is active.
 @MainActor
-final class PaneActionButton: FlippedView, PointerHover {
+final class PaneActionButton: ChromeIconButton {
     let action: PaneHeaderAction
-    unowned let pane: PaneView
-    private var tracking: NSTrackingArea?
-    private var isHovered = false
 
     init(action: PaneHeaderAction, pane: PaneView) {
         self.action = action
-        self.pane = pane
-        super.init(frame: .zero)
+        super.init(pane: pane, icon: action.icon, iconBox: Metrics.headerButtonIconBox, label: action.label)
         setAccessibilityIdentifier(action.id)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(action.label)
-        toolTip = action.label
     }
 
-    var theme: Theme { pane.host.appearance.theme }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if isHovered {
-            theme.hover(0.12).setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
-        }
-        let icon = Metrics.headerButtonIcon
-        action.icon.draw(in: drawn(CGRect(x: 5, y: 2, width: icon, height: icon)), color: theme.textDim)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
-    override func mouseExited(with event: NSEvent) { pointerHover(at: nil) }
-
-    func pointerHover(at point: CGPoint?) {
-        let hovered = point != nil
-        guard hovered != isHovered else { return }
-        isHovered = hovered
-        needsDisplay = true
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        action.perform()
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        action.perform()
-        return true
-    }
+    override func press() { action.perform() }
 }
 
 // MARK: - Tab bars
@@ -812,14 +718,10 @@ final class TabBarView: FlippedView, PointerHover {
     let grip = GripView()
     let strip: TabStripView
     let controls: HeaderControlsView
-    let settingsButton = RootIconButton(icon: .settings, label: "Settings", identifier: "settings-open-button") { _ in
-        NSApp.sendAction(#selector(AppDelegate.showSettings(_:)), to: nil, from: nil)
-    }
+    let settingsButton: RootIconButton
     /// Only while the managed caffeinate process runs, immediately before
     /// Settings: a press does what File ▸ Decaf does.
-    let caffeinateButton = RootIconButton(icon: .coffeeCup, label: "Decaf", identifier: "caffeinate-decaf-button") { button in
-        button.target?.host.stopCaffeinate()
-    }
+    let caffeinateButton: RootIconButton
     private var tracking: NSTrackingArea?
     private(set) var isHovered = false
 
@@ -827,10 +729,12 @@ final class TabBarView: FlippedView, PointerHover {
         self.pane = pane
         strip = TabStripView(pane: pane)
         controls = HeaderControlsView(pane: pane)
+        settingsButton = RootIconButton(pane: pane, icon: .settings, label: "Settings", identifier: "settings-open-button")
+        caffeinateButton = RootIconButton(pane: pane, icon: .coffeeCup, label: "Decaf", identifier: "caffeinate-decaf-button")
         super.init(frame: .zero)
         for view in [grip, strip, controls, caffeinateButton, settingsButton] as [NSView] { addSubview(view) }
-        settingsButton.target = pane
-        caffeinateButton.target = pane
+        settingsButton.onPress = { NSApp.sendAction(#selector(AppDelegate.showSettings(_:)), to: nil, from: nil) }
+        caffeinateButton.onPress = { [unowned pane] in pane.host.stopCaffeinate() }
     }
 
     var group: TabGroup? { pane.node.group }
@@ -882,19 +786,13 @@ final class TabBarView: FlippedView, PointerHover {
         grip.color = theme.textDim
         strip.refresh()
         controls.refresh()
-        for button in [settingsButton, caffeinateButton] {
-            button.color = theme.textDim
-            button.hoverColor = theme.text
-        }
+        for button in [settingsButton, caffeinateButton] { button.needsDisplay = true }
         needsLayout = true
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        tracking = replaceTrackingArea(tracking)
     }
 
     override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
@@ -937,67 +835,12 @@ final class TabBarView: FlippedView, PointerHover {
 }
 
 /// The docked root bar's own buttons (the cup, Settings): dimmed at rest, a
-/// 15pt icon.
+/// 15pt icon that brightens on hover.
 @MainActor
-final class RootIconButton: FlippedView, PointerHover {
-    let icon: ChromeIcon
-    /// Its tooltip and accessibility label.
-    let label: String
-    var color: NSColor = .gray { didSet { needsDisplay = true } }
-    var hoverColor: NSColor = .white
-    weak var target: PaneView?
-    private let press: @MainActor (RootIconButton) -> Void
-    private var tracking: NSTrackingArea?
-    private var isHovered = false
-
-    init(icon: ChromeIcon, label: String, identifier: String, press: @escaping @MainActor (RootIconButton) -> Void) {
-        self.icon = icon
-        self.label = label
-        self.press = press
-        super.init(frame: .zero)
+final class RootIconButton: ChromeIconButton {
+    init(pane: PaneView, icon: ChromeIcon, label: String, identifier: String) {
+        super.init(pane: pane, icon: icon, iconBox: Metrics.rootIconButtonIconBox, label: label, brightensOnHover: true)
         setAccessibilityIdentifier(identifier)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(label)
-        toolTip = label
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if isHovered {
-            (target?.host.appearance.theme.hover(0.12) ?? .clear).setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
-        }
-        icon.draw(in: drawn(CGRect(x: 4, y: 4, width: 15, height: 15)), color: isHovered ? hoverColor : color)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { pointerHover(at: convert(event.locationInWindow, from: nil)) }
-    override func mouseExited(with event: NSEvent) { pointerHover(at: nil) }
-
-    func pointerHover(at point: CGPoint?) {
-        isHovered = point != nil
-        needsDisplay = true
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override var mouseDownCanMoveWindow: Bool { false }
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        press(self)
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        press(self)
-        return true
     }
 }
 

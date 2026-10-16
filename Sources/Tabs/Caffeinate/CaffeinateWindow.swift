@@ -3,13 +3,23 @@ import SwiftUI
 import TabsCore
 
 /// The Caffeinate dialog's fields: the five `caffeinate(8)` assertions and the
-/// timer text. Each new dialog starts from the defaults.
+/// timer text. Each new dialog starts from the last Start's, or before any
+/// from the defaults.
 @MainActor
 @Observable
 final class CaffeinateDialogModel {
-    var flags = CaffeinateFlags.dialogDefaults
+    /// The switches; their `timerSeconds` is unused (`timerText` holds the timer).
+    var flags: CaffeinateFlags
     /// Minutes, as typed: `parseTimerMinutes` reads it at Start.
-    var timerText = ""
+    var timerText: String
+
+    /// - Parameter remembered: what the dialog last started with, nil if it never has.
+    init(remembered: CaffeinateFlags? = nil) {
+        var flags = remembered ?? CaffeinateFlags.dialogDefaults
+        timerText = Self.timerText(forSeconds: flags.timerSeconds)
+        flags.timerSeconds = nil
+        self.flags = flags
+    }
 
     /// What Start launches: the switches as set, plus the timer when one was given.
     var flagsToStart: CaffeinateFlags {
@@ -26,6 +36,16 @@ final class CaffeinateDialogModel {
         if trimmed.isEmpty { return nil }
         guard let minutes = Double(trimmed), minutes.isFinite, minutes == minutes.rounded(), minutes > 0 else { return nil }
         return minutes * 60
+    }
+
+    /// The timer field's text for a timer of `seconds`: its whole minutes, as
+    /// `parseTimerMinutes` reads them back. Anything Start can't have given
+    /// (none, or not a positive whole number of minutes) is empty.
+    static func timerText(forSeconds seconds: Double?) -> String {
+        guard let seconds, seconds.isFinite, seconds > 0, seconds.truncatingRemainder(dividingBy: 60) == 0,
+            let minutes = Int(exactly: seconds / 60)
+        else { return "" }
+        return String(minutes)
     }
 }
 
@@ -75,7 +95,7 @@ struct CaffeinateDialogView: View {
                     ForEach(CaffeinateCopy.assertions) { assertion in
                         Toggle(isOn: $model.flags[dynamicMember: assertion.flag]) {
                             Text(assertion.title)
-                            if let hint = assertion.hint { Text(hint) }
+                            if let hint = assertion.hint { Text(hint).foregroundStyle(.secondary) }
                         }
                         .accessibilityIdentifier(assertion.id)
                     }
@@ -96,7 +116,7 @@ struct CaffeinateDialogView: View {
                         }
                     } label: {
                         Text(CaffeinateCopy.timerTitle)
-                        Text(CaffeinateCopy.timerHint)
+                        Text(CaffeinateCopy.timerHint).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -121,21 +141,26 @@ struct CaffeinateDialogView: View {
 /// ends it, `onFinish` hears once: the flags, or nil.
 @MainActor
 final class CaffeinateWindowController: NSWindowController, NSWindowDelegate {
-    let model = CaffeinateDialogModel()
+    let model: CaffeinateDialogModel
     private let onFinish: (CaffeinateFlags?) -> Void
     private var finished = false
 
-    init(onFinish: @escaping (CaffeinateFlags?) -> Void) {
+    /// - Parameter remembered: the fields to start from (`CaffeinateDialogModel.init(remembered:)`).
+    /// - Parameter themes: the app's, which the dialog is painted in.
+    init(remembered: CaffeinateFlags?, themes: Themes, onFinish: @escaping (CaffeinateFlags?) -> Void) {
+        model = CaffeinateDialogModel(remembered: remembered)
         self.onFinish = onFinish
         let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.paint(with: themes)
         window.title = CaffeinateCopy.windowTitle
         window.isReleasedWhenClosed = false
         window.collectionBehavior.insert(.fullScreenNone)
         super.init(window: window)
         window.delegate = self
         let hosting = NSHostingView(
-            rootView: CaffeinateDialogView(
-                model: model, onCancel: { [weak self] in self?.cancel() }, onStart: { [weak self] in self?.start() }))
+            rootView: ThemedRoot(themes) {
+                CaffeinateDialogView(model: model, onCancel: { [weak self] in self?.cancel() }, onStart: { [weak self] in self?.start() })
+            })
         hosting.setAccessibilityIdentifier("caffeinate-dialog")
         window.contentView = hosting
         window.setContentSize(hosting.fittingSize)
@@ -166,43 +191,20 @@ final class CaffeinateWindowController: NSWindowController, NSWindowDelegate {
 }
 
 /// The one Caffeinate dialog (File ▸ Caffeinate…): opened on demand, brought
-/// forward — with what was typed — if already open, dropped when it closes so
-/// the next one starts from the defaults.
-@MainActor
-final class CaffeinateDialogPresenter {
-    private(set) var controller: CaffeinateWindowController?
-    private let caffeinate: Caffeinate
-    /// False under the end-to-end hidden mode: the window is built but never shown or focused.
-    private let presentsWindows: Bool
+/// forward — with what was typed — if already open, dropped when it closes.
+typealias CaffeinateDialogPresenter = WindowPresenter<CaffeinateWindowController>
 
-    init(caffeinate: Caffeinate, presentsWindows: Bool) {
-        self.caffeinate = caffeinate
-        self.presentsWindows = presentsWindows
-    }
-
-    /// Shows and focuses the dialog, creating it if there isn't one open.
-    @discardableResult
-    func show() -> CaffeinateWindowController {
-        let controller = controller ?? make()
-        if presentsWindows {
-            controller.showWindow(nil)
-            controller.window?.makeKeyAndOrderFront(nil)
+extension WindowPresenter where Controller == CaffeinateWindowController {
+    /// Start records its options in `settings` and starts `caffeinate` with
+    /// them, and the next dialog starts from them; a dialog that ends any other
+    /// way (a test reset's dismiss too) records and starts nothing.
+    convenience init(caffeinate: Caffeinate, settings: SettingsStore, themes: Themes, presentsWindows: Bool) {
+        self.init(presentsWindows: presentsWindows) {
+            CaffeinateWindowController(remembered: settings.lastCaffeinate, themes: themes) { flags in
+                guard let flags else { return }
+                settings.setLastCaffeinate(flags)
+                caffeinate.start(flags)
+            }
         }
-        return controller
-    }
-
-    private func make() -> CaffeinateWindowController {
-        let controller = CaffeinateWindowController { [weak self] flags in
-            guard let self else { return }
-            self.controller = nil
-            if let flags { self.caffeinate.start(flags) }
-        }
-        self.controller = controller
-        return controller
-    }
-
-    /// Closes it without starting anything (a test reset).
-    func dismiss() {
-        controller?.cancel()
     }
 }

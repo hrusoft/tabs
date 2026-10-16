@@ -24,7 +24,7 @@ also takes a pressed combination, and Clear, Reset, Restore Defaults. Code:
 | `Sources/TabsCore/Commands/CoreCommands.swift` | Each core command's label, summary, group, fixed or not |
 | SDK `CommandContribution.summary` | A plugin command's row description |
 | `Shortcuts.resetAll()` → `SettingsStore.setShortcuts([:])` | Restore Defaults |
-| `Sources/Tabs/UI/PluginsWindow.swift` (`makeSettingsWindow`, `SettingsPageSizing`) | Page position and size |
+| `Sources/Tabs/UI/SettingsWindow.swift` (`makeSettingsWindow`, `SettingsPageSizing`) | Page position and size |
 | `MainMenu.swift` (`build`, `arm`), `WorkspaceInput.swift`, `PaneRuntime.isAppShortcut` | Enforcement; each reads the table live, the menu is rebuilt on every change |
 
 ## Cases
@@ -45,7 +45,7 @@ keyboard does with each key, in a plain window with a search field. `ShortcutsTe
 | K-2 | Row: label, description, chip (chord in macOS order ⌃⌥⇧⌘ then key: "⌘T", "⌘←", "⌥⌘T", "⌘Enter", "⌃Space", "⌘⌫", "F5"), Clear; Reset only while overridden | `UITests.KeyboardSettings/listsEveryCommandAtItsDefaultBinding`, `ShortcutTextTests/usesMacOSGlyphsInTheOrderMacOSItselfShowsThem`, `ShortcutTextTests/namesTheKeys` |
 | K-3 | Unbound: chip reads "Not set", dimmed; Clear disabled | `UITests.KeyboardSettings/clearingStoresAnExplicitUnbinding` |
 | K-4 | Nothing overridden → no Reset anywhere | `UITests.KeyboardSettings/listsEveryCommandAtItsDefaultBinding` |
-| K-5 | Fixed items not listed: Quit, Hide, Hide Others, Undo, Redo, Cut, Copy, Paste, Select All, Minimize | `ShortcutTextTests/anEmptyQueryShowsEveryRebindableCommandInItsGroups`, `ShortcutsTests/theFixedCommandsCantBeRebound` |
+| K-5 | Fixed items not listed: Quit, Hide, Hide Others, Undo, Redo, Cut, Copy, Paste, Select All, Minimize, Enter Full Screen | `ShortcutTextTests/anEmptyQueryShowsEveryRebindableCommandInItsGroups`, `ShortcutsTests/theFixedCommandsCantBeRebound` |
 | K-6 | Paragraph: "Click a shortcut to record a new combination, then press it. Escape cancels. Combinations the system owns (Copy, Quit, Undo…) and keys scoped to one control (Escape, Enter, Tab) can’t be reassigned." | — (in the `settings-keyboard` snapshot) |
 | K-7 | Default chord given way to another command → "Not set" + which command has it ("⌘W is taken by New Tab.") | `UITests.KeyboardSettings/recordingAChordAnotherCommandHoldsTakesIt` |
 | K-8 | Stored shortcut unusable → row keeps its default, says "Your shortcut “cmd+c” can’t be used here, so it has its default.", offers Reset | `UITests.KeyboardSettings/storedBindingsShowOnThePageAndInTheMenu`, `ShortcutsTests/reservedChordsAreRefusedAndAStoredOneIsUnusable` |
@@ -78,7 +78,7 @@ keyboard does with each key, in a plain window with a search field. `ShortcutsTe
 | V-2 | No ⌘ or ⌃ (bare key, ⇧ or ⌥ alone) → error "Add ⌘ or ⌃ to the combination." | `KeyboardSettingsModelTests/aCombinationWithoutCommandOrControlIsRefused`, `ShortcutsTests/whatTheUserMayRecordFollowsCoresRules` |
 | V-3 | Command for every pane (no `appliesTo`), ⌃ without ⌘ → error "Add ⌘ to the combination: ⌃ alone is left to the pane you’re typing in." | `KeyboardSettingsModelTests/controlAloneIsLeftToThePaneForCommandsThatWorkEverywhere`, `ShortcutsTests/whatTheUserMayRecordFollowsCoresRules` |
 | V-4 | Bare function key (F5) accepted | `KeyboardSettingsModelTests/aBareFunctionKeyIsAccepted`, `ShortcutsTests/whatTheUserMayRecordFollowsCoresRules` |
-| V-5 | Reserved chord (fixed items' chords; ⌃⌘F, AppKit's Enter Full Screen) → error "⌘C is reserved by the system." | `UITests.KeyboardSettingsKeyHandling/aCombinationTheSystemOwnsIsRefused`, `ShortcutsTests/reservedChordsAreRefusedAndAStoredOneIsUnusable` |
+| V-5 | Reserved chord (fixed items' chords, ⌃⌘F among them) → error "⌘C is reserved by the system." | `UITests.KeyboardSettingsKeyHandling/aCombinationTheSystemOwnsIsRefused`, `ShortcutsTests/reservedChordsAreRefusedAndAStoredOneIsUnusable` |
 | V-6 | ⌃ + letter on a pane type's command → accepted with info "⌃L is also used inside Terminal panes." (naming the command's pane type) | `KeyboardSettingsModelTests/controlLetterOnAPaneTypesCommandWarns` |
 
 ### Conflicts
@@ -148,8 +148,10 @@ A standard Settings page (grouped `Form`, like Panes & Tabs and AI).
 - **Key monitor**: macOS offers the menu its key equivalents before any view sees the key. A
   local key monitor (`KeyboardSettingsKeys`) on the page's own window, installed while the page
   is in the window, gets the keys first, acting only while a chip records or the search field
-  edits. The menu keeps its chords. The monitor leaves with the page (another tab, window
-  closed), so it can't outlive the window. Visible effect: R-14.
+  edits. The menu keeps its chords. Closing the window ends a recording, but the monitor stays,
+  as the page does, in the window Settings shows again. It leaves with the page (another tab, or
+  the page released, as when a plugin change rebuilds the window), so it can't outlive it.
+  Visible effect: R-14.
 - **Characters, not physical keys**: a chord is the characters its keys make, as AppKit menus
   match them: ⇧⌘1 records as ⌘!, query text "cmd+!".
 

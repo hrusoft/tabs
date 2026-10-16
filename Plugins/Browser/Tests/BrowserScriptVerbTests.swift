@@ -195,7 +195,7 @@ import Testing
         let bed = try await ScriptVerbBed.open("/page")
         _ = bed.harness.runtime.panes.closePane(bed.pane)
         let answer = await bed.ctl("execute-js", ["code": "1"])
-        #expect(answer.error == "target pane no longer exists — it was closed; listOwnedPanes shows the panes still open")
+        #expect(answer.error == "target pane no longer exists — it was closed; list-panes shows the panes still open")
     }
 
     /// J-25: a page that can't run script at all answers with one sentence, never the engine's plumbing.
@@ -205,7 +205,7 @@ import Testing
         let answer = await bed.ctl("execute-js", ["code": "1"])
         #expect(
             answer.error
-                == "the page could not run script — it may be mid-navigation, showing an error page, or a viewer (such as the PDF viewer) that runs none",
+                == "the page could not run script — it may be mid-navigation, or its process may have ended (a reload brings it back)",
             "\(answer.json)")
     }
 

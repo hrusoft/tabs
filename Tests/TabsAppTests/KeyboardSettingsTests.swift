@@ -52,7 +52,7 @@ extension UITests {
             var hosting: KeyboardSettingsHostingView? {
                 window.contentView?.allSubviews.lazy.compactMap { $0 as? KeyboardSettingsHostingView }.first
             }
-            var keys: KeyboardSettingsKeys { get throws { try #require(hosting?.rootView.keys) } }
+            var keys: KeyboardSettingsKeys { get throws { try #require(hosting?.rootView.content.keys) } }
             var model: KeyboardSettingsModel { get throws { try keys.model } }
             var stored: [String: String?] { ui.runtime.settings.shortcutOverrides }
 
@@ -182,7 +182,7 @@ extension UITests {
             try box.click("settings-shortcut-tabs.newTab")
             #expect(try box.chipText("tabs.newTab") == "Press keys…")
             #expect(try box.model.capturing == "tabs.newTab")
-            #expect(try box.chip("tabs.newTab").bezelColor == .controlAccentColor)
+            #expect(try box.chip("tabs.newTab").bezelColor == box.ui.runtime.themes.current.accent, "the theme's accent")
             try box.hold([.command, .option])
             #expect(try box.chipText("tabs.newTab") == "⌥⌘", "R-2: the held modifiers, as they're held")
             try snapshot(box, "settings-keyboard-recording")
@@ -306,7 +306,9 @@ extension UITests {
             #expect(box.stored == ["tabs.newTab": nil])
             #expect(try box.chipText("tabs.newTab") == "Not set")
             let title = try box.chip("tabs.newTab").attributedTitle
-            #expect(title.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == .secondaryLabelColor, "dimmed")
+            #expect(
+                title.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == box.ui.runtime.themes.current.textDim, "dimmed"
+            )
             // An unbound command is still overridden, so Reset is how you get it back.
             #expect(box.find("settings-shortcut-reset-tabs.newTab") != nil)
             #expect(try !box.button("settings-shortcut-clear-tabs.newTab").isEnabled)

@@ -96,11 +96,14 @@ package enum CoreCommands {
     package static let paste = CoreCommand(fixed: "tabs.paste", "Paste", KeyChord("v", [.command]))
     package static let selectAll = CoreCommand(fixed: "tabs.selectAll", "Select All", KeyChord("a", [.command]))
     package static let minimize = CoreCommand(fixed: "tabs.minimize", "Minimize", KeyChord("m", [.command]))
+    /// View ▸ Enter Full Screen: AppKit's `toggleFullScreen:`, and its ⌃⌘F.
+    package static let enterFullScreen = CoreCommand(
+        fixed: "tabs.enterFullScreen", "Enter Full Screen", KeyChord("f", [.control, .command]))
 
     package static let all: [CoreCommand] = [
         settings, plugins, hide, hideOthers, quit, newWindow, caffeinate, commandPalette, newTab, splitHorizontal, splitVertical,
         newUnpinnedPane,
         closePane,
-        navLeft, navRight, navUp, navDown, undo, redo, cut, copy, paste, selectAll, minimize,
+        navLeft, navRight, navUp, navDown, undo, redo, cut, copy, paste, selectAll, minimize, enterFullScreen,
     ]
 }

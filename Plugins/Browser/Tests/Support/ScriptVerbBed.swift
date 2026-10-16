@@ -25,7 +25,8 @@ final class ScriptVerbBed {
     let browser: BrowserPane
     private var scratch: [URL] = []
 
-    /// A browser pane owned by the agent, on `path` of the standard server (loaded, when there is one).
+    /// A browser pane owned by the agent, on `path` of the standard server (loaded, when there is one). The layout
+    /// shows it, so its page is in a window WebKit counts as seen (`PluginHarness.browser`).
     static func open(_ path: String? = nil, serving: (FixtureServer) -> Void = { _ in }, testFile: String = #filePath) async throws
         -> ScriptVerbBed
     {

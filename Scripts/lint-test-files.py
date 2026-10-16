@@ -2,10 +2,8 @@
 """Test file lint: every test keeps its files under TestTemporary.
 
 A test process's folders and files go in its own `tabs-tests.noindex/<pid>`
-(Tests/Process/TestTemporary.swift), removed as it exits. One made straight in
-the temporary directory outlives the run: a full run makes about a thousand,
-and they piled up in the hundred thousands, each one indexed by Spotlight. This
-lint refuses reaching the temporary directory any other way in test sources
+(Tests/Process/TestTemporary.swift), removed as it exits; why: Scripts/test-lanes.py.
+This lint refuses reaching the temporary directory any other way in test sources
 (Tests/, Plugins/<Name>/Tests). A line that must is marked, with a reason:
     let x = NSTemporaryDirectory()  // test-files: allow — what the product reads
 

@@ -41,6 +41,11 @@ final class KeyboardSettingsModel {
         subscription = shortcuts.observeChanges { [weak self, unowned shortcuts] in self?.bindings = shortcuts.bindings }
     }
 
+    /// A subscription outlives what dropped it: every Settings window rebuilt would leave one behind.
+    isolated deinit {
+        subscription?.cancel()
+    }
+
     /// The rows the query shows, by group (`ShortcutText.visibleGroups`).
     var groups: [Group] {
         ShortcutText.visibleGroups(query, in: bindings).map { Group(id: $0.group, bindings: $0.bindings) }
@@ -261,6 +266,7 @@ final class KeyboardSettingsKeys {
 struct KeyboardSettingsView: View {
     @Bindable var model: KeyboardSettingsModel
     let keys: KeyboardSettingsKeys
+    @Environment(\.appTheme) private var theme
 
     var body: some View {
         let groups = model.groups
@@ -332,18 +338,19 @@ struct KeyboardSettingsView: View {
     /// a label's lines after the second smaller, and these two read as one.
     private func subtitle(_ binding: Shortcuts.Binding, _ detail: (text: String, tone: KeyboardSettingsModel.Notice.Tone?)) -> Text? {
         let lines = [
-            detail.text.isEmpty ? nil : Text(detail.text).foregroundStyle(Self.color(of: detail.tone)),
+            detail.text.isEmpty ? nil : Text(detail.text).foregroundStyle(color(of: detail.tone)),
             model.explanation(of: binding).map { Text($0).foregroundStyle(.secondary) },
         ].compactMap { $0 }
         guard let first = lines.first else { return nil }
         return lines.dropFirst().reduce(first) { Text("\($0)\n\($1)") }
     }
 
-    private static func color(of tone: KeyboardSettingsModel.Notice.Tone?) -> Color {
+    /// A notice's color in the app's theme: a refusal in its alert red, news in its accent.
+    private func color(of tone: KeyboardSettingsModel.Notice.Tone?) -> AnyShapeStyle {
         switch tone {
-        case .error: .red
-        case .info: .accentColor
-        case nil: .secondary
+        case .error: AnyShapeStyle(Color(nsColor: theme.bellAlert))
+        case .info: AnyShapeStyle(Color(nsColor: theme.accent))
+        case nil: AnyShapeStyle(.secondary)
         }
     }
 }
@@ -400,13 +407,14 @@ private struct ShortcutSearchField: NSViewRepresentable {
 
     func updateNSView(_ field: Field, context: Context) {
         if field.stringValue != model.query { field.stringValue = model.query }
+        field.textColor = context.environment.appTheme.text
     }
 }
 
-/// The page's view: its keyboard goes with it into and out of the window.
-final class KeyboardSettingsHostingView: NSHostingView<KeyboardSettingsView> {
+/// The page's view, in the app's theme: its keyboard goes with it into and out of the window.
+final class KeyboardSettingsHostingView: NSHostingView<ThemedRoot<KeyboardSettingsView>> {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        rootView.keys.attach(to: window)
+        rootView.content.keys.attach(to: window)
     }
 }

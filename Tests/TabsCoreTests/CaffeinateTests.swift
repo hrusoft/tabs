@@ -63,16 +63,6 @@ import Testing
         var states: [Bool] = []
     }
 
-    /// Polls until `condition` holds (the exit arrives on the main actor after the process ends).
-    private func eventually(_ seconds: Double = 5, _ condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            if Date() > deadline { return false }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return true
-    }
-
     private static func isAlive(_ pid: Int32) -> Bool { kill(pid, 0) == 0 }
 
     /// The real process's own argv, from ps.
@@ -125,9 +115,9 @@ import Testing
         let pid = try #require(caffeinate.pid)
         caffeinate.stop()
         #expect(caffeinate.isRunning, "not assumed: only once it has exited")
-        #expect(await eventually { !caffeinate.isRunning })
+        #expect(await eventually(timeout: .seconds(5)) { !caffeinate.isRunning })
         #expect(heard.states == [true, false])
-        #expect(await eventually { !Self.isAlive(pid) })
+        #expect(await eventually(timeout: .seconds(5)) { !Self.isAlive(pid) })
     }
 
     @Test func aProcessEndingOnItsOwnIsNoticed() async throws {  // P-11
@@ -137,14 +127,14 @@ import Testing
         defer { subscription.cancel() }
         caffeinate.start(CaffeinateFlags(timerSeconds: 1))
         let pid = try #require(caffeinate.pid)
-        #expect(await eventually(8) { !caffeinate.isRunning }, "its own timer ended it")
+        #expect(await eventually(timeout: .seconds(8)) { !caffeinate.isRunning }, "its own timer ended it")
         #expect(heard.states == [true, false])
 
         caffeinate.start(allOff)
         let second = try #require(caffeinate.pid)
         #expect(second != pid)
         kill(second, SIGKILL)  // something outside the app
-        #expect(await eventually { !caffeinate.isRunning })
+        #expect(await eventually(timeout: .seconds(5)) { !caffeinate.isRunning })
         #expect(heard.states == [true, false, true, false])
     }
 
@@ -156,7 +146,7 @@ import Testing
         caffeinate.start(allOff)
         defer { caffeinate.killNow() }
         let current = try #require(caffeinate.pid)
-        #expect(await eventually { !Self.isAlive(old) })
+        #expect(await eventually(timeout: .seconds(5)) { !Self.isAlive(old) })
         try await Task.sleep(for: .milliseconds(50))  // the old exit's hop to the main actor
         #expect(caffeinate.isRunning)
         #expect(caffeinate.pid == current)
@@ -182,7 +172,7 @@ import Testing
         let pid = try #require(caffeinate.pid)
         caffeinate.killNow()
         #expect(!caffeinate.isRunning, "synchronously")
-        #expect(await eventually { !Self.isAlive(pid) })
+        #expect(await eventually(timeout: .seconds(5)) { !Self.isAlive(pid) })
         try await Task.sleep(for: .milliseconds(50))  // its exit's hop to the main actor
         #expect(heard.states == [true], "its exit announces nothing: nobody is left to tell")
     }

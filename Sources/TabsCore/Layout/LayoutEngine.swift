@@ -2,12 +2,14 @@ import AppKit
 import Foundation
 import TabsPluginSDK
 
-/// What a pane shows, as the renderer needs it.
+/// What a pane shows, as the renderer needs it, and what a saved leaf
+/// comes back as (`PaneRuntime.restore`).
 @MainActor
 package enum PaneBody {
     case empty
     case live(LivePane)
-    /// No active plugin provides the type: the leaf is kept verbatim.
+    /// No active plugin provides the type, or it couldn't open the saved
+    /// state: the leaf is kept verbatim, and the pane says why.
     case unavailable(reason: String)
 }
 
@@ -54,18 +56,15 @@ package protocol LayoutRenderer: AnyObject {
     func showPicker(_ picker: PanePicker, for pane: PaneID, completion: @escaping @MainActor (URL?) -> Void)
 }
 
-extension LayoutRenderer {
-    func paneRect(_ pane: PaneID) -> FloatRect? { nil }
-}
-
 /// Where a new pane goes relative to the pane it's made from.
 package enum NewPanePlacement: Equatable, Sendable {
     /// A new tab (`openContent`: a tab beside it, or filling it if it's empty).
     case tab
     /// A split beside it.
     case split(SplitDirection)
-    /// A floating pane at this rect.
-    case floating(FloatRect)
+    /// A floating pane over it, in the section of it the spawn setting names
+    /// (the default rect when it isn't on screen).
+    case unpinned
 }
 
 /// The workspace: every window's layout (`LayoutModel`), and the only place it
@@ -116,6 +115,16 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
     /// Panes whose signals changed during a pass, told to the renderer once
     /// it's done: until the pass renders, the views are the old layout's.
     private var signalChanges: Set<PaneID> = []
+    /// How long a pane's own title change waits before the chrome shows it
+    /// (zero: at once). TT-13
+    package var titleSettleDelay: Duration = .milliseconds(500)
+    /// Each attached live pane's title as the chrome shows it (`paneTitle`).
+    private var shownTitles: [PaneID: String] = [:]
+    /// Panes whose title change is waiting out `titleSettleDelay`.
+    private var settlingTitles: Set<PaneID> = []
+    /// Where each pane's floating window was when it was last pinned back:
+    /// unpinning it again puts it there (this session only).
+    private var pinnedFloatingRects: [NodeID: FloatRect] = [:]
 
     package init(runtime: CoreRuntime) {
         self.runtime = runtime
@@ -145,11 +154,12 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
         if case .live(let live) = bodies[pane] { live } else { nil }
     }
 
-    /// A pane header's label: a title the user set, the plugin's live title,
-    /// the saved one, or what the pane is.
+    /// A pane header's label: a title the user set, the plugin's live title
+    /// (as shown: a change shows once it has held, `paneTitleDidChange`), the
+    /// saved one, or what the pane is.
     package func paneTitle(of node: LayoutNode) -> String {
         if case .leaf(let leaf) = node, !leaf.titleIsManual, let live = live(leaf.id) {
-            let trimmed = live.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = (shownTitles[leaf.id] ?? live.title).trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Untitled" : trimmed
         }
         return titles.paneTitle(for: node)
@@ -160,13 +170,23 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
         return paneTitle(of: node)
     }
 
+    /// A tab's label: its own title — or, while tab titles follow panes and
+    /// the user hasn't named the tab, the title of the pane last active in it
+    /// (`paneTitle`, as its header shows it). An empty pane has no title of
+    /// its own: a tab following one shows its own. TT-3, TT-7, TT-8, TT-10
+    package func tabTitle(of tab: Tab, in window: WindowLayout, followingPanes: Bool) -> String {
+        guard followingPanes, !tab.titleIsManual, let node = window.findNode(window.followedPane(of: tab)), node.isLeaf, !node.isEmpty
+        else { return tab.title }
+        return paneTitle(of: node)
+    }
+
     package var frontmostWindowID: WindowID? {
         if let front = renderer?.frontmostWindowID, model.window(front) != nil { return front }
         return model.windows.last?.id
     }
 
     /// The leaf with keyboard focus in the frontmost window.
-    package var activePaneID: PaneID? { frontmostWindowID.flatMap { model.window($0)?.activeLeafID } }
+    package var activePaneID: PaneID? { frontmostWindowID.flatMap { model.window($0)?.activePaneID } }
 
     /// The active pane's content type (nil: none, or an empty pane).
     package var activeContentType: ContentTypeID? { activePaneID.flatMap { model.leaf($0)?.type } }
@@ -324,12 +344,12 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
     /// Puts `content` (a live pane made but not placed) at `originID` as a tab,
     /// a split or a floating pane; discards it if nothing took it.
     private func place(_ content: LayoutNode, at originID: NodeID, in window: WindowID, placement: NewPanePlacement) -> NodeID? {
-        let viewport = renderer?.viewport(of: window) ?? Viewport(width: 1200, height: 800)
+        let viewport = self.viewport(of: window)
         let placed = perform(in: window) { layout, titles in
             switch placement {
             case .tab: layout.openContent(at: originID, content, titles: titles)
             case .split(let direction): layout.split(originID, direction, with: content, titles: titles)
-            case .floating(let rect): layout.openFloatingPane(content, rect: rect, viewport: viewport)
+            case .unpinned: layout.openFloatingPane(content, rect: self.spawnRect(over: originID), viewport: viewport)
             }
         }
         guard placed else {
@@ -359,46 +379,64 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
         }
     }
 
-    /// Warnings from live panes under `node` that would lose work.
-    private func closeWarnings(_ node: LayoutNode?) -> [String] {
-        (node?.leaves ?? []).compactMap { live($0.id)?.controller.closeWarning }
+    /// What these panes would lose: each live one's warning, if it has one.
+    private func closeWarnings(_ leaves: [LayoutLeaf]) -> [String] {
+        leaves.compactMap { live($0.id)?.controller.closeWarning }
     }
 
-    /// Asks before destroying `node` if anything under it would lose work.
-    /// The ask is modal (the main actor runs under it): callers look again after.
-    private func confirmDestroying(_ node: LayoutNode?) -> Bool {
-        let warnings = closeWarnings(node)
-        return warnings.isEmpty || renderer?.confirmClose(warnings, quitting: false) != false
+    /// Applies `operation` to the window holding `node` once the user agrees
+    /// to lose what `doomed` picks out of it (asked only if something there
+    /// would lose work). The ask is modal (the main actor runs under it), so
+    /// the window is looked up again after.
+    private func destroying(
+        _ node: NodeID, _ doomed: (WindowLayout) -> LayoutNode?, _ operation: (inout WindowLayout, LayoutTitles) -> Bool
+    ) {
+        guard let window = model.window(holding: node) else { return }
+        let warnings = closeWarnings(doomed(window)?.leaves ?? [])
+        guard warnings.isEmpty || renderer?.confirmClose(warnings, quitting: false) != false,
+            let current = model.window(holding: node)
+        else { return }
+        perform(in: current.id, operation)
     }
 
     /// Closes a pane (and everything in it), asking first if it would lose
     /// work. The docked root means its shown tab.
     package func close(_ pane: NodeID) {
-        guard let window = model.window(holding: pane), confirmDestroying(window.closeTarget(pane)),
-            let current = model.window(holding: pane)
-        else { return }
-        perform(in: current.id) { layout, titles in layout.closePane(pane, titles: titles) }
+        destroying(pane, { $0.closeTarget(pane) }) { layout, titles in layout.closePane(pane, titles: titles) }
+    }
+
+    /// The user's edit of a tab's title, from the title it showed: unchanged,
+    /// nothing changes (a tab following its pane keeps following); emptied,
+    /// it gets its default title back and follows its pane again. TT-9
+    package func renameTab(_ tab: NodeID, in window: WindowID, to typed: String, from shown: String) {
+        guard typed != shown else { return }
+        perform(in: window) { layout, titles in layout.renameTab(tab, typed.isEmpty ? nil : typed, titles: titles) }
+    }
+
+    /// The user's edit of a pane's header title, from the title it showed:
+    /// unchanged, nothing changes (saving it would pin it, and the pane would
+    /// stop following its content's, TT-14); emptied, it shows its content's
+    /// own title again.
+    package func renamePane(_ pane: NodeID, in window: WindowID, to typed: String, from shown: String) {
+        guard typed != shown else { return }
+        perform(in: window) { layout, titles in layout.renamePane(pane, typed.isEmpty ? nil : typed, titles: titles) }
     }
 
     /// Empties a pane in place, asking first if it would lose work.
     package func clear(_ pane: NodeID) {
-        guard let window = model.window(holding: pane), confirmDestroying(window.closeTarget(pane)),
-            let current = model.window(holding: pane)
-        else { return }
-        perform(in: current.id) { layout, titles in layout.clearPane(pane, titles: titles) }
+        destroying(pane, { $0.closeTarget(pane) }) { layout, titles in layout.clearPane(pane, titles: titles) }
     }
 
     /// Closes a tab, asking first if its content would lose work.
     package func closeTab(_ tab: NodeID) {
-        guard let window = model.window(holding: tab), let ref = window.trees.lazy.compactMap({ Tree.findTab($0, tab) }).first,
-            confirmDestroying(ref.tab.content), let current = model.window(holding: tab)
-        else { return }
-        perform(in: current.id) { layout, titles in layout.closeTab(tab, titles: titles) }
+        destroying(tab, { window in window.trees.lazy.compactMap { Tree.findTab($0, tab) }.first?.tab.content }) { layout, titles in
+            layout.closeTab(tab, titles: titles)
+        }
     }
 
     /// Whether the app may quit: asks once about every pane that would lose work.
     package func shouldQuit() -> Bool {
-        let warnings = model.leaves.compactMap { live($0.id)?.controller.closeWarning }
+        let warnings = closeWarnings(model.leaves)
         return warnings.isEmpty || renderer?.confirmClose(warnings, quitting: true) ?? true
     }
 
@@ -411,10 +449,38 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
                 !confirmed.contains(leaf.id) && live(leaf.id)?.controller.closeWarning != nil
             }
             if pending.isEmpty { return true }
-            let warnings = pending.compactMap { live($0.id)?.controller.closeWarning }
-            guard renderer?.confirmClose(warnings, quitting: false) ?? true else { return false }
+            guard renderer?.confirmClose(closeWarnings(pending), quitting: false) ?? true else { return false }
             confirmed.formUnion(pending.map(\.id))
         }
+    }
+
+    /// Lifts a pane or a group (tabs and all) into a floating window over its
+    /// place: where it floated when last pinned back, else over its own box,
+    /// else over the group whose tab holds it (a background tab's content has
+    /// no box of its own).
+    package func unpin(_ node: NodeID) {
+        guard let window = model.window(holding: node) else { return }
+        let group = window.trees.lazy.compactMap { Tree.findParent($0, node) }.first.flatMap { parent -> NodeID? in
+            if case .tab(let holder, _) = parent { holder.id } else { nil }
+        }
+        let rect =
+            pinnedFloatingRects[node] ?? renderer?.paneRect(node) ?? group.flatMap { renderer?.paneRect($0) } ?? Floating.defaultRect
+        let viewport = self.viewport(of: window.id)
+        perform(in: window.id) { layout, titles in layout.unpinPane(node, rect: rect, viewport: viewport, titles: titles) }
+    }
+
+    /// Puts a floating pane back into the docked layout, near where it came
+    /// from, remembering where it floated for the next unpin.
+    package func pin(_ floatID: NodeID, in window: WindowID) {
+        if let entry = model.window(window)?.floating.first(where: { $0.id == floatID }) {
+            // Only panes still in the layout (or the window waiting to reopen) can be unpinned again.
+            let lastClosed = model.lastClosed.map { LayoutModel(windows: [$0]) }
+            pinnedFloatingRects = pinnedFloatingRects.filter { id, _ in
+                model.window(holding: id) != nil || lastClosed?.window(holding: id) != nil
+            }
+            pinnedFloatingRects[entry.content.id] = entry.rect
+        }
+        perform(in: window) { layout, titles in layout.repinPane(floatID, titles: titles) }
     }
 
     /// A window closed (the user closed it). If it was the only one, it's
@@ -444,11 +510,65 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
         return true
     }
 
+    /// Drops a dragged tab or pane at `target` in its own window (the same
+    /// tree: `WindowLayout.drop`).
+    @discardableResult
+    package func drop(_ subject: DragSubject, at target: DropTarget, in window: WindowID) -> Bool {
+        perform(in: window) { layout, titles in layout.drop(subject, at: target, titles: titles) }
+    }
+
+    /// One arrow step from a window's active pane, staying inside its tree
+    /// (the docked layout, or one floating pane): a sibling across a split,
+    /// the next tab (left/right), or, when nothing lies that way, around the
+    /// outermost container, else the pane at the far edge. Panes on screen
+    /// are compared where they are (`LayoutRenderer.paneRect`); one that
+    /// isn't is entered as the model says (`Navigation.entryPaneID`).
+    package func navigate(_ direction: NavDirection, in window: WindowID) {
+        guard let layout = model.window(window) else { return }
+        let active = layout.activePaneID
+        let tree = layout.ownerTree(of: active)
+        let current = renderer?.paneRect(active).map(NavRect.init) ?? NavRect(left: 0, top: 0, right: 0, bottom: 0)
+        guard let target = Navigation.navTarget(tree, active, direction) else {
+            if let wrap = Navigation.pickWrapTarget(current, shownPanes(in: tree, of: layout, excluding: active), direction) {
+                perform(in: window) { layout, _ in layout.setActivePane(wrap) }
+            }
+            return
+        }
+        if let step = target.tabSwitch {
+            perform(in: window) { layout, titles in
+                layout.activateTab(step.groupID, step.tabID, titles: titles)
+                // The revealed content is still hidden (unmeasurable): the model decides.
+                return layout.setActivePane(Navigation.entryPaneID(target.node, direction)) || true
+            }
+            return
+        }
+        let candidates = shownPanes(in: target.node, of: layout, excluding: active)
+        let picked =
+            renderer?.paneRect(active) == nil
+            ? nil
+            : target.wrapped
+                ? Navigation.pickWrapTarget(current, candidates, direction)
+                : Navigation.pickSpatialTarget(current, candidates, direction)
+        let pane = picked ?? Navigation.entryPaneID(target.node, direction)
+        perform(in: window) { layout, _ in layout.setActivePane(pane) }
+    }
+
+    /// The panes on screen inside `subtree` (every tab above them shown, with
+    /// a box to compare), but `active`, in a stable order.
+    private func shownPanes(in subtree: LayoutNode, of layout: WindowLayout, excluding active: NodeID) -> [(id: NodeID, rect: NavRect)] {
+        subtree.leaves.compactMap { leaf in
+            guard leaf.id != active, layout.isShowing(leaf.id), let rect = renderer?.paneRect(leaf.id), rect.width > 0, rect.height > 0
+            else { return nil }
+            return (leaf.id, NavRect(rect))
+        }
+        .sorted { $0.id < $1.id }
+    }
+
     /// The frontmost window changed (the renderer saw it).
     package func frontmostWindowDidChange() { reconcile() }
 
-    /// A window gained the focus: its active pane has been seen (`bellStore`'s
-    /// window `focus` listener). Other panes' signals stay.
+    /// A window gained the focus: its active pane has been seen. Other panes'
+    /// signals stay.
     package func windowDidGainFocus(_ window: WindowID) {
         if let active = model.window(window)?.activePaneID { signals.seen(active) }
         syncAttention()
@@ -512,50 +632,63 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
     package func place(_ pane: LivePane, placement: PanePlacement) -> Bool {
         let leaf = LayoutNode.leaf(LayoutLeaf(id: pane.id, type: pane.contentType))
         bodies[pane.id] = .live(pane)
-        let placed: Bool
-        switch placement {
-        case .window:
-            // Bring back the last closed window first, as `.automatic` would:
-            // otherwise closing this one would replace it, and it'd be lost.
-            if model.windows.isEmpty, model.lastClosed != nil { openWindow() }
-            model.windows.append(WindowLayout(root: leaf, active: pane.id, titles: titles))
-            placed = true
-            reconcile()
-        case .split(let target, let edge) where model.window(holding: target) != nil:
-            let window = model.window(holding: target)!.id
-            let direction: SplitDirection = edge == .leading || edge == .trailing ? .horizontal : .vertical
-            placed = perform(in: window) { layout, titles in
-                layout.split(target, direction, with: leaf, before: edge == .leading || edge == .top, titles: titles)
-            }
-        case .tab(near: let near?) where model.window(holding: near) != nil:
-            placed = perform(in: model.window(holding: near)!.id) { layout, titles in layout.openContent(at: near, leaf, titles: titles) }
-        case .floating(let near) where floatingOrigin(near: near) != nil:
-            // Over the origin, in the section of it the setting names,
-            // appended last so the newest window starts on top and active.
-            let (window, origin) = floatingOrigin(near: near)!
-            let rect =
-                renderer?.paneRect(origin).map { Floating.spawnRect(in: $0, at: runtime.settings.panes.spawnPosition) }
-                ?? Floating.defaultRect
-            let viewport = renderer?.viewport(of: window) ?? Viewport(width: 1200, height: 800)
-            placed = perform(in: window) { layout, _ in layout.openFloatingPane(leaf, rect: rect, viewport: viewport) }
-        default:
-            let window: WindowID
-            if let front = frontmostWindowID {
-                window = front
-            } else if model.lastClosed != nil {
-                // With no window open, bring back the last one closed (it's
-                // what the user would reopen) rather than a new one that loses it.
-                window = openWindow()
-            } else {
+        // Every pass waits until the pane is placed: until then it has a body
+        // but no leaf, and a pass would end it as a pane that left the layout.
+        let placed = holdingPasses { () -> Bool in
+            switch placement {
+            case .window:
+                // Bring back the last closed window first, as `.automatic` would:
+                // otherwise closing this one would replace it, and it'd be lost.
+                if model.windows.isEmpty, model.lastClosed != nil { openWindow() }
                 model.windows.append(WindowLayout(root: leaf, active: pane.id, titles: titles))
                 reconcile()
                 return true
+            case .split(let target, let edge) where model.window(holding: target) != nil:
+                let window = model.window(holding: target)!.id
+                let direction: SplitDirection = edge == .leading || edge == .trailing ? .horizontal : .vertical
+                return perform(in: window) { layout, titles in
+                    layout.split(target, direction, with: leaf, before: edge == .leading || edge == .top, titles: titles)
+                }
+            case .tab(near: let near?) where model.window(holding: near) != nil:
+                return perform(in: model.window(holding: near)!.id) { layout, titles in layout.openContent(at: near, leaf, titles: titles) }
+            case .floating(let near) where floatingOrigin(near: near) != nil:
+                // Over the origin, in the section of it the setting names,
+                // appended last so the newest window starts on top and active.
+                let (window, origin) = floatingOrigin(near: near)!
+                let rect = spawnRect(over: origin)
+                let viewport = self.viewport(of: window)
+                return perform(in: window) { layout, _ in layout.openFloatingPane(leaf, rect: rect, viewport: viewport) }
+            default:
+                let window: WindowID
+                if let front = frontmostWindowID {
+                    window = front
+                } else if model.lastClosed != nil {
+                    // With no window open, bring back the last one closed (it's
+                    // what the user would reopen) rather than a new one that loses it.
+                    window = openWindow()
+                } else {
+                    model.windows.append(WindowLayout(root: leaf, active: pane.id, titles: titles))
+                    reconcile()
+                    return true
+                }
+                return perform(in: window) { layout, titles in layout.openContent(at: layout.activePaneID, leaf, titles: titles) }
             }
-            placed = perform(in: window) { layout, titles in layout.openContent(at: layout.activePaneID, leaf, titles: titles) }
         }
         if !placed { bodies[pane.id] = nil }
+        // The pass held meanwhile, if anything changed (a window brought back
+        // for a pane that wasn't placed is drawn all the same).
+        if needsReconcile { reconcile() }
         return placed
     }
+
+    /// Where a new unpinned pane spawns over `origin`: the section of it the
+    /// setting names, or the default rect when it isn't on screen.
+    private func spawnRect(over origin: NodeID) -> FloatRect {
+        renderer?.paneRect(origin).map { Floating.spawnRect(in: $0, at: runtime.settings.panes.spawnPosition) } ?? Floating.defaultRect
+    }
+
+    /// A window's content size, which floating panes are kept inside.
+    private func viewport(of window: WindowID) -> Viewport { renderer?.viewport(of: window) ?? .newWindow }
 
     /// The window and pane a floating pane spawns over: `near` if it is in the
     /// layout, else the frontmost window's active pane.
@@ -582,7 +715,7 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
     }
 
     /// Every pane, window by window: the docked tree, then the floating panes.
-    package func layoutPaneOrder() -> [PaneID]? { model.leaves.map(\.id) }
+    package func layoutPaneOrder() -> [PaneID] { model.leaves.map(\.id) }
 
     /// Reveals a pane (every tab above it, its floating window raised), makes
     /// it active, and gives it the keyboard.
@@ -595,7 +728,32 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
 
     package func requestClose(_ pane: PaneID) { close(pane) }
 
-    package func paneTitleDidChange(_ pane: PaneID) { renderer?.titleDidChange(pane) }
+    /// A pane changed its own title. The chrome (header, tab, window title)
+    /// shows whatever the title is `titleSettleDelay` later, so a title that
+    /// changes back meanwhile (a shell's command title for a quick `ls`) never
+    /// shows, and one that keeps changing shows at most that often. Until the
+    /// pane is attached its title shows as it is. Control verbs and the saved
+    /// layout read the live title. TT-13
+    package func paneTitleDidChange(_ pane: PaneID) {
+        guard shownTitles[pane] != nil else {
+            renderer?.titleDidChange(pane)
+            return
+        }
+        guard titleSettleDelay > .zero else { return settleTitle(of: pane) }
+        guard settlingTitles.insert(pane).inserted else { return }
+        Task { @MainActor [weak self, delay = titleSettleDelay] in
+            try? await Task.sleep(for: delay)
+            self?.settleTitle(of: pane)
+        }
+    }
+
+    /// Shows a pane's title as it is now, if the chrome shows another.
+    private func settleTitle(of pane: PaneID) {
+        settlingTitles.remove(pane)
+        guard let live = live(pane), let shown = shownTitles[pane], shown != live.title else { return }
+        shownTitles[pane] = live.title
+        renderer?.titleDidChange(pane)
+    }
 
     package func paneStateDidChange(_ pane: PaneID) { scheduleSave() }
 
@@ -645,11 +803,12 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
             creationOrigins = creationOrigins.filter { model.leaf($0.key) != nil }
             // 1. Panes that left the layout end, while their views still exist.
             for id in bodies.keys.sorted() where model.leaf(id)?.type == nil {
+                shownTitles[id] = nil
                 if case .live(let live) = bodies.removeValue(forKey: id) { panes.detach(live.id) }
                 if needsReconcile { continue passes }
             }
             // Signals end with their panes, and a pane that became its
-            // window's active pane has been seen (`PaneFocusFollower`).
+            // window's active pane has been seen.
             if !signals.panes.isEmpty { signals.retain(only: Set(model.leaves.map(\.id))) }
             seenActive = seenActive.filter { model.window($0.key) != nil }
             for window in model.windows where seenActive[window.id] != window.activePaneID {
@@ -668,6 +827,8 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
                     guard let live = live(leaf.id) else { continue }
                     if !live.isAttached {
                         panes.attach(live, in: window.id)
+                        // Its first title shows at once; later changes wait (`paneTitleDidChange`).
+                        shownTitles[live.id] = live.title
                         renderer?.titleDidChange(live.id)
                     } else if live.windowID != window.id {
                         panes.paneDidMove(live.id, to: window.id)
@@ -678,7 +839,7 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
                 }
             }
             // 5. The active pane.
-            if let front = frontmostWindowID, let active = model.window(front)?.activeLeafID {
+            if let front = frontmostWindowID, let active = model.window(front)?.activePaneID {
                 panes.activePaneDidChange(to: active, in: front)
                 if needsReconcile { continue passes }
             }
@@ -702,6 +863,7 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
     /// Runs `body` with passes held: whatever it triggers is folded into the
     /// pass that runs after it (a window being built isn't in the model yet,
     /// and a pass meanwhile would take its panes for closed ones).
+    @discardableResult
     private func holdingPasses<T>(_ body: () -> T) -> T {
         let wasReconciling = isReconciling
         isReconciling = true
@@ -718,18 +880,14 @@ package final class LayoutEngine: WorkspaceShell, PaneSignalHost {
         for leaf in saved.leaves {
             guard leaf.type != nil else { continue }
             switch panes.restore(leaf, in: saved.id) {
-            case .live(let live):
-                if live.id != leaf.id {
-                    // Can't happen while ids are unique; never let them disagree.
-                    panes.detach(live.id)
-                    bodies[leaf.id] = .unavailable(reason: "Its pane id was already in use.")
-                } else {
-                    bodies[leaf.id] = .live(live)
-                }
-            case .unavailable(let reason):
-                bodies[leaf.id] = .unavailable(reason: reason)
+            case .live(let live) where live.id != leaf.id:
+                // Can't happen while ids are unique; never let them disagree.
+                panes.detach(live.id)
+                bodies[leaf.id] = .unavailable(reason: "Its pane id was already in use.")
             case .empty:
                 break
+            case let body:
+                bodies[leaf.id] = body
             }
         }
     }

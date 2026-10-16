@@ -53,48 +53,48 @@ import Testing
         return "a"
     }
 
-    @Test func aPaneStartsWithTheDarkThemeAtDepthZeroBeforeItIsTold() {
+    @Test func aPaneStartsWithThePlaceholderAtDepthZeroBeforeItIsTold() {
         _ = start()
-        #expect(log.contexts.first?.theme == .dark)
+        #expect(log.contexts.first?.theme == .placeholder)
         #expect(log.contexts.first?.depth == 0)
         #expect(log.told.isEmpty)
     }
 
     @Test func theFirstWordIsToldEvenWhenItIsTheDefault() {
         let pane = start()
-        runtime.panes.appearanceDidChange(pane, theme: .dark, depth: 0)
+        runtime.panes.appearanceDidChange(pane, theme: .placeholder, depth: 0)
         #expect(log.told.count == 1)
-        runtime.panes.appearanceDidChange(pane, theme: .dark, depth: 0)
+        runtime.panes.appearanceDidChange(pane, theme: .placeholder, depth: 0)
         #expect(log.told.count == 1, "the same again: not told")
     }
 
     @Test func aThemeChangeIsToldAndReadableAtOnce() {
         let pane = start()
-        runtime.panes.appearanceDidChange(pane, theme: .dark, depth: 1)
-        runtime.panes.appearanceDidChange(pane, theme: .light, depth: 1)
-        #expect(log.told.map(\.theme) == [.dark, .light])
+        runtime.panes.appearanceDidChange(pane, theme: .standInDark, depth: 1)
+        runtime.panes.appearanceDidChange(pane, theme: .standInLight, depth: 1)
+        #expect(log.told.map(\.theme) == [.standInDark, .standInLight])
         #expect(log.told.map(\.depth) == [1, 1])
-        #expect(log.contexts.first?.theme == .light)
+        #expect(log.contexts.first?.theme == .standInLight)
     }
 
     @Test func aDepthChangeIsToldWithTheSameTheme() {
         let pane = start()
-        runtime.panes.appearanceDidChange(pane, theme: .dark, depth: 1)
-        runtime.panes.appearanceDidChange(pane, theme: .dark, depth: 2)
+        runtime.panes.appearanceDidChange(pane, theme: .standInDark, depth: 1)
+        runtime.panes.appearanceDidChange(pane, theme: .standInDark, depth: 2)
         #expect(log.told.map(\.depth) == [1, 2])
         #expect(log.contexts.first?.depth == 2)
     }
 
     @Test func aPaneThatIsGoneIsNotTold() {
         _ = start()
-        runtime.panes.appearanceDidChange("nobody", theme: .light, depth: 3)
+        runtime.panes.appearanceDidChange("nobody", theme: .standInLight, depth: 3)
         #expect(log.told.isEmpty)
     }
 
     @Test func surfacesAlternateWithDepth() {
-        #expect(PaneTheme.dark.surface(depth: 0) == PaneTheme.dark.bg)
-        #expect(PaneTheme.dark.surface(depth: 1) == PaneTheme.dark.bgElevated)
-        #expect(PaneTheme.light.surface(depth: 2) == PaneTheme.light.bg)
-        #expect(PaneTheme.light.surfaceNext(depth: 0) == PaneTheme.light.bgElevated)
+        #expect(PaneTheme.standInDark.surface(depth: 0) == PaneTheme.standInDark.bg)
+        #expect(PaneTheme.standInDark.surface(depth: 1) == PaneTheme.standInDark.bgElevated)
+        #expect(PaneTheme.standInLight.surface(depth: 2) == PaneTheme.standInLight.bg)
+        #expect(PaneTheme.standInLight.surfaceNext(depth: 0) == PaneTheme.standInLight.bgElevated)
     }
 }

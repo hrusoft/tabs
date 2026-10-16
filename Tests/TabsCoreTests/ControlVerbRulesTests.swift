@@ -101,6 +101,29 @@ import Testing
         #expect(TestSupport.state(sharing, "one") == .active && TestSupport.state(sharing, "two") == .active)
     }
 
+    /// Core's command would answer `ambiguous` to every agent: a plugin may take
+    /// none of core's commands or wire types, whichever core registered.
+    @Test func aCommandMayNotBeOneOfCoresEither() {  // I-2
+        let describe = failure("p") {
+            $0.register(self.capability("p")); $0.register(self.verb("p", command: "describe", wireType: "pDescribe"))
+        }
+        #expect(describe?.contains("command \"describe\" is one of core's") == true, "\(describe ?? "registered")")
+        let core = TestSupport.runtime().control.coreCommands
+        #expect(core.count == 8)
+        for verb in core {
+            let command = verb.command ?? ""
+            let wireType = verb.wireType ?? ""
+            let byCommand = failure("p") {
+                $0.register(self.capability("p")); $0.register(self.verb("p", command: command, wireType: "pTaken"))
+            }
+            #expect(byCommand?.contains("command \"\(command)\" is one of core's") == true, "\(byCommand ?? "registered")")
+            let byWireType = failure("p") {
+                $0.register(self.capability("p")); $0.register(self.verb("p", command: "p-taken", wireType: wireType))
+            }
+            #expect(byWireType?.contains("wireType \"\(wireType)\" is one of core's") == true, "\(byWireType ?? "registered")")
+        }
+    }
+
     @Test func anArgumentMayNotBeAFieldOfTheWireRequestItself() {
         for name in ["type", "paneId", "targetPaneId"] {
             let reason = failure("p") { context in
@@ -151,6 +174,19 @@ import Testing
             $0.register(self.verb("p", command: nil, wireType: nil, composition: .elementTarget))
         }
         #expect(composition?.contains("a flag composition is for control-plane verbs") == true)
+    }
+
+    /// Dispatch reads only an owned-pane target: a pane target's types would be
+    /// ignored and its handler would get no pane, so it is refused, not dropped.
+    @Test func aPaneTargetIsForInternalVerbs() {  // I-2
+        let reason = failure("p") { context in
+            context.register(self.capability("p"))
+            context.register(self.verb("p", target: .pane(ofTypes: ["p"])))
+        }
+        #expect(
+            reason?.contains("a pane target is for internal verbs: a control-plane verb takes an owned-pane target") == true,
+            "\(reason ?? "registered")")
+        #expect(failure("p") { $0.register(self.verb("p", command: nil, wireType: nil, target: .pane(ofTypes: ["p"]))) } == nil)
     }
 
     @Test func anOwnedPaneTargetNamesOnlyThePluginsOwnTypes() {

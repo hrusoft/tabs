@@ -35,6 +35,14 @@ import Testing
         func destination(of link: URL) -> String? { try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) }
         func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
 
+        /// The app moved after installing: its skills are elsewhere now, and the link it left
+        /// points nowhere. Returns where the skills went.
+        func moveTheApp() throws -> URL {
+            let moved = root.appending(path: "moved-skills", directoryHint: .isDirectory)
+            try FileManager.default.moveItem(at: skillsDirectory, to: moved)
+            return moved
+        }
+
         func remove() { try? FileManager.default.removeItem(at: root) }
     }
 
@@ -86,6 +94,20 @@ import Testing
             #expect(box.installer().install("nonexistent") == .failed("unknown install target: nonexistent"))
         }
 
+        /// I-3: a link that leads nowhere holds nothing, so installing again (from where the app
+        /// is now) replaces it rather than failing with "file exists".
+        @Test func installingAgainAfterTheAppMovedReplacesTheLinkItLeft() throws {
+            let box = try Sandbox([SkillInstallerTests.fakeAgent])
+            defer { box.remove() }
+            #expect(box.installer().install("fake-agent") == .ok)
+            let moved = try box.moveTheApp()
+            let installer = box.installer(skills: moved)
+            #expect(installer.status().map(\.installed) == [false], "a link to where the app was")
+            #expect(installer.install("fake-agent") == .ok)
+            #expect(box.destination(of: box.targetDirectories[0]) == moved.appending(path: "tabs").path)
+            #expect(installer.status().map(\.installed) == [true])
+        }
+
         @Test func errorsWhenTheBundledSkillDirectoryIsMissing() throws {
             let box = try Sandbox([SkillInstallerTests.fakeAgent])
             defer { box.remove() }
@@ -116,6 +138,16 @@ import Testing
             let box = try Sandbox([SkillInstallerTests.fakeAgent])
             defer { box.remove() }
             #expect(box.installer().uninstall("fake-agent") == .ok)
+        }
+
+        /// I-3: the link the app left before it moved is removed, not reported gone and kept.
+        @Test func removesTheLinkLeftWhenTheAppMoved() throws {
+            let box = try Sandbox([SkillInstallerTests.fakeAgent])
+            defer { box.remove() }
+            #expect(box.installer().install("fake-agent") == .ok)
+            let moved = try box.moveTheApp()
+            #expect(box.installer(skills: moved).uninstall("fake-agent") == .ok)
+            #expect(box.destination(of: box.targetDirectories[0]) == nil)
         }
 
         @Test func refusesToRemoveADestinationThatExistsButIsNotASymlinkWeCreated() throws {

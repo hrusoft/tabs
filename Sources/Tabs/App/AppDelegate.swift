@@ -8,22 +8,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shell: AppShell?
     private var pluginsWindow: NSWindowController?
     private var settingsWindow: NSWindowController?
-    /// The About window, one at a time.
-    private lazy var about = AboutPresenter(presentsWindows: !Self.isHidden)
+    /// The About window, one at a time, in the running core's theme.
+    private lazy var about = AboutPresenter(presentsWindows: !Self.isHidden) { [unowned self] in
+        AboutWindowController(themes: self.runtime?.themes ?? Themes())
+    }
     private var controlServer: ControlServer?
 
     /// `TABS_E2E_HIDDEN=1` (end-to-end tests): windows are built but never
     /// shown, the app never activates (so it never takes focus from the
     /// user) and stays out of the Dock (`runInBackground()`), dialogs are
     /// auto-answered, and problems go to stderr.
-    static var isHidden: Bool { ProcessInfo.processInfo.environment["TABS_E2E_HIDDEN"] == "1" }
+    static var isHidden: Bool { LaunchSetting.hidden.value() == "1" }
+
+    /// `TABS_TEST_WINDOWS_SEEN=1` (UI tests, Debug builds only; Browser's UI test bundle sets it as it loads):
+    /// workspace windows, which UI tests never show, tell AppKit, and so WebKit, that they are on screen and
+    /// unoccluded, so a page in them is an active one (docs/BROWSER.md, Testing). Read at each ask; the app's own
+    /// logic asks `isShownOnScreen`, which the switch doesn't change.
+    static var windowsCountAsSeen: Bool {
+        #if DEBUG
+        getenv(LaunchSetting.windowsCountAsSeen.rawValue).map { String(cString: $0) } == "1"
+        #else
+        false
+        #endif
+    }
 
     /// `TABS_E2E_PLUGINS=<dir>` (end-to-end tests, hidden Debug builds only):
     /// test plugin bundles started beside the bundled ones, so a test can have
     /// a pane that no shipped plugin owns.
     static var fixturePlugins: URL? {
         #if DEBUG
-        guard isHidden, let path = ProcessInfo.processInfo.environment["TABS_E2E_PLUGINS"], !path.isEmpty else { return nil }
+        guard isHidden, let path = LaunchSetting.fixturePlugins.value(), !path.isEmpty else { return nil }
         return URL(filePath: path, directoryHint: .isDirectory)
         #else
         nil
@@ -100,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Returns the path it listens on, or nil if it couldn't start.
     private func startControlServer(in dataDirectory: URL) -> String? {
         ControlServer.removeStaleSockets(in: dataDirectory)
-        let path = ProcessInfo.processInfo.environment["TABS_LISTEN_SOCKET"] ?? ControlServer.defaultPath(in: dataDirectory)
+        let path = LaunchSetting.listenSocket.value() ?? ControlServer.defaultPath(in: dataDirectory)
         let server = ControlServer(path: path) { [weak self] line in
             guard let self else { return #"{"ok":false,"error":"the app is quitting"}"# }
             return await self.handleControl(line)
@@ -136,11 +150,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Panes end as if closed (plugins release what they hold — a
         // terminal's shell), and the old layout never saves again.
         shell.engine.tearDown()
-        for window in shell.renderer.windows {
-            window.isClosingForModel = true
-            window.window?.close()
-            window.dismantle()
-        }
         for window in [pluginsWindow, settingsWindow] { window?.close() }
         about.dismiss()
         pluginsWindow = nil
@@ -210,8 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showPlugins(_ sender: Any?) {
         guard let runtime else { return }
         if pluginsWindow == nil {
-            let model = PluginsModel(host: runtime.host, fingerprint: runtime.sharedFingerprint) {}
-            pluginsWindow = makePluginsWindow(model: model)
+            let model = PluginsModel(host: runtime.host, fingerprint: runtime.sharedFingerprint)
+            pluginsWindow = makePluginsWindow(model: model, themes: runtime.themes)
         }
         present(pluginsWindow)
     }

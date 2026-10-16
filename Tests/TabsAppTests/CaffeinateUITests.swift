@@ -12,19 +12,6 @@ extension UITests {
 
     @MainActor
     @Suite struct Caffeinate {
-        /// Waits for the process's exit to be announced. Async: the exit reaches the main actor as a
-        /// task, which runs only while the test is suspended (a nested run loop inside the test's own
-        /// main-queue job can't run it).
-        private func eventually(_ ui: UIDriver, _ seconds: Double = 5, _ condition: () -> Bool) async -> Bool {
-            let deadline = Date().addingTimeInterval(seconds)
-            while true {
-                ui.layoutAll()
-                if condition() { return true }
-                if Date() > deadline { return false }
-                try? await Task.sleep(for: .milliseconds(20))
-            }
-        }
-
         private func fileMenu() throws -> NSMenu {
             let file = try #require(NSApp.mainMenu?.item(withTitle: "File")?.submenu)
             file.update()
@@ -46,7 +33,7 @@ extension UITests {
             let pid = try #require(ui.runtime.caffeinate.pid)
             try ui.choose("File", "Decaf")
             #expect(ui.shell.caffeinateDialog.controller == nil, "Decaf opens no dialog")
-            #expect(await eventually(ui) { !ui.runtime.caffeinate.isRunning })
+            #expect(await ui.wait { !ui.runtime.caffeinate.isRunning })
             #expect(kill(pid, 0) != 0)
             #expect(try fileMenu().items.last?.title == "Caffeinate…", "relabeled once the exit is noticed")
         }
@@ -69,7 +56,7 @@ extension UITests {
             dialog.start()
             #expect(ui.runtime.caffeinate.isRunning)
             #expect(try ui.press(KeyChord("j", [.command, .shift])), "the same chord on Decaf")
-            #expect(await eventually(ui) { !ui.runtime.caffeinate.isRunning }, "running: it stops the process")
+            #expect(await ui.wait { !ui.runtime.caffeinate.isRunning }, "running: it stops the process")
         }
 
         @Test func theMenuWorksWithNoWorkspaceWindow() throws {  // M-6 (no window is reopened)
@@ -98,7 +85,7 @@ extension UITests {
             #expect(cup.midY == settings.midY)
             #expect(bar.controls.layoutFrame.maxX + Metrics.barGap <= cup.minX, "the group's controls move over for it")
             ui.runtime.caffeinate.stop()
-            #expect(await eventually(ui) { bar.caffeinateButton.isHidden })
+            #expect(await ui.wait { bar.caffeinateButton.isHidden })
         }
 
         @Test func clickingTheCupStops() async throws {  // B-2
@@ -108,7 +95,7 @@ extension UITests {
             ui.layoutAll()
             let active = ui.activePane
             try ui.click("caffeinate-decaf-button")
-            #expect(await eventually(ui) { !ui.runtime.caffeinate.isRunning })
+            #expect(await ui.wait { !ui.runtime.caffeinate.isRunning })
             #expect(try bar(ui).caffeinateButton.isHidden)
             #expect(ui.activePane == active, "a press on it activates nothing")  // B-6
             #expect(ui.shell.caffeinateDialog.controller == nil)
@@ -171,10 +158,17 @@ extension UITests {
             return try #require(buttons.first { $0.accessibilityIdentifier() == identifier }, "no button \(identifier)")
         }
 
-        /// A presenter over a real `Caffeinate`, which the test stops.
-        private func presenter() -> (CaffeinateDialogPresenter, TabsCore.Caffeinate) {
+        /// A presenter over a real `Caffeinate`, which the test stops, and `settings` (by default a
+        /// new file's: nothing started yet).
+        private func presenter(settings: SettingsStore = Self.freshSettings()) -> (CaffeinateDialogPresenter, TabsCore.Caffeinate) {
             let caffeinate = TabsCore.Caffeinate()
-            return (CaffeinateDialogPresenter(caffeinate: caffeinate, presentsWindows: false), caffeinate)
+            return (
+                CaffeinateDialogPresenter(caffeinate: caffeinate, settings: settings, themes: Themes(), presentsWindows: false), caffeinate
+            )
+        }
+
+        private static func freshSettings() -> SettingsStore {
+            SettingsStore(file: TestSupport.temporaryDirectory().appending(path: "settings.json"))
         }
 
         @Test func itIsTitledCaffeinate() throws {  // D-1, D-15
@@ -271,17 +265,59 @@ extension UITests {
             #expect(NSApp.windows.filter { $0.title == "Caffeinate" && $0.delegate === first }.count == 1)
         }
 
-        @Test func eachNewDialogStartsFromTheDefaults() throws {  // D-10
-            let (presenter, _) = presenter()
+        @Test func eachNewDialogStartsFromTheLastStart() throws {  // D-10, D-17
+            let file = TestSupport.temporaryDirectory().appending(path: "settings.json")
+            let (presenter, caffeinate) = presenter(settings: SettingsStore(file: file))
+            defer { caffeinate.killNow() }
             let first = presenter.show()
+            #expect(first.model.flags == CaffeinateFlags.dialogDefaults, "never started: the defaults")
+            #expect(first.model.timerText == "")
+            first.model.flags.preventDisplaySleep = true
+            first.model.flags.preventIdleSleep = false
             first.model.timerText = "7"
-            first.model.flags.declareUserActive = true
-            first.cancel()
+            first.start()
+
+            let started = CaffeinateFlags(preventDisplaySleep: true, preventSystemSleep: true)
             let second = presenter.show()
-            defer { second.cancel() }
             #expect(second !== first)
-            #expect(second.model.flags == CaffeinateFlags.dialogDefaults)
-            #expect(second.model.timerText == "")
+            #expect(second.model.flags == started)
+            #expect(second.model.timerText == "7")
+            second.cancel()
+
+            // A relaunch: another presenter over the same file.
+            let (relaunched, _) = self.presenter(settings: SettingsStore(file: file))
+            let third = relaunched.show()
+            defer { third.cancel() }
+            #expect(third.model.flags == started)
+            #expect(third.model.timerText == "7")
+        }
+
+        @Test func onlyStartRecordsTheOptions() throws {  // D-16
+            let settings = Self.freshSettings()
+            let (presenter, caffeinate) = presenter(settings: settings)
+            defer { caffeinate.killNow() }
+            func changed() -> CaffeinateWindowController {
+                let controller = presenter.show()
+                controller.model.flags.declareUserActive = true
+                controller.model.timerText = "9"
+                return controller
+            }
+            try button("caffeinate-cancel-button", in: changed()).performClick(nil)
+            #expect(InputSynthesizer.press(KeyChord(.escape, []), in: try #require(changed().window)))
+            try #require(changed().window).performClose(nil)
+            #expect(presenter.controller == nil)
+            #expect(settings.lastCaffeinate == nil, "Cancel, Escape and close record nothing")
+
+            let controller = presenter.show()
+            #expect(controller.model.flags == CaffeinateFlags.dialogDefaults, "…so the next dialog still starts from the defaults")
+            #expect(controller.model.timerText == "")
+            controller.model.flags.preventDiskSleep = true
+            controller.model.timerText = "3"
+            try button("caffeinate-start-button", in: controller).performClick(nil)
+            #expect(caffeinate.isRunning)
+            #expect(
+                settings.lastCaffeinate
+                    == CaffeinateFlags(preventIdleSleep: true, preventDiskSleep: true, preventSystemSleep: true, timerSeconds: 180))
         }
 
         @Test func returnPressesStart() throws {  // D-12
@@ -303,7 +339,7 @@ extension UITests {
         @Test func theSwitchIsOnPanesAndTabsUnderStartup() throws {
             let runtime = TestSupport.runtime()
             let controller = makeSettingsWindow(
-                pages: [], settings: runtime.settings, signals: [], shortcuts: runtime.shortcuts)
+                pages: [], settings: runtime.settings, signals: [], shortcuts: runtime.shortcuts, themes: runtime.themes)
             defer { controller.close() }
             let tabs = try #require(controller.contentViewController as? NSTabViewController)
             #expect(tabs.tabViewItems.first?.label == "Panes & Tabs")
@@ -312,9 +348,9 @@ extension UITests {
 
             // The switch writes the setting, both ways.
             let hosting = try #require(
-                page.allSubviews.lazy.compactMap { $0 as? NSHostingView<PaneSettingsView> }.first ?? page
-                    as? NSHostingView<PaneSettingsView>)
-            let model = hosting.rootView.model
+                page.allSubviews.lazy.compactMap { $0 as? NSHostingView<ThemedRoot<PaneSettingsView>> }.first ?? page
+                    as? NSHostingView<ThemedRoot<PaneSettingsView>>)
+            let model = hosting.rootView.content.model
             #expect(model.binding(\.persistLayoutOnExit).wrappedValue)
             model.binding(\.persistLayoutOnExit).wrappedValue = false
             #expect(runtime.settings.panes.persistLayoutOnExit == false)
@@ -332,6 +368,25 @@ extension UITests {
         let model = CaffeinateDialogModel()
         #expect(model.flags == CaffeinateFlags(preventIdleSleep: true, preventSystemSleep: true))
         #expect(model.timerText == "")
+    }
+
+    @Test func aRememberedStartFillsTheFields() {  // D-10
+        let remembered = CaffeinateFlags(preventDisplaySleep: true, declareUserActive: true, timerSeconds: 1500)
+        let model = CaffeinateDialogModel(remembered: remembered)
+        #expect(model.flags == CaffeinateFlags(preventDisplaySleep: true, declareUserActive: true))
+        #expect(model.timerText == "25")
+        #expect(model.flagsToStart == remembered, "Start again starts the same way")
+        #expect(CaffeinateDialogModel(remembered: nil).flags == CaffeinateFlags.dialogDefaults)
+        #expect(CaffeinateDialogModel(remembered: CaffeinateFlags(timerSeconds: 90)).timerText == "", "not whole minutes: none")
+
+        for none: Double? in [nil, 0, -60, 90, 0.5, .infinity, .nan] {
+            #expect(CaffeinateDialogModel.timerText(forSeconds: none) == "", "\(String(describing: none))")
+        }
+        for minutes in [1, 7, 60, 1440] {
+            let seconds = Double(minutes * 60)
+            #expect(CaffeinateDialogModel.timerText(forSeconds: seconds) == String(minutes))
+            #expect(CaffeinateDialogModel.parseTimerMinutes(CaffeinateDialogModel.timerText(forSeconds: seconds)) == seconds)
+        }
     }
 
     @Test func anEmptyTimerRunsUntilDecaf() {  // D-6

@@ -24,10 +24,8 @@ extension InputVerbs {
         guard let name = invocation["direction"]?.stringValue, let direction = ScrollDirection(rawValue: name) else {
             throw ControlVerbError("request is missing required field \"direction\"")
         }
-        switch await VerbSupport.evalInGuest(pane.page, scrollScript(direction: direction, amount: invocation["amount"]?.doubleValue)) {
-        case .failure(let error): throw ControlVerbError(error.message)
-        case .success(let position): return .object(["position": position])
-        }
+        let position = try await pane.page.evaluate(scrollScript(direction: direction, amount: invocation["amount"]?.doubleValue)).orThrow()
+        return .object(["position": position])
     }
 
     // MARK: form-input

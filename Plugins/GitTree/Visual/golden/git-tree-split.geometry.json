@@ -27,48 +27,82 @@
         {
           "dd": [61.62, 600.5, 152.32, 13],
           "dt": [11, 600.5, 23.04, 13]
+        },
+        {
+          "dd": [61.62, 615.5, 64.6, 13],
+          "dt": [11, 615.5, 27.75, 13]
         }
       ],
       "files": [
         {
-          "binary": [55.26, 630.5, 39.74, 13],
+          "binary": [69.26, 645.5, 39.74, 13],
           "deletions": null,
+          "diff": null,
+          "diffLines": [],
+          "diffNotes": [],
+          "disclosure": [11, 643.5, 14, 17],
+          "expanded": false,
+          "fullFile": null,
           "insertions": null,
-          "path": [103, 630.5, 198.68, 13],
-          "row": [11, 628.5, 878, 17],
-          "stat": [11, 628.5, 84, 17]
+          "path": [117, 645.5, 198.68, 13],
+          "row": [11, 643.5, 878, 17],
+          "stat": [25, 643.5, 84, 17]
         },
         {
           "binary": null,
-          "deletions": [81.75, 647.5, 13.25, 13],
-          "insertions": [50.26, 647.5, 26.49, 13],
-          "path": [103, 647.5, 304.64, 13],
-          "row": [11, 645.5, 878, 17],
-          "stat": [11, 645.5, 84, 17]
+          "deletions": [95.75, 662.5, 13.25, 13],
+          "diff": null,
+          "diffLines": [],
+          "diffNotes": [],
+          "disclosure": [11, 660.5, 14, 17],
+          "expanded": false,
+          "fullFile": null,
+          "insertions": [64.26, 662.5, 26.49, 13],
+          "path": [117, 662.5, 304.64, 13],
+          "row": [11, 660.5, 878, 17],
+          "stat": [25, 660.5, 84, 17]
         },
         {
           "binary": null,
-          "deletions": [75.13, 664.5, 19.87, 13],
-          "insertions": [50.26, 664.5, 19.87, 13],
-          "path": [103, 664.5, 291.39, 13],
-          "row": [11, 662.5, 878, 17],
-          "stat": [11, 662.5, 84, 17]
+          "deletions": [89.13, 679.5, 19.87, 13],
+          "diff": null,
+          "diffLines": [],
+          "diffNotes": [],
+          "disclosure": [11, 677.5, 14, 17],
+          "expanded": false,
+          "fullFile": null,
+          "insertions": [64.26, 679.5, 19.87, 13],
+          "path": [117, 679.5, 291.39, 13],
+          "row": [11, 677.5, 878, 17],
+          "stat": [25, 677.5, 84, 17]
         },
         {
           "binary": null,
-          "deletions": [75.13, 681.5, 19.87, 13],
-          "insertions": [37.02, 681.5, 33.11, 13],
-          "path": [103, 681.5, 668.88, 30],
-          "row": [11, 679.5, 878, 34],
-          "stat": [11, 679.5, 84, 34]
+          "deletions": [89.13, 696.5, 19.87, 13],
+          "diff": null,
+          "diffLines": [],
+          "diffNotes": [],
+          "disclosure": [11, 694.5, 14, 34],
+          "expanded": false,
+          "fullFile": null,
+          "insertions": [51.02, 696.5, 33.11, 13],
+          "path": [117, 696.5, 668.88, 30],
+          "row": [11, 694.5, 878, 34],
+          "stat": [25, 694.5, 84, 34]
         },
         {
           "binary": null,
-          "deletions": [81.75, 715.5, 13.25, 13],
-          "insertions": [56.89, 715.5, 19.87, 13],
-          "path": [103, 715.5, 298.02, 13],
-          "row": [11, 713.5, 878, 17],
-          "stat": [11, 713.5, 84, 17]
+          "deletions": [95.75, 730.5, 13.25, 13],
+          "diff": null,
+          "diffLines": [],
+          "diffNotes": [],
+          "disclosure": [11, 728.5, 14, 17],
+          "expanded": false,
+          "fullFile": null,
+          "insertions": [70.89, 730.5, 19.87, 13],
+          "path": [117, 730.5, 298.02, 13],
+          "row": [11, 728.5, 878, 17],
+          "stat": [25, 728.5, 84, 17]
         }
       ],
       "head": [667.8, 37.5, 33.03, 13],
@@ -226,7 +260,11 @@
       },
       "select": [708.84, 34, 123, 20],
       "selectBaseline": 48.5,
-      "state": "list"
+      "state": "list",
+      "totals": {
+        "deletions": [99.73, 615.5, 26.49, 13],
+        "insertions": [61.62, 615.5, 33.11, 13]
+      }
     }
   },
   "contextMenu": null,
@@ -296,7 +334,7 @@
   "tabBars": {
     "root": {
       "grip": null,
-      "newTab": [147.69, 13, 20, 14],
+      "newTab": [145.85, 13, 20, 14],
       "rect": [1, 1, 898, 30],
       "root": true,
       "settings": [866, 4.5, 23, 23],
@@ -305,12 +343,12 @@
         "tab-git": {
           "active": true,
           "baseline": 25,
-          "close": [127.69, 14.5, 15.01, 14],
+          "close": [125.84, 14.5, 15.01, 14],
           "dragging": false,
-          "rect": [90, 10, 55.69, 22],
-          "text": "Tabs",
-          "title": [101, 14, 24.69, 13],
-          "titleBox": [101, 14, 24.69, 13],
+          "rect": [90, 10, 53.85, 22],
+          "text": "tabs",
+          "title": [101, 14, 22.84, 13],
+          "titleBox": [101, 14, 22.84, 13],
           "truncated": false
         }
       }

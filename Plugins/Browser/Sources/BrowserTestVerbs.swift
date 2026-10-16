@@ -68,10 +68,7 @@ enum BrowserTestVerbs {
                 guard let pane = invocation.pane(as: BrowserPane.self), let code = invocation["code"]?.stringValue else {
                     throw ControlVerbError("not a browser pane")
                 }
-                switch await pane.page.evaluate(code) {
-                case .success(let value): return .object(["value": value])
-                case .failure(let error): throw ControlVerbError(error.message)
-                }
+                return try await .object(["value": pane.page.evaluate(code).orThrow()])
             })
 
         context.register(
@@ -101,19 +98,6 @@ enum BrowserTestVerbs {
                     throw ControlVerbError(paneNotMountedError)
                 }
                 return .emptyObject
-            })
-
-        context.register(
-            ControlVerbContribution(
-                name: "browser.test.geometry",
-                summary: "Debug: where a browser pane's header draws its parts, in the header title view's coordinates",
-                target: .pane(ofTypes: ["browser"])
-            ) { invocation in
-                guard let pane = invocation.pane(as: BrowserPane.self), let toolbar = pane.toolbar else {
-                    throw ControlVerbError("not a browser pane with a header")
-                }
-                toolbar.layoutSubtreeIfNeeded()
-                return toolbar.geometry()
             })
 
         let scratch = context.temporaryDirectory
@@ -343,38 +327,6 @@ extension BrowserToolbar {
                 height: font.lineHeight))
         out["addressBaseline"] = .double(round2(text.y))
         out["addressValue"] = .string(bar.address)
-        return .object(out)
-    }
-
-    /// The header parts' rectangles, `[x, y, width, height]` in this view's
-    /// coordinates (the capture adds its origin), with the address text's baseline.
-    func geometry() -> JSONValue {
-        func rect(_ rect: CGRect?) -> JSONValue {
-            guard let rect else { return .null }
-            func round2(_ x: Double) -> JSONValue { .double((x * 100).rounded() / 100) }
-            return .array([round2(rect.minX), round2(rect.minY), round2(rect.width), round2(rect.height)])
-        }
-        let layout = computeLayout(width: bounds.width)
-        let barLayout = bar.computeLayout()
-        let barOrigin = layout.bar.origin
-        func inBar(_ rect: CGRect?) -> CGRect? { rect?.offsetBy(dx: barOrigin.x, dy: barOrigin.y) }
-        var out: [String: JSONValue] = [:]
-        out["back"] = rect(layout.back)
-        out["forward"] = rect(layout.forward)
-        out["refresh"] = rect(layout.refresh)
-        out["bar"] = rect(layout.bar)
-        out["segment"] = rect(inBar(barLayout.segment))
-        out["input"] = rect(inBar(barLayout.input))
-        let origin = AddressBar.inputTextOrigin(in: barLayout.input)
-        out["inputBaseline"] = .double(((barOrigin.y + origin.y) * 100).rounded() / 100)
-        if let segment = barLayout.segment {
-            let font = BrowserText.ui12
-            let baseline =
-                segment.minY + BrowserMetrics.segmentPaddingY + font.halfLeading(in: BrowserMetrics.segmentLineHeight) + font.ascent
-            out["segmentBaseline"] = .double(((barOrigin.y + baseline) * 100).rounded() / 100)
-        } else {
-            out["segmentBaseline"] = .null
-        }
         return .object(out)
     }
 }

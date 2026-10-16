@@ -89,6 +89,34 @@ import Testing
         #expect(!(await bed.ctl("key", ["command": "paste"])).ok)
     }
 
+    /// J-28: a key the keyboard doesn't have (a name spelled otherwise, several characters) is refused naming the
+    /// keys it takes, before anything reaches the page, rather than answering ok having sent nothing. A character
+    /// with no key behind it is no such key: it is typed, as text.
+    @Test func keyRefusesAKeyItCannotSendNamingTheKeysItTakes() async throws {
+        let bed = try await InputVerbBed()
+        await bed.value(
+            """
+            (() => {
+              window.__keyEvents = 0
+              for (const type of ['keydown', 'keypress', 'keyup', 'beforeinput', 'input'])
+                document.addEventListener(type, () => { window.__keyEvents += 1 }, true)
+              return true
+            })()
+            """)
+        for key in ["enter", "Esc", "ab"] {
+            let refused = await bed.ctl("key", ["key": .string(key)])
+            #expect(!refused.ok, "\(key)")
+            #expect(refused.error?.hasPrefix("unknown key \"\(key)\" — one of Enter, Escape, Tab, ") == true, "\(refused.error ?? "")")
+            #expect(refused.error?.contains("F1–F20, Space, Return (names are case-sensitive)") == true, "\(refused.error ?? "")")
+        }
+        #expect(await bed.value("window.__keyEvents") == 0, "nothing reached the page")
+
+        #expect(await bed.ctl("click", ["selector": "#name"]).ok)
+        let typed = await bed.ctl("key", ["key": "é"])
+        #expect(typed.ok, "\(typed.error ?? "")")
+        #expect(await bed.until { await bed.value("document.getElementById('name').value") == "é" })
+    }
+
     /// J-15: arrows keep `key` and `code` intact under every modifier, alt included.
     @Test func keyDeliversArrowKeysWithAnIntactKeyCodeUnderEveryModifierAltIncluded() async throws {
         let bed = try await InputVerbBed()
@@ -119,8 +147,7 @@ import Testing
 
     // MARK: scroll
 
-    /// J-16: `scroll` reports where it landed, on a smooth page, and on one that is hidden as a background tab's is,
-    /// with a real screenful for its step.
+    /// J-16: `scroll` reports where it landed, on a smooth page, with a real screenful for its step.
     @Test func scrollReportsWhereItLandedOnASmoothPage() async throws {
         let bed = try await InputVerbBed(path: "/smooth")
         let scrolled = await bed.ctl("scroll", ["direction": "down"])
@@ -140,15 +167,6 @@ import Testing
         let expected = (again.result["position"]?["y"]?.doubleValue ?? 0) - 100
         #expect(up.result["position"]?["y"]?.doubleValue == expected)
         #expect(up.result["position"]?["x"] == 0)
-        // Hidden: the step is still 0.8 of the page's own height, not of a zero-sized rect.
-        bed.page.webView.isHidden = true
-        #expect(!bed.page.isVisible)
-        let height = try #require(await bed.value("window.innerHeight").doubleValue)
-        let hidden = await bed.ctl("scroll", ["direction": "down"])
-        #expect(hidden.ok, "\(hidden.error ?? "")")
-        let landed = try #require(hidden.result["position"]?["y"]?.doubleValue)
-        #expect(height > 0 && landed == expected + (height * 0.8).rounded(), "\(landed) from \(expected), a page \(height) high")
-        #expect(await bed.value("window.scrollY").doubleValue == landed)
     }
 
     /// J-16: a wire request with no direction is refused as the schema does (the flag's default is the CLI's).
@@ -522,7 +540,7 @@ import Testing
         let button = await bed.element(named: "Do the thing")
         bed.page.destroy()
         let sentence =
-            "the page could not run script — it may be mid-navigation, showing an error page, or a viewer (such as the PDF viewer) that runs none"
+            "the page could not run script — it may be mid-navigation, or its process may have ended (a reload brings it back)"
         #expect(await bed.ctl("click", ["ref": .string(button.ref)]).error == sentence)
         #expect(await bed.ctl("hover", ["selector": "#go"]).error == sentence)
         #expect(await bed.ctl("type", ["selector": "#name", "text": "x"]).error == sentence)
@@ -855,6 +873,6 @@ import Testing
         #expect(form?["flags"]?["fields"]?["type"] == "json")
         #expect(form?["flags"]?["fields"]?["doc"] == "A JSON array of {target, value} pairs.")
         #expect(command("type")?["flags"]?["submit"]?["type"] == "boolean")
-        #expect(command("click")?["flags"]?["ref"]?["doc"] == "An opaque ref from a previous read-page/find.")
+        #expect(command("click")?["flags"]?["ref"]?["doc"] == "An opaque element ref, as an earlier command answered it.")
     }
 }

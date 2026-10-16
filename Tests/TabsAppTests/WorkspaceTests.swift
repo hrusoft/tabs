@@ -285,13 +285,36 @@ import Testing
         #expect(item.keyEquivalent == "j")
         #expect(item.keyEquivalentModifierMask == [.command, .option])
         #expect(!router.validateMenuItem(item), "no windows, so no active pane of type m")
-        #expect(menu.item(withTitle: "View") == nil, "empty plugin menus are dropped")
 
         let engine = LayoutEngine(runtime: runtime)
         let withWindows = CommandRouter(runtime: runtime, engine: engine)
         engine.restore(nil)
         runtime.panes.openPane(ofType: "m", config: nil)
         #expect(withWindows.validateMenuItem(item))
+    }
+
+    /// LAYOUT.md, Windows: View always ends with Enter Full Screen (⌃⌘F), the way out of full screen
+    /// whatever plugins are loaded. Nil-targeted, like Minimize and Zoom: it acts on the key window.
+    @Test func theViewMenuEndsWithEnterFullScreen() throws {
+        func view(_ plugins: [PluginCandidate]) throws -> [NSMenuItem] {
+            let runtime = TestSupport.runtime()
+            runtime.startPlugins(from: nil, inProcess: plugins)
+            let menu = MainMenu.build(runtime: runtime, router: CommandRouter(runtime: runtime))
+            return try #require(menu.item(withTitle: "View")?.submenu).items
+        }
+
+        let alone = try view([])
+        #expect(alone.map(\.title) == ["Enter Full Screen"], "no plugin adds to View, and it's still there")
+        let item = try #require(alone.last)
+        #expect(item.action == #selector(NSWindow.toggleFullScreen(_:)))
+        #expect(item.target == nil)
+        #expect(item.keyEquivalent == "f")
+        #expect(item.keyEquivalentModifierMask == [.control, .command])
+
+        let refresh = TestSupport.candidate(TestSupport.manifest("v")) { context in
+            context.register(CommandContribution(id: "v.refresh", title: "Refresh", menu: .view) { _ in })
+        }
+        #expect(try view([refresh]).map { $0.isSeparatorItem ? "-" : $0.title } == ["Refresh", "-", "Enter Full Screen"])
     }
 
     /// The File menu as `MainMenu.build` makes it, each item's chord from core's table.

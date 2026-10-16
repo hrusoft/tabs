@@ -50,7 +50,7 @@ extension UITests {
 
         @Test func anOwnedPaneShowsTheRobotAndItsOutlineButNeverOnATab() throws {
             let ui = UIDriver(layout: Self.pair)
-            ui.runtime.panes.grantOwnership(of: "b", to: "a")
+            ui.runtime.panes.ownership.enableControl(of: "b", from: "a")
             ui.layoutAll()
             #expect(try ui.headerSignals("b") == ["controlled"])
             #expect(try ui.headerSignals("a").isEmpty)
@@ -63,11 +63,32 @@ extension UITests {
 
         @Test func closingTheOwnedPaneEndsItsCue() throws {
             let ui = UIDriver(layout: Self.pair)
-            ui.runtime.panes.grantOwnership(of: "b", to: "a")
+            ui.runtime.panes.ownership.enableControl(of: "b", from: "a")
             ui.engine.close("b")
             ui.layoutAll()
             #expect(ui.runtime.signals.raised(on: "b").isEmpty)
-            #expect(!ui.runtime.panes.ownership.isOwned("b"))
+            #expect(!ui.runtime.panes.ownership.isControlled("b"))
+        }
+
+        @Test func closingTheControllerTakesTheRobotAndOutlineOffThePaneItControlled() throws {
+            let ui = UIDriver(layout: Self.pair)
+            ui.runtime.panes.ownership.enableControl(of: "b", from: "a")
+            ui.layoutAll()
+            #expect(try ui.outline("b")?.shown?.kind.id == "controlled")
+            ui.engine.close("a")
+            ui.layoutAll()
+            #expect(try ui.headerSignals("b").isEmpty)
+            #expect(try ui.outline("b") == nil)
+        }
+
+        @Test func disablingControlTakesTheRobotAndOutlineOff() throws {
+            let ui = UIDriver(layout: Self.pair)
+            ui.runtime.panes.ownership.enableControl(of: "b", from: "a")
+            ui.layoutAll()
+            ui.runtime.panes.ownership.disableControl(of: "b", from: "a")
+            ui.layoutAll()
+            #expect(try ui.headerSignals("b").isEmpty)
+            #expect(try ui.outline("b") == nil)
         }
     }
 }

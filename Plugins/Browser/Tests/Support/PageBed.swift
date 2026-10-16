@@ -8,11 +8,12 @@ import Testing
 /// A `BrowserPage` in a window that is never shown, served by a `FixtureServer`:
 /// what the page-level tests drive (docs/BROWSER.md, Cases). The web view is the
 /// window's content, as core puts a pane's view in a window, so input and
-/// snapshots work; nothing is ever put on screen.
+/// snapshots work; nothing is ever put on screen. The window tells WebKit it is
+/// (`OnScreenWindow`): Browser tests drive active pages (docs/BROWSER.md, Testing).
 @MainActor
 final class PageBed {
     let server: FixtureServer
-    let window: KeyableWindow
+    let window: OnScreenWindow
     let page: BrowserPage
     /// The page's web data: the bed's own, so no test sees another's cookies, removed when the bed goes.
     let dataStore = UUID()
@@ -31,9 +32,7 @@ final class PageBed {
         server = try await FixtureServer.start()
         serving(server)
         page = BrowserPage(dataStore: dataStore, url: url(server), loopbackExemption: LoopbackExemption(directory: ruleListDirectory))
-        window = KeyableWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        window = OnScreenWindow.make()
         if mounted { window.contentView = page.webView }
         subscription = page.events.subscribe { [weak self] in self?.events.append($0) }
     }

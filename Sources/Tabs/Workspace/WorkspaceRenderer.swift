@@ -86,20 +86,10 @@ final class WorkspaceRenderer: LayoutRenderer {
     /// z-order of the visible windows; with none visible, the one that was
     /// last key; else nil.
     var frontmostWindowID: WindowID? {
-        for window in NSApp?.orderedWindows ?? [] where window.isVisible {
+        for window in NSApp?.orderedWindows ?? [] where window.isShownOnScreen {
             if let controller = controllers.values.first(where: { $0.window === window }) { return controller.windowID }
         }
         return lastKey.flatMap { controllers[$0] != nil ? $0 : nil }
-    }
-
-    /// Workspace windows front to back (visible ones by z-order first).
-    var windowsFrontToBack: [WorkspaceWindowController] {
-        var ordered: [WorkspaceWindowController] = []
-        for window in NSApp?.orderedWindows ?? [] {
-            if let controller = controllers.values.first(where: { $0.window === window }) { ordered.append(controller) }
-        }
-        for controller in windows where !ordered.contains(where: { $0 === controller }) { ordered.append(controller) }
-        return ordered
     }
 
     /// Whether `window` is one of the workspace's (not Settings, Plugins).
@@ -132,7 +122,7 @@ final class WorkspaceRenderer: LayoutRenderer {
     func titleDidChange(_ pane: PaneID) {
         guard let window = engine.model.window(holding: pane), let controller = controllers[window.id] else { return }
         controller.refreshChrome()
-        controller.window?.title = engine.paneTitle(of: window.activeLeafID ?? window.activePaneID)
+        controller.window?.title = engine.paneTitle(of: window.activePaneID)
     }
 
     func focus(_ pane: PaneID) {
@@ -256,9 +246,7 @@ final class WorkspaceRenderer: LayoutRenderer {
             }
         case .live(let live):
             host.show(.live(live), key: "live-\(ObjectIdentifier(live))", contentType: live.contentType) {
-                .init(
-                    view: live.controller.view, accessory: live.controller.headerAccessory, headerTitle: live.controller.headerTitle,
-                    actions: live.controller.headerActions)
+                .init(view: live.controller.view, headerTitle: live.controller.headerTitle, actions: live.controller.headerActions)
             }
         case .unavailable(let reason):
             host.show(.unavailable(reason: reason), key: "unavailable-\(reason)", contentType: leaf.type) {

@@ -26,7 +26,7 @@ final class PluginHarness {
     ///   - alongside: other in-process plugins to run with it (a stub content
     ///     type to produce pane events, say).
     ///   - withAgent: also run a stand-in for the terminal an agent types
-    ///     `tabs-ctl` in (a stub content type, `agent`), so control-plane verbs have
+    ///     `tabs-ctl` in (a stub content type, `harness-agent`), so control-plane verbs have
     ///     a caller: `agentPane`, `tabsCtl`, `wire`.
     ///   - testFile: finds the plugin's folder (Plugins/<Name>/Tests/<file>).
     init(
@@ -46,6 +46,9 @@ final class PluginHarness {
             ] : []
         runtime.startPlugins(from: nil, inProcess: [TestSupport.candidate(manifest, make)] + alongside + agent)
         engine = LayoutEngine(runtime: runtime)
+        // The plugin's titles as it sets them: how long the chrome waits to show
+        // a change is core's (LayoutEngineTests), not the plugin's.
+        engine.titleSettleDelay = .zero
         engine.renderer = renderer
         engine.restore(nil)
     }

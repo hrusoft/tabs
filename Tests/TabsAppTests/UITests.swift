@@ -17,6 +17,7 @@ extension UITests {
         try ui.create("text")
         #expect(ui.contentType(of: pane) == "text", "filled in place")
         #expect(ui.focusedPane == pane, "and focused, so typing goes straight in")
+        ui.engine.titleSettleDelay = .zero
         try ui.type("Shopping\nmilk")
         #expect(typedText(ui, pane) == "Shopping\nmilk")
         #expect(ui.engine.paneTitle(of: pane) == "Shopping", "the header is titled by the first line")
@@ -68,6 +69,17 @@ extension UITests {
         try ui.type("typed into a")
         #expect(typedText(ui, "a") == "typed into a")
         #expect(typedText(ui, "b") == "")
+    }
+
+    @Test func clickingAnotherGroupsShownTabFocusesThePaneItShows() throws {
+        let group = Fixture.tabs("g", [Fixture.tab(Fixture.leaf("x", "text")), Fixture.tab(Fixture.leaf("y", "text"))], active: "t-y")
+        let ui = UIDriver(
+            layout: Fixture.saved(Fixture.window("w", Fixture.split("s", .horizontal, [Fixture.leaf("a", "text"), group]), active: "a")))
+        try ui.click(tab: "t-y")
+        #expect(ui.activePane == "y", "a group is never active: the pane its tab shows is")
+        #expect(ui.focusedPane == "y")
+        try ui.click(tab: "t-y")
+        #expect(ui.activePane == "y", "clicking it again changes nothing")
     }
 
     @Test func closingABackgroundTabLeavesTheUserWhereTheyAre() throws {
@@ -192,7 +204,7 @@ extension UITests {
         #expect(moved.leaves.map(\.id).contains("b"), "the tab landed in the other window")
         #expect(ui.engine.model.window("w")?.leaves.map(\.id) == ["a"])
         #expect(view.window === destination.window, "the same view, now in the other window")
-        #expect(moved.activeLeafID == "b")
+        #expect(moved.activePaneID == "b")
         #expect(ui.focusedPane(in: try #require(destination.window)) == "b", "and it has that window's keyboard")
         try ui.type(" and more", in: destination)
         #expect(typedText(ui, "b") == "draft and more", "same pane, same text view")

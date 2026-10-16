@@ -5,7 +5,7 @@ import Testing
 @testable import TabsCore
 
 /// The control plane's dispatch, envelope handling and ownership rules — the
-/// cases of docs/BROWSER.md H-1 … H-6, H-9, H-15 and J-24's core half, against
+/// cases of docs/BROWSER.md H-1 … H-5, H-9, H-15, H-17 and J-24's core half, against
 /// a real core with the layout engine, a fake renderer and the fixture plugin
 /// (whose verbs are shaped like the browser's, and are nothing else).
 @MainActor
@@ -16,6 +16,11 @@ import Testing
     var signals: PaneSignals { fixture.runtime.signals }
 
     private static let gone = ControlDispatcher.paneGoneError
+
+    /// The panes the registry put under control, as it announced them.
+    @MainActor final class Enabled {
+        var panes: [PaneID] = []
+    }
 
     // MARK: H-1: who is asking
 
@@ -49,7 +54,7 @@ import Testing
 
     @Test func anAgentCreatesAPaneOwnsItAndDrivesItButNoOther() async throws {
         let pane = try await fixture.createPane()
-        #expect(ledger.owner(of: pane) == "t1")
+        #expect(ledger.controller(of: pane) == "t1")
         #expect(await fixture.ctl("navigate", ["pane": .string(pane.rawValue), "url": "about:blank"])["ok"] == true)
 
         // t2 is the user's own pane, a real pane: not its owner's to drive.
@@ -87,7 +92,7 @@ import Testing
         let pane = try await fixture.createPane()
         fixture.web(pane)?.url = "https://elsewhere.example/"
         #expect(await fixture.ctl("navigate", ["pane": .string(pane.rawValue), "url": "about:blank"])["ok"] == true)
-        #expect(ledger.owner(of: pane) == "t1", "never expired, never re-scoped")
+        #expect(ledger.controller(of: pane) == "t1", "never expired, never re-scoped")
     }
 
     // MARK: H-3: a pane that is gone
@@ -113,13 +118,14 @@ import Testing
         #expect(
             await fixture.ctl("pane-info", ["pane": .string(pane.rawValue)], from: "t2")
                 == ControlDispatcher.failure("not the owner of this pane"))
-        #expect(!ledger.isOwned(pane))
+        #expect(!ledger.isControlled(pane))
     }
 
     @Test func theLedgerRemembersTheLastHundredClosedPanes() async {
+        // Ids no open pane has: brought under control as panes being made.
         for index in 0...PaneOwnership.closedPaneMemory {
-            ledger.grant(PaneID("old\(index)"), to: "t1")
-            ledger.release(PaneID("old\(index)"))
+            ledger.enableControl(ofNewPane: PaneID("old\(index)"), from: "t1")
+            ledger.paneClosed(PaneID("old\(index)"))
         }
         let request: (String) async -> JSONValue = { id in
             await self.fixture.wire(["type": "reload", "targetPaneId": .string(id)])
@@ -129,13 +135,17 @@ import Testing
         #expect(await request("old100") == ControlDispatcher.failure(Self.gone))
     }
 
-    @Test func aPaneThatWasNeverPlacedLeavesNoTombstone() async {
+    @Test func aPaneThatWasNeverPlacedLeavesNoTombstone() async throws {
         // The layout has nowhere to put it: the pane is made, owned, then dropped unopened.
         let shell = FakeShell(runtime: fixture.runtime.panes)
         shell.refusesPlacement = true
+        let enabled = Enabled()
+        ledger.observe { if case .enabled(let pair) = $0 { enabled.panes.append(pair.controlled) } }
         let opened = fixture.runtime.panes.openPane(PaneRequest(type: "web", controlledBy: "t1"))
         #expect(opened == nil)
-        #expect(ledger.ownedPanes.isEmpty)
+        let made = try #require(enabled.panes.first, "it was controlled while being made")
+        #expect(ledger.pairs.isEmpty)
+        #expect(!ledger.wasClosed(made, by: "t1"), "nobody learned its id: no tombstone")
         withExtendedLifetime(shell) {}
     }
 
@@ -146,7 +156,7 @@ import Testing
         #expect(fixture.web(pane)?.controllerAtInit == "t1", "before its view, before anything it loads first")
         #expect(fixture.web(pane)?.context.controller == "t1")
         fixture.engine.close(pane)
-        #expect(ledger.owner(of: pane) == nil)
+        #expect(ledger.controller(of: pane) == nil)
     }
 
     @Test func aPluginMayNameOnlyTheCallerOfItsOwnRunningVerbAsAControllerAndNeverOutsideOne() async throws {
@@ -163,7 +173,7 @@ import Testing
         #expect(own["ok"] == true)
         // And core itself may name anyone.
         let core = try #require(fixture.runtime.panes.openPane(PaneRequest(type: "web", controlledBy: "t2")))
-        #expect(ledger.owner(of: core) == "t2")
+        #expect(ledger.controller(of: core) == "t2")
         #expect(!ledger.isRunning("web", for: "t1"), "a finished verb no longer counts")
     }
 
@@ -187,18 +197,63 @@ import Testing
         #expect(signals.raised(on: byHand).isEmpty)
     }
 
-    @Test func grantingOwnershipOfAPaneThatIsAlreadyOpenRaisesTheCue() {
-        fixture.runtime.panes.grantOwnership(of: "t2", to: "t1")
+    @Test func enablingControlOfAPaneThatIsAlreadyOpenRaisesTheCue() {
+        ledger.enableControl(of: "t2", from: "t1")
         #expect(signals.raised(on: "t2").map(\.id) == ["controlled"])
-        #expect(ledger.owner(of: "t2") == "t1")
+        #expect(ledger.controller(of: "t2") == "t1")
     }
 
-    // MARK: H-6: reset
+    // MARK: H-17: one registry, both ends
 
-    @Test func theLedgerResets() async throws {
-        let pane = try await fixture.createPane()
-        ledger.reset()
-        #expect(await fixture.ctl("reload", ["pane": .string(pane.rawValue)]) == ControlDispatcher.failure("not the owner of this pane"))
+    @Test func closingTheControllerFreesItsPanesAndTakesTheirCueDown() async throws {
+        let pane = try await fixture.createPane(from: "t1")
+        let other = try await fixture.createPane(from: "t2")
+        fixture.engine.close("t1")
+        #expect(fixture.web(pane) != nil, "freed, not closed")
+        #expect(ledger.controller(of: pane) == nil)
+        #expect(fixture.web(pane)?.context.controller == nil, "what the plugin's guards read")
+        #expect(signals.raised(on: pane).isEmpty)
+        #expect(ledger.controller(of: other) == "t2", "another controller's pane is untouched")
+        #expect(signals.raised(on: other).map(\.id) == ["controlled"])
+    }
+
+    @Test func disablingControlTakesTheCueDownAndRefusesTheFormerControllerLikeAnyoneElse() async throws {
+        let pane = try await fixture.createPane(from: "t1")
+        ledger.disableControl(of: pane, from: "t1")
+        #expect(signals.raised(on: pane).isEmpty)
+        let response = await fixture.ctl("reload", ["pane": .string(pane.rawValue)], from: "t1")
+        #expect(response == ControlDispatcher.failure("not the owner of this pane"), "still open: not 'gone'")
+        #expect(await fixture.ctl("list-panes", from: "t1")["result"]?["panes"] == .array([]))
+    }
+
+    @Test func controlIsNeverTakenOverOnlyHandedOverOnceDisabled() async throws {
+        let pane = try await fixture.createPane(from: "t1")
+        let id = JSONValue.string(pane.rawValue)
+        let takenOver = ledger.enableControl(of: pane, from: "t2")
+        #expect(!takenOver)
+        #expect(await fixture.ctl("reload", ["pane": id], from: "t1")["ok"] == true, "the agent keeps its pane")
+        #expect(await fixture.ctl("reload", ["pane": id], from: "t2") == ControlDispatcher.failure("not the owner of this pane"))
+
+        ledger.disableControl(of: pane, from: "t1")
+        let handedOver = ledger.enableControl(of: pane, from: "t2")
+        #expect(handedOver)
+        #expect(fixture.web(pane)?.context.controller == "t2")
+        #expect(signals.raised(on: pane).map(\.id) == ["controlled"])
+        #expect(await fixture.ctl("reload", ["pane": id], from: "t1") == ControlDispatcher.failure("not the owner of this pane"))
+        #expect(await fixture.ctl("reload", ["pane": id], from: "t2")["ok"] == true)
+    }
+
+    @Test func aPaneIsNotOpenedUnderAControllerThatIsNotOpen() {
+        let built = log.builtPanes
+        #expect(fixture.runtime.panes.openPane(PaneRequest(type: "web", controlledBy: "gone")) == nil)
+        #expect(log.builtPanes == built, "the plugin never built it")
+        #expect(ledger.pairs.isEmpty)
+    }
+
+    @Test func controlOfAPaneThatIsNotOpenIsRefused() {
+        let refused = ledger.enableControl(of: "nobody", from: "t1")
+        #expect(!refused, "a later pane with that id would start out controlled")
+        #expect(ledger.pairs.isEmpty)
     }
 
     // MARK: The order of checks
@@ -206,7 +261,7 @@ import Testing
     @Test func callerThenOwnershipThenSchemaThenTargetThenHandler() async throws {
         let owned = try await fixture.createPane()
         let ownedID = JSONValue.string(owned.rawValue)
-        fixture.runtime.panes.grantOwnership(of: "t2", to: "t1")  // owned, but a term pane
+        fixture.runtime.panes.ownership.enableControl(of: "t2", from: "t1")  // owned, but a term pane
         log.invocations.removeAll()
 
         // 1. A caller that isn't a pane beats everything, an unowned target and a bad shape included.
@@ -236,7 +291,7 @@ import Testing
     // MARK: J-24 (core's half): the target's type
 
     @Test func aTargetOfAnotherTypeIsRefusedByNameBeforeTheHandlerRuns() async {
-        fixture.runtime.panes.grantOwnership(of: "t2", to: "t1")
+        fixture.runtime.panes.ownership.enableControl(of: "t2", from: "t1")
         #expect(await fixture.ctl("navigate", ["pane": "t2", "url": "x"]) == ControlDispatcher.failure("target is not a web pane"))
         #expect(await fixture.ctl("reload", ["pane": "t2"]) == ControlDispatcher.failure("target is not a web pane"))
         #expect(log.invocations.isEmpty)
@@ -267,15 +322,50 @@ import Testing
         #expect(log.invocations.filter { $0.command != "create-web-pane" }.isEmpty)
     }
 
+    /// A path on the wire is a string or `true` ("generate one"), never
+    /// anything else a handler could mistake for one.
+    @Test func aPathOnTheWireIsAStringOrTrue() async throws {  // H-9
+        let pane = try await fixture.createPane()
+        let id = JSONValue.string(pane.rawValue)
+        let refused = ControlDispatcher.failure("request.outPath must match at least one of its allowed shapes")
+        for value: JSONValue in [false, 0, ["a.png"]] {
+            #expect(await fixture.wire(["type": "executeJavaScript", "targetPaneId": id, "code": "1", "outPath": value]) == refused)
+        }
+        let batch = await fixture.ctl(
+            "batch", ["requests": [["type": "executeJavaScript", "targetPaneId": id, "code": "1", "outPath": false]]])
+        let step = batch["result"]?["steps"]?[0]
+        #expect(step?["ok"] == false && step?["error"] == refused["error"], "\(batch)")
+        #expect(log.invocations.filter { $0.command == "execute-js" }.isEmpty, "no handler ran")
+    }
+
     @Test func aTargetPaneIdThatIsNotAStringIsNotAnOwner() async {
         #expect(
             await fixture.wire(["type": "reload", "targetPaneId": 7]) == ControlDispatcher.failure("not the owner of this pane"))
-        #expect(
-            await fixture.wire(["type": "reload", "targetPaneId": nil]) == ControlDispatcher.failure("not the owner of this pane"))
     }
 
     @Test func aTargetLessRequestForATargetedVerbIsAMissingField() async {
         #expect(await fixture.wire(["type": "reload"]) == ControlDispatcher.failure("request is missing required field \"targetPaneId\""))
+    }
+
+    /// `null` counts as absent on the wire, as it does for a flag: a batch step
+    /// may spell an optional field it doesn't use as `null`.
+    @Test func aNullFieldOnTheWireIsAbsent() async throws {  // H-9
+        let pane = try await fixture.createPane()
+        let id = JSONValue.string(pane.rawValue)
+        let batch = await fixture.ctl(
+            "batch", ["requests": [["type": "navigate", "targetPaneId": id, "url": "x", "retryOnRedirect": nil]]])
+        #expect(batch["result"]?["steps"]?[0]?["ok"] == true, "\(batch)")
+        #expect(log.invocations.last?.invocation.arguments == ["url": "x"], "the handler never sees it")
+        // A null target is no target: a targeted verb misses it, an untargeted one runs.
+        #expect(
+            await fixture.wire(["type": "reload", "targetPaneId": nil])
+                == ControlDispatcher.failure("request is missing required field \"targetPaneId\""))
+        #expect(await fixture.wire(["type": "ping", "targetPaneId": nil]) == ["ok": true])
+        // A null type is no type, and a null caller no caller.
+        #expect(await fixture.wire(["type": nil]) == ControlDispatcher.failure("unknown request type: (none)"))
+        #expect(
+            await fixture.runtime.control.dispatch(wire: ["type": "ping", "paneId": nil], cwd: nil)
+                == ControlDispatcher.failure("not running inside a Tabs pane"))
     }
 
     // MARK: H-15: the envelope

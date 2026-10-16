@@ -211,7 +211,42 @@ import Testing
             #expect(loaded.windows.first?.root.tabs.first?.content == leaf)
         }
 
-        @Test("keeps the saved active pane while it resolves, docked or floating, else the docked root's")
+        @Test("round-trips the user's tab names and the panes that were active, writing neither when there is nothing to say")  // TT-11
+        func namesAndRecentPanes() throws {
+            let (a, b) = (createLeaf("stub", id: "a"), createLeaf("stub", id: "b"))
+            let root = createTabs([createTab("Mine", a, id: "ta", titleIsManual: true), createTab("Stub", b, id: "tb")])
+            var window = WindowLayout(id: "w", root: root, active: "b")
+            #expect(window.setActivePane("a") == true)
+            let saved = SavedLayout(windows: [window])
+
+            let json = try JSONValue(encoding: saved)
+            #expect(json["windows"]?[0]?["recentPaneIds"] == ["a", "b"])
+            #expect(json["windows"]?[0]?["root"]?["tabs"]?[0]?["titleIsManual"] == true)
+            #expect(json["windows"]?[0]?["root"]?["tabs"]?[1]?["titleIsManual"] == nil)
+            let loaded = try decode(json, as: SavedLayout.self).value
+            #expect(loaded == saved)
+            #expect(loaded.windows.first?.recentPanes == ["a", "b"])
+
+            let fresh = try JSONValue(encoding: WindowLayout(id: "w", root: root, active: "b"))
+            #expect(fresh["recentPaneIds"] == nil, "only the active pane has been")
+            #expect(try decode(fresh, as: WindowLayout.self).value.recentPanes == ["b"])
+        }
+
+        @Test("round-trips the user's name on a floating pane's tab anchor and its siblings")  // TT-12
+        func floatingAnchorNames() throws {
+            let (x, y) = (createLeaf("stub", id: "x"), createLeaf("stub", id: "y"))
+            let group = createTabs([createTab("Moved", x, titleIsManual: true), createTab("Kept", y, titleIsManual: true)])
+            let detached = try #require(
+                Floating.detachForFloat(
+                    createSplit(.horizontal, [createLeaf("stub"), group]), "x", rect: FloatRect(x: 40, y: 60, width: 500, height: 300)))
+
+            let json = try JSONValue(encoding: detached.floating)
+            #expect(json["anchor"]?["titleIsManual"] == true)
+            #expect(json["anchor"]?["siblings"]?[0]?["titleIsManual"] == true)
+            #expect(try decode(json, as: FloatingPane.self).value == detached.floating)
+        }
+
+        @Test("keeps the saved active pane while it resolves, docked or floating, else the pane the docked root shows")
         func activePane() throws {
             let docked = createTabs([createTab("A", createLeaf("terminal", id: "a"))], id: "g")
             let floating: JSONValue = [["id": "f", "content": leafJSON("b"), "rect": rectJSON, "anchor": ["kind": "root"]]]
@@ -222,9 +257,9 @@ import Testing
 
             #expect(try active("a") == "a")
             #expect(try active("b") == "b", "a floating pane can be the active one")
-            #expect(try active("gone") == "g")
-            // No saved active pane: the tree's own first pane, which for a group is the group itself.
-            #expect(try active(nil) == "g")
+            #expect(try active("gone") == "a")
+            #expect(try active(nil) == "a")
+            #expect(try active("g") == "a", "a group is never active: the pane it shows is")
         }
 
         @Test("a window's frame round-trips")

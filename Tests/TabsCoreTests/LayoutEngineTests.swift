@@ -5,6 +5,18 @@ import Testing
 
 @testable import TabsCore
 
+/// A pane titled by its config's `title`, retitled through its context.
+@MainActor
+final class NamedPane: PaneController {
+    let view = NSView()
+    let context: any PaneContext
+    init(context: any PaneContext) {
+        self.context = context
+        context.setTitle(context.initialConfig["title"]?.stringValue ?? "")
+    }
+    func currentConfig() -> JSONValue { context.initialConfig }
+}
+
 /// A stub pane that can warn before closing.
 @MainActor
 final class WarningPane: PaneController {
@@ -66,7 +78,7 @@ final class WarningPane: PaneController {
     }
 
     private func activeLeaf(_ engine: LayoutEngine, _ window: WindowID = "w") -> PaneID? {
-        engine.model.window(window)?.activeLeafID
+        engine.model.window(window)?.activePaneID
     }
 
     /// Clicks a pane's tab: shows it and makes it active.
@@ -218,7 +230,7 @@ final class WarningPane: PaneController {
         choice.pane = "d"
         engine.close("b")
         #expect(activeLeaf(engine) == "d")
-        #expect(renderer.rendered.window("w")?.activeLeafID == "d", "what's drawn is what's active")
+        #expect(renderer.rendered.window("w")?.activePaneID == "d", "what's drawn is what's active")
     }
 
     @Test func aNewPaneLikeALiveOneIsAnotherOfItsTypeMadeFromIt() throws {
@@ -239,8 +251,7 @@ final class WarningPane: PaneController {
         #expect(engine.model.window("w")?.root.tabs.last?.content.splitNode?.children.map(\.id) == [tab, split])
         #expect(engine.activePaneID == split)
 
-        let floating = try #require(
-            engine.newPane(like: split, in: "w", placement: .floating(FloatRect(x: 0, y: 0, width: 400, height: 300))))
+        let floating = try #require(engine.newPane(like: split, in: "w", placement: .unpinned))
         #expect(engine.model.window("w")?.floating.map(\.content.id) == [floating])
         #expect(engine.live(floating)?.isAttached == true)
         #expect(engine.newPane(like: "missing", in: "w", placement: .tab) == nil)
@@ -274,8 +285,7 @@ final class WarningPane: PaneController {
         let split = try #require(engine.newPane(ofType: "child", from: tab, in: "w", placement: .split(.horizontal)))
         #expect(engine.model.window("w")?.root.tabs.last?.content.splitNode?.children.map(\.id) == [tab, split])
 
-        let floating = try #require(
-            engine.newPane(ofType: "child", from: split, in: "w", placement: .floating(FloatRect(x: 0, y: 0, width: 400, height: 300))))
+        let floating = try #require(engine.newPane(ofType: "child", from: split, in: "w", placement: .unpinned))
         #expect(engine.model.window("w")?.floating.map(\.content.id) == [floating])
 
         // A type nobody can make, a pane its plugin refuses to build (E-1), or an origin that's gone (C-7):
@@ -283,7 +293,7 @@ final class WarningPane: PaneController {
         let before = engine.model
         #expect(engine.newPane(ofType: "vanished", from: "a", in: "w", placement: .tab) == nil)
         #expect(runtime.panes.canCreate("broken"), "creatable: it's the pane its plugin won't build")
-        for placement: NewPanePlacement in [.tab, .split(.horizontal), .floating(FloatRect(x: 0, y: 0, width: 400, height: 300))] {
+        for placement: NewPanePlacement in [.tab, .split(.horizontal), .unpinned] {
             #expect(engine.newPane(ofType: "broken", from: "a", in: "w", placement: placement) == nil)
         }
         #expect(engine.newPane(ofType: "child", from: "missing", in: "w", placement: .tab) == nil)
@@ -349,12 +359,16 @@ final class WarningPane: PaneController {
         let id = try #require(runtime.panes.openPane(PaneRequest(type: "stub")))
         #expect(engine.model.windows.count == 1)
         #expect(engine.model.leaves.map(\.id) == ["keep", id])
+        #expect(engine.live(id) != nil, "the pane survives the window coming back")
+        #expect(engine.live(id)?.isAttached == true)
     }
 
     @Test func closingAPluginsOwnWindowDoesNotLoseTheLastClosedOne() throws {
         let engine = engine(restoring: SavedLayout(windows: [window("keep")]))
         engine.windowDidClose("w")
         let id = try #require(runtime.panes.openPane(PaneRequest(type: "stub", placement: .window)))
+        #expect(engine.live(id) != nil, "the pane survives the last closed window coming back")
+        #expect(engine.live(id)?.isAttached == true)
         let own = try #require(engine.model.window(holding: id)?.id)
         engine.windowDidClose(own)
         #expect(engine.snapshot().windows.flatMap(\.leaves).contains { $0.id == "keep" })
@@ -495,9 +509,114 @@ final class WarningPane: PaneController {
 
     @Test func aNewFloatingPaneIsKeptInsideItsWindowsViewport() throws {
         let engine = engine(restoring: SavedLayout(windows: [window("a")]))
-        renderer.viewports["w"] = Viewport(width: 500, height: 400)
-        let id = try #require(engine.newPane(like: "a", in: "w", placement: .floating(FloatRect(x: 0, y: 0, width: 5000, height: 5000))))
-        #expect(engine.model.window("w")?.floatingPane(holding: id)?.rect == FloatRect(x: 0, y: 0, width: 500, height: 400))
+        renderer.viewports["w"] = Viewport(width: 500, height: 300)
+        let id = try #require(engine.newPane(like: "a", in: "w", placement: .unpinned))
+        let rect = try #require(engine.model.window("w")?.floatingPane(holding: id)?.rect)
+        #expect(Floating.defaultRect.width > 500 && Floating.defaultRect.height > 300, "it spawns larger than the viewport")
+        #expect(rect.width == 500 && rect.height == 300)
+    }
+
+    @Test func aNewUnpinnedPaneSpawnsOverTheSectionOfItsOriginTheSettingNames() throws {
+        let engine = engine(restoring: SavedLayout(windows: [window("a", "b")]))
+        var panes = runtime.settings.panes
+        panes.newUnpinnedPanePosition = SpawnPosition.bottomLeft.rawValue
+        runtime.settings.setPanes(panes)
+        let box = FloatRect(x: 100, y: 50, width: 800, height: 600)
+        renderer.paneRects["a"] = box
+        let id = try #require(engine.newPane(like: "a", in: "w", placement: .unpinned))
+        #expect(engine.model.window("w")?.floatingPane(holding: id)?.rect == Floating.spawnRect(in: box, at: .bottomLeft))
+        let unmeasured = try #require(engine.newPane(like: "b", in: "w", placement: .unpinned))
+        #expect(engine.model.window("w")?.floatingPane(holding: unmeasured)?.rect == Floating.defaultRect, "an origin not on screen")
+    }
+
+    @Test func aPaneUnpinnedAgainFloatsWhereItWasWhenPinnedBack() throws {
+        let engine = engine(restoring: SavedLayout(windows: [window("a", "b")]))
+        let box = FloatRect(x: 0, y: 30, width: 1200, height: 770)
+        renderer.paneRects["a"] = box
+        engine.unpin("a")
+        let float = try #require(engine.model.window("w")?.floatingPane(holding: "a"))
+        #expect(float.rect == box, "the first time: over its own box")
+
+        let moved = FloatRect(x: 200, y: 150, width: 400, height: 300)
+        engine.perform(in: "w") { layout, _ in layout.setFloatingRect(float.id, moved, viewport: .newWindow) }
+        engine.pin(float.id, in: "w")
+        #expect(engine.model.window("w")?.floating.isEmpty == true)
+        engine.unpin("a")
+        #expect(engine.model.window("w")?.floatingPane(holding: "a")?.rect == moved, "again: where it floated")
+        #expect(engine.model.window("w")?.floating.isEmpty == false)
+
+        engine.unpin("b")
+        #expect(engine.model.window("w")?.floatingPane(holding: "b")?.rect == Floating.defaultRect, "never pinned back, not on screen")
+    }
+
+    // MARK: Arrow navigation
+
+    /// Two columns: "x" over "a" on the left, "b" over "c" on the right, each
+    /// pane on screen where the grid puts it; "a" is active.
+    private func grid() -> LayoutEngine {
+        let left = createSplit(.vertical, [createLeaf("stub", id: "x"), createLeaf("stub", id: "a")], id: "left")
+        let right = createSplit(.vertical, [createLeaf("stub", id: "b"), createLeaf("stub", id: "c")], id: "right")
+        let saved = WindowLayout(id: "w", root: createSplit(.horizontal, [left, right], id: "row"), active: "a")
+        let engine = engine(restoring: SavedLayout(windows: [saved]))
+        renderer.paneRects = [
+            "x": FloatRect(x: 0, y: 30, width: 600, height: 385), "a": FloatRect(x: 0, y: 415, width: 600, height: 385),
+            "b": FloatRect(x: 600, y: 30, width: 600, height: 385), "c": FloatRect(x: 600, y: 415, width: 600, height: 385),
+        ]
+        return engine
+    }
+
+    @Test func anArrowMovesToThePaneBesideTheActiveOneWhereThePanesAreOnScreen() {
+        let engine = grid()
+        engine.navigate(.right, in: "w")
+        #expect(activeLeaf(engine) == "c", "the pane beside it, not the column's first")
+        engine.navigate(.up, in: "w")
+        #expect(activeLeaf(engine) == "b")
+        engine.navigate(.left, in: "w")
+        #expect(activeLeaf(engine) == "x")
+    }
+
+    @Test func pastTheEdgeAnArrowWrapsAroundToTheFarSide() {
+        let engine = grid()
+        engine.navigate(.right, in: "w")
+        engine.navigate(.right, in: "w")
+        #expect(activeLeaf(engine) == "a", "around to the left column, in the same row")
+        engine.navigate(.down, in: "w")
+        #expect(activeLeaf(engine) == "x", "and down past the bottom edge to the top")
+    }
+
+    @Test func aPaneNotOnScreenIsEnteredAsTheModelSays() {
+        let engine = grid()
+        renderer.paneRects = [:]
+        engine.navigate(.right, in: "w")
+        #expect(activeLeaf(engine) == "b", "the column's entry pane: its first")
+    }
+
+    @Test func leftAndRightWalkTabsWhileUpAndDownNeverRevealAHiddenOne() {
+        let engine = engine(restoring: SavedLayout(windows: [window("a", "b")]))
+        renderer.paneRects["a"] = FloatRect(x: 0, y: 30, width: 1200, height: 770)
+        engine.navigate(.down, in: "w")
+        #expect(activeLeaf(engine) == "a", "the other tab stays hidden")
+        engine.navigate(.right, in: "w")
+        #expect(activeLeaf(engine) == "b")
+        #expect(engine.model.window("w")?.isShowing("b") == true, "its tab shown")
+        engine.navigate(.right, in: "w")
+        #expect(activeLeaf(engine) == "a", "past the last tab, back to the first")
+    }
+
+    @Test func anArrowInAFloatingPaneStaysInIt() {
+        let floating = FloatingPane(
+            content: createSplit(.horizontal, [createLeaf("stub", id: "f1"), createLeaf("stub", id: "f2")]),
+            rect: FloatRect(x: 100, y: 100, width: 600, height: 300), anchor: .root)
+        let saved = WindowLayout(id: "w", root: createLeaf("stub", id: "a"), floating: [floating], active: "f1")
+        let engine = engine(restoring: SavedLayout(windows: [saved]))
+        renderer.paneRects = [
+            "a": FloatRect(x: 0, y: 30, width: 1200, height: 770), "f1": FloatRect(x: 100, y: 100, width: 300, height: 300),
+            "f2": FloatRect(x: 400, y: 100, width: 300, height: 300),
+        ]
+        engine.navigate(.right, in: "w")
+        #expect(activeLeaf(engine) == "f2")
+        engine.navigate(.right, in: "w")
+        #expect(activeLeaf(engine) == "f1", "around inside the floating pane, never into the docked layout")
     }
 
     @Test func focusingAPaneRevealsItBringsItsWindowForwardAndGivesItFocus() {
@@ -565,12 +684,37 @@ final class WarningPane: PaneController {
 
     @Test func titlesReachTheRenderer() throws {
         let engine = engine(restoring: SavedLayout(windows: [window("a")]))
+        engine.titleSettleDelay = .zero
         #expect(renderer.titles == ["a"], "asked once the pane opened (building its view may have set one)")
         engine.live("a")?.context.setTitle("Renamed")
         #expect(renderer.titles == ["a", "a"])
         #expect(engine.paneTitle(of: PaneID("a")) == "Renamed")
         engine.perform(in: "w") { layout, titles in layout.renamePane("a", "Mine", titles: titles) }
         #expect(engine.paneTitle(of: PaneID("a")) == "Mine", "a title the user set wins over the plugin's")
+    }
+
+    @Test func aPanesOwnTitleChangeShowsWhateverItIsOnceTheWaitIsOver() async throws {  // TT-13
+        let engine = engine(restoring: SavedLayout(windows: [window("a")]))
+        engine.titleSettleDelay = .milliseconds(100)
+        let context = try #require(engine.live("a")?.context)
+        let told = renderer.titles.count
+        #expect(engine.paneTitle(of: PaneID("a")) == "Stub", "its first title shows at once")
+
+        context.setTitle("ls")
+        context.setTitle("Stub")
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(engine.paneTitle(of: PaneID("a")) == "Stub")
+        #expect(renderer.titles.count == told, "a title changed and back within the wait is never shown")
+
+        context.setTitle("make")
+        #expect(engine.paneTitle(of: PaneID("a")) == "Stub", "not yet")
+        #expect(engine.controlTitle(of: "a") == "make", "control verbs read the live title")
+        context.setTitle("make all")
+        #expect(await eventually { engine.paneTitle(of: PaneID("a")) == "make all" }, "the title as it is when the wait is over")
+        #expect(renderer.titles.count == told + 1, "told once")
+
+        engine.perform(in: "w") { layout, titles in layout.renamePane("a", "Mine", titles: titles) }
+        #expect(engine.paneTitle(of: PaneID("a")) == "Mine", "the user's own title, at once")
     }
 
     // MARK: Robustness
@@ -669,5 +813,62 @@ final class WarningPane: PaneController {
         #expect(engine.shouldClose("w"))
         #expect(renderer.asked == [["A", "C"], ["A", "C"]])
         #expect(engine.shouldQuit())
+    }
+
+    // MARK: Tab titles (docs/TAB-TITLES.md)
+
+    @Test func aTabShowsThePaneLastActiveInItUnlessTheUserNamedIt() throws {  // TT-3, TT-4, TT-7, TT-8, TT-10
+        let named = TestSupport.candidate(TestSupport.manifest("named", contentTypes: ["named"])) { context in
+            context.register(ContentTypeContribution(id: "named", displayName: "Named", icon: .symbol("circle")) { NamedPane(context: $0) })
+        }
+        let pane = { (id: PaneID, title: String) in LayoutNode.leaf(LayoutLeaf(id: id, type: "named", config: ["title": .string(title)])) }
+        let pair = Tab(
+            title: "Pair", content: .split(Split(direction: .horizontal, children: [pane("a", "vim notes.md"), pane("b", "~/work")])))
+        let blank = Tab(title: "New Tab", content: .emptyLeaf("e"))
+        let engine = engine(
+            named, restoring: SavedLayout(windows: [WindowLayout(id: "w", root: .tabs(TabGroup(tabs: [pair, blank])), active: "a")]))
+        engine.titleSettleDelay = .zero
+        func shown(_ tab: Tab, following: Bool = true) throws -> String {
+            engine.tabTitle(of: tab, in: try #require(engine.model.window("w")), followingPanes: following)
+        }
+
+        #expect(try shown(pair) == "vim notes.md")
+        (engine.live("a")?.controller as? NamedPane)?.context.setTitle("vim todo.md")
+        #expect(try shown(pair) == "vim todo.md", "the pane's title as it changes")
+        select(engine, "b")
+        #expect(try shown(pair) == "~/work", "the pane that became active")
+        #expect(try shown(pair, following: false) == "Pair", "not following: the tab's own title")
+        #expect(try shown(blank) == "New Tab", "an empty pane has no title of its own")
+
+        engine.perform(in: "w") { layout, titles in layout.renamePane("b", "Logs", titles: titles) }
+        #expect(try shown(pair) == "Logs", "a pane's title as its header shows it")
+
+        engine.perform(in: "w") { layout, titles in layout.renameTab(pair.id, "Mine", titles: titles) }
+        let renamed = try #require(engine.model.window("w")?.root.tabs.first)
+        #expect(try shown(renamed) == "Mine", "the user's name")
+        (engine.live("b")?.controller as? NamedPane)?.context.setTitle("tail -f")
+        select(engine, "a")
+        #expect(try shown(renamed) == "Mine", "neither a title change nor a pane switch touches it")
+    }
+
+    /// The user's edit is from the title shown: confirmed unchanged it pins nothing, emptied it
+    /// gives the default back.
+    @Test func aTitleConfirmedUnchangedPinsNothingAndAnEmptiedOneGivesTheDefaultBack() throws {  // TT-9, TT-14
+        let engine = engine(restoring: SavedLayout(windows: [window("a")]))
+        func tab() throws -> Tab { try #require(engine.model.window("w")?.root.tabs.first) }
+        let id = try tab().id
+        engine.renameTab(id, in: "w", to: "Tab", from: "Tab")
+        #expect(try !tab().titleIsManual, "unchanged: not the user's name")
+        engine.renameTab(id, in: "w", to: "Mine", from: "Tab")
+        #expect(try tab().title == "Mine" && tab().titleIsManual)
+        engine.renameTab(id, in: "w", to: "", from: "Mine")
+        #expect(try !tab().titleIsManual, "emptied: the default back")
+
+        engine.renamePane("a", in: "w", to: "Stub", from: "Stub")
+        #expect(engine.model.leaf("a")?.titleIsManual == false, "unchanged: the pane still shows its content's title")
+        engine.renamePane("a", in: "w", to: "Logs", from: "Stub")
+        #expect(engine.model.leaf("a")?.title == "Logs")
+        engine.renamePane("a", in: "w", to: "", from: "Logs")
+        #expect(engine.model.leaf("a")?.titleIsManual == false, "emptied: the content's own title back")
     }
 }

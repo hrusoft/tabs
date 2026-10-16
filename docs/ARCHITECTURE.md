@@ -134,9 +134,8 @@ Everything a plugin adds is a `Contribution` to one of core's `ExtensionPoint<C>
 - The menu arms a scoped chord only while its type is active (`MainMenu.arm`): AppKit stops at the first matching key
   equivalent, even a disabled one. So types can share chords, and one type's ⌃ keys never shadow another pane's typing.
 - Fixed stock items (`CoreCommand(fixed:)`: Hide, Hide Others, Quit, Undo, Redo, Cut, Copy, Paste, Select All,
-  Minimize) can't be rebound; plugin defaults lose their chords to them by priority. The user also can't take ⌃⌘F
-  (`Shortcuts.reserved`); plugin defaults aren't checked against it. User rules: [KEYBOARD.md](KEYBOARD.md);
-  `tabs.setShortcut` applies the same.
+  Minimize, Enter Full Screen) can't be rebound, and the user can't take their chords (`Shortcuts.reserved`); plugin
+  defaults lose them by priority. User rules: [KEYBOARD.md](KEYBOARD.md); `tabs.setShortcut` applies the same.
 
 ## Panes and layout
 
@@ -154,7 +153,7 @@ contexts, titles, snapshots, capabilities, visibility, ownership, and the events
 Three layers:
 
 - **Model** (`TabsCore/Layout`, pure values, tested without windows): leaf, tab group or split; per window
-  (`WindowLayout`) a docked root (always a tab group), floating panes, an active pane. `layout.json` holds every
+  (`WindowLayout`) a docked root (always a tab group), floating panes, an active pane (always a leaf). `layout.json` holds every
   window. [LAYOUT.md](LAYOUT.md).
 - **`LayoutEngine`** (core's `WorkspaceShell`): the only place the layout changes, for plugin requests and user actions
   alike. Model first, then `reconcile()`:
@@ -180,8 +179,10 @@ Rules that prevent bugs:
 - **Capabilities are pushed**: a pane `offer`s, core stores, readers get core's copy → no plugin runs inside another's
   call. Declared in `CoreRuntime` (only `.workingDirectory`); a new one is a core change.
 - **Children don't inherit launch settings**: `childEnvironment` drops `TABS_DATA_DIR`, `TABS_LISTEN_SOCKET`,
-  `TABS_E2E_HIDDEN`, `TABS_E2E_PLUGINS` (`PaneRuntime.launchSettings`), else a Tabs started from a pane would share
-  this one's data, socket, hidden mode or test plugins; it adds `TABS_CONTROL_SOCKET` and `TABS_PANE_ID`.
+  `TABS_E2E_HIDDEN`, `TABS_E2E_PLUGINS` and (Debug) `TABS_TEST_WINDOWS_SEEN`, else a Tabs started from a pane would
+  share this one's data, socket, hidden mode, test plugins or test windows' switch; it adds `TABS_CONTROL_SOCKET` and
+  `TABS_PANE_ID`. The names are one list, `LaunchSetting`, which their readers spell them from too: a setting added
+  there is never passed on.
 - **`requestClose` is deferred** to the next main-actor turn, so `paneWillClose` never runs inside the plugin's own call.
 - **Window frames live in `layout.json`**, not user defaults: they move with the data directory and go with the window.
 - **Frontmost window**: visible windows by z-order; none visible (app hidden) → the last key one.
@@ -204,7 +205,9 @@ Rules that prevent bugs:
 | Headless (`--plugin-report`, `--control`) | read-only: nothing written, moved or copied |
 
 - No migrations: formats change in lockstep; `version` exists only to spot a newer file.
-- Tolerant decoding: defaulted fields decode when absent; top-level fields a newer build wrote are carried through.
+- Tolerant decoding: defaulted fields decode when absent; in `settings.json`, fields a newer build wrote are carried
+  through at the top level, in `core` and in `core.panes` (a new setting doesn't bump `version`), and in each plugin's
+  blob at its top level.
 - Recovered state: one alert at launch (stderr when hidden), and `persistence` in the report.
 - Plugin settings: one blob per plugin under `plugins.<id>`; blobs of plugins not loaded this launch survive every
   save ([PLUGINS.md](PLUGINS.md#settings)).
@@ -219,14 +222,16 @@ Rules that prevent bugs:
 - the control socket (below).
 
 `command` resolves as a qualified verb name (`tabs.info`, `browser.navigate`), else as a control-plane CLI command
-(`navigate`); a bare command two verbs share is refused, naming both. Core's internal verbs: `tabs.verbs` (every
-verb), `tabs.info` (pid, data directory, socket path, fingerprint), `tabs.plugins`, `tabs.shortcuts`,
-`tabs.setShortcut`.
+(`navigate`); a bare command two plugins' verbs share is refused, naming both. A plugin can't take one of core's
+commands or wire types: the dispatcher refuses it at registration, from the verbs core added. Core's internal verbs:
+`tabs.verbs` (every verb), `tabs.info` (pid, data directory, socket path, fingerprint), `tabs.plugins`,
+`tabs.shortcuts`, `tabs.setShortcut`.
 
 - **Internal verbs** (no `wireType`): `args` validated against the declared arguments (unknown, missing, kind,
   `enumValues`, `minimum`); `path` resolved against `cwd`; `.pane(ofTypes:)` requires `paneId` to be an open pane of
   those types; `timeout` is the deadline; errors prefixed with the verb name.
-- **Control-plane verbs** (`command` + `wireType`): [below](#the-control-plane).
+- **Control-plane verbs** (`command` + `wireType`): [below](#the-control-plane). A `.pane(ofTypes:)` target is refused
+  on them at registration: their dispatch reads only `.ownedPane`.
 - Both: the caller is answered at the deadline even if the handler ignores cancellation (late result dropped, side
   effects not undone). Everything runs on the main actor: a handler that blocks without suspending can't be timed out.
   A result with NaN/∞ is refused. Core's own verbs meet the plugins' declaration rules.
@@ -269,10 +274,13 @@ CLI flags → typed **wire request** `{type, paneId, targetPaneId?, …}` (`Cont
 declared arguments) → handler. A `batch` step is a raw wire request. `paneId` on the wire is always the **caller's**
 pane; a verb acting on another pane names it in `targetPaneId` (CLI `--pane`).
 
-One dispatch (`dispatch(wire:)`, `ControlPlane.swift`) for envelopes and batch steps alike, in order:
+One dispatch (`dispatch(wire:)`, `ControlPlane.swift`) for envelopes and batch steps alike, in order (a `null` field
+counts as absent, as a flag's does):
 
 1. `type` is some verb's `wireType` (`unknown request type: …`);
-2. the caller is a live pane (`not running inside a Tabs pane`) — uniformly, before anything else;
+2. the caller is a live pane (`not running inside a Tabs pane`), whatever the verb. Not the first answer a client with
+   no pane can get: an envelope's flags are coerced before dispatch (`ControlEnvelope.build`), so a flag error comes
+   back first, and internal verbs (`tabs.*`) check no caller;
 3. a named `targetPaneId` is owned by the caller (`not the owner of this pane`);
 4. the request validates against the schema derived from the verb's arguments (`ControlSchema`,
    `additionalProperties: false`; `request.<field> …`);
@@ -282,19 +290,31 @@ One dispatch (`dispatch(wire:)`, `ControlPlane.swift`) for envelopes and batch s
 
 Enforced once, so no plugin verb can ship without the checks.
 
-**Ownership** (`PaneOwnership`, in `PaneRuntime`):
+**Ownership** (`PaneOwnership`, in `PaneRuntime`): the one registry of which pane controls which. Consumers call it and
+nothing else: `enableControl(of:from:)`, `disableControl(of:from:)`, `pairs`, `controller(of:)`, `controlled(by:)`, and
+`observe(_:)` for anything that follows control. Two calls are the pane runtime's alone: `paneClosed(_:)` (from `detach`)
+and `enableControl(ofNewPane:from:)` (from `openPane`).
 
-- A pane a verb creates belongs to the caller's pane: per app run, never persisted, never expired. Granted by
-  `PaneRequest.controlledBy`, in the ledger before the pane is built; allowed only while that plugin is answering a verb
-  for that caller (`verbBegan`/`verbEnded` around the handler — not after it timed out).
-- Ends only when the pane is really gone (`close-pane` or the user; released in `PaneRuntime.detach`); a declined close
-  keeps it.
+- A pane controls any number of panes and is controlled by at most one, never itself; both are open panes, a pane
+  `openPane` is making aside. Never taken over: while a pane has a controller, enabling another is refused until the
+  first is disabled. Control carries no further (a controller drives its own panes, not theirs). Per app run, never
+  persisted, never expired.
+- A pane a verb creates belongs to the caller's pane, enabled by `PaneRequest.controlledBy` before the pane is built;
+  allowed only while that plugin is answering a verb for that caller (`verbBegan`/`verbEnded` around the handler — not
+  after it timed out) and that caller is open (its terminal may close mid-verb). A pane that never opens leaves no
+  tombstone.
+- Closing a pane (`close-pane` or the user; `PaneRuntime.detach` calls `paneClosed`) ends every pair it is in, on either
+  side: a closed controller's panes are nobody's. A declined close keeps them. `disableControl` ends one pair of a pane
+  that stays open (its former controller is then refused like anyone else).
+- Every change goes to every observer in the order the changes happened (`ControlChange.enabled`/`.disabled`); one an
+  observer makes waits until everyone has heard the one being told.
+- Control is checked as each request arrives: a request already running when control ends finishes.
 - The refusal is uniform: a pane id is a persisted layout id, not a credential, so answers must not reveal liveness.
   The one exception: the owner of a closed pane (the ledger keeps the last 100) gets `paneGoneError`,
-  `target pane no longer exists — it was closed; listOwnedPanes shows the panes still open` (SKILL.md quotes it).
+  `target pane no longer exists — it was closed; list-panes shows the panes still open` (SKILL.md quotes it).
 - A test reset builds a new `CoreRuntime`, and with it an empty ledger.
-- `ControlledSignal`: raised while owned (on attach for a pane owned from creation), gone with the pane; never on tabs;
-  switch "Control indicator" in Settings ▸ Panes & Tabs.
+- `ControlledSignal`: an observer of the registry (`PaneRuntime.showControl`, also called on attach) keeps it up exactly
+  while the pane is open and controlled; never on tabs; switch "Control indicator" in Settings ▸ Panes & Tabs.
 
 **Core's verbs** (capability `core`, 5 s budget each):
 
@@ -334,7 +354,7 @@ Enforced once, so no plugin verb can ship without the checks.
 | scheme `Plugins` | every `<Name>PluginTests`, without the app |
 | `make check` | `lint` + `warnings` + `test` + `verify-built` + `check-scaffold` (Debug), side by side where they can be (`Scripts/check.sh`) |
 | `make check-release` | `warnings-clean`, then `verify` on the universal Release build |
-| `make bundle` | `check-release`, then `build/Tabs.dmg` (`Scripts/make-dmg.sh`): what a release ships |
+| `make bundle` | `check-release`, then `build/Tabs.dmg` (`Scripts/make-dmg.sh`): what a release ships, opening as a styled install window |
 | `make lint` | `swift-format lint --strict`, `Scripts/lint-plugin-boundaries.py`, `Scripts/lint-test-files.py`, `Scripts/sync-app-config.py --check` |
 | `make test` | `build-tests` (every target, tests included), then every bundle in `LANES=4` concurrent lanes, a long serial one split by suite across them (`Scripts/test-lanes.py`; results in `build/test-results.noindex`) |
 | `make test-core` / `test-plugins` (`ONLY=<Target> …`) / `test-ui` / `test-e2e` | one tier |
@@ -367,7 +387,9 @@ same from a clean build (`make check-release`).
 11. the relay: `Contents/Helpers/tabs-ctl` is a Mach-O executable for the app's architectures, links only system
     libraries, and the skill's `scripts/tabs-ctl` reaches it (outside a pane, its own refusal);
 12. versions: the app, both frameworks, every plugin and the relay (an `Info.plist` section in its binary) carry
-    `Config/Version.xcconfig`'s version verbatim as `CFBundleShortVersionString` and `CFBundleVersion`.
+    `Config/Version.xcconfig`'s version verbatim as `CFBundleShortVersionString` and `CFBundleVersion`;
+13. the themes: `Contents/Resources/Themes` holds `light.json` and `dark.json` (System's pair), identical to
+    `Sources/Tabs/Resources/Themes` ([THEMES.md](THEMES.md)).
 
 ### Version and release
 
@@ -376,6 +398,16 @@ same from a clean build (`make check-release`).
   two. `Scripts/release.sh` bumps it. Not part of the shared-ABI fingerprint.
 - Releases ship `tabs-<version>-universal.dmg`, built locally by `Scripts/build-dmg.sh` (from `Scripts/release.sh`):
   a `git archive` export, `make bundle`. No CI.
+- The dmg opens as an install window: Finder's view settings on the volume (`.DS_Store`: icon view, size, positions;
+  `.background.tiff`, 1x + 2x; `.VolumeIcon.icns`, the app's icon). dmgbuild writes them (`Scripts/dmg/settings.py`),
+  pinned and run by mise through uv, so a release needs no Finder scripting or Automation permission. The background's
+  source is `Artwork/dmg-background.svg`; its committed renders are what ships. `make-dmg.sh` mounts the result and
+  checks it: the app's signature, every piece of the window.
+- dmgbuild (1.6.7) creates, attaches and converts the image with `hdiutil`, and macOS 27 marks those commands
+  deprecated (for `diskutil image`). `make-dmg.sh` names the ones it used on every run. If a macOS drops them,
+  `make bundle` fails, and so does `release.sh`, before it publishes anything (it builds the dmg first). After a macOS
+  upgrade, run `make bundle quick` before cutting a release; the fix would be a dmgbuild that uses `diskutil image`,
+  or doing those steps here and keeping dmgbuild for the `.DS_Store`.
 
 ### Test tiers
 

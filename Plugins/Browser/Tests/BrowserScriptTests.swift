@@ -118,8 +118,13 @@ import Testing
         #expect(first["frames"] == 1 && first["shadowRoots"] == 1)
         try await Task.sleep(for: .milliseconds(650))
         #expect(await read(bed)["settled"] == true)
-        await bed.value("(document.body.appendChild(document.createElement('p')), 1)")
-        #expect(await read(bed)["settled"] == false, "a mutation restarts the quiet period")
+        // The mutation and the read in one script: as two calls, a full gate on a busy machine let 0.8 s pass between
+        // them, and the read rightly found the DOM quiet. The observer's record of the mutation is a microtask queued
+        // at the mutation, so it runs before the `await` resumes to read.
+        let mutated = await bed.value(
+            "(async () => { document.body.appendChild(document.createElement('p')); await Promise.resolve(); return \(readPageScript(ReadPageFilter())) })()"
+        )
+        #expect(mutated["settled"] == false, "a mutation restarts the quiet period")
     }
 
     /// J-7: page text is innerText with the readiness fields.

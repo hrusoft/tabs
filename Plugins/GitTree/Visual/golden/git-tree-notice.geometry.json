@@ -31,7 +31,8 @@
       "rows": {},
       "select": [708.84, 34, 123, 20],
       "selectBaseline": 48.5,
-      "state": "notice"
+      "state": "notice",
+      "totals": null
     }
   },
   "contextMenu": null,
@@ -101,7 +102,7 @@
   "tabBars": {
     "root": {
       "grip": null,
-      "newTab": [147.69, 13, 20, 14],
+      "newTab": [180.67, 13, 20, 14],
       "rect": [1, 1, 898, 30],
       "root": true,
       "settings": [866, 4.5, 23, 23],
@@ -110,12 +111,12 @@
         "tab-git": {
           "active": true,
           "baseline": 25,
-          "close": [127.69, 14.5, 15.01, 14],
+          "close": [160.66, 14.5, 15.01, 14],
           "dragging": false,
-          "rect": [90, 10, 55.69, 22],
-          "text": "Tabs",
-          "title": [101, 14, 24.69, 13],
-          "titleBox": [101, 14, 24.69, 13],
+          "rect": [90, 10, 88.67, 22],
+          "text": "Downloads",
+          "title": [101, 14, 57.66, 13],
+          "titleBox": [101, 14, 57.66, 13],
           "truncated": false
         }
       }

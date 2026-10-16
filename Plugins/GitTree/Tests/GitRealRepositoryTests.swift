@@ -217,7 +217,19 @@ private func changedPaths(_ repo: TempRepo) async throws -> [String] {
         let repo = try await initialRepo()
         repo.write("a b.txt", "x\ny\nz\n")
         let detail = try await repo.reader.readWorkingTreeChanges(repo.dir).get()
-        #expect(detail.files == [ChangedFile(path: "a b.txt", insertions: 3, deletions: 0)])
+        #expect(detail.files == [ChangedFile(path: "a b.txt", insertions: 3, deletions: 0, readFromDisk: true)])
+    }
+
+    @Test("counts an untracked file from the repository's root when the pane is on a subdirectory") func fromASubdirectory()
+        async throws
+    {
+        let repo = try await initialRepo()
+        repo.write("sub/kept.txt", "kept\n")
+        await repo.git("add", "-A")
+        await repo.git("commit", "-q", "-m", "sub")
+        repo.write("top.txt", "a\nb\n")
+        let detail = try await repo.reader.readWorkingTreeChanges(repo.dir + "/sub").get()
+        #expect(detail.files == [ChangedFile(path: "top.txt", insertions: 2, deletions: 0, readFromDisk: true)])
     }
 
     @Test("lists an untracked directory's files, not the directory") func untrackedDirectory() async throws {
@@ -396,6 +408,215 @@ private func changedPaths(_ repo: TempRepo) async throws -> [String] {
     }
 }
 
+// MARK: - One file's diff
+
+/// A repository of its own with `long.txt` (30 numbered lines), then a
+/// commit changing line 15.
+private func longFileRepo() async throws -> (repo: TempRepo, head: String) {
+    let repo = try await TempRepo.initialized()
+    repo.write("long.txt", (1...30).map { "line \($0)\n" }.joined())
+    await repo.git("add", "-A")
+    await repo.git("commit", "-q", "-m", "long")
+    repo.write("long.txt", (1...30).map { $0 == 15 ? "LINE 15\n" : "line \($0)\n" }.joined())
+    await repo.git("commit", "-q", "-am", "change 15")
+    return (repo, try #require(await repo.git("rev-parse", "HEAD")))
+}
+
+/// The file `path` as the commit's detail lists it, read from `dir`.
+private func listedFile(_ repo: TempRepo, _ hash: String, _ path: String, dir: String? = nil) async throws -> ChangedFile {
+    let detail = try await repo.reader.readCommit(dir ?? repo.dir, hash: hash).get()
+    return try #require(detail.files.first { $0.path == path })
+}
+
+private func commitDiff(_ repo: TempRepo, _ hash: String, _ path: String) async throws -> FileDiff {
+    try await repo.reader.readCommitFileDiff(repo.dir, hash: hash, file: try await listedFile(repo, hash, path)).get()
+}
+
+/// P-12, P-15
+@Suite("file diffs") struct FileDiffRealTests {
+    @Test("a commit's file: 5 lines of context each side, numbered, and its first parent's file for the hidden runs")
+    func commitFile() async throws {
+        let (repo, head) = try await longFileRepo()
+        let diff = try await commitDiff(repo, head, "long.txt")
+        #expect(diff.hunks.count == 1)
+        let lines = try #require(diff.hunks.first?.lines)
+        #expect(lines.first == FileDiff.Line(kind: .context, text: "line 10", old: 10, new: 10))
+        #expect(lines.filter { $0.kind == .removed } == [FileDiff.Line(kind: .removed, text: "line 15", old: 15)])
+        #expect(lines.filter { $0.kind == .added } == [FileDiff.Line(kind: .added, text: "LINE 15", new: 15)])
+        #expect(lines.last == FileDiff.Line(kind: .context, text: "line 20", old: 20, new: 20))
+        #expect(diff.base == (1...30).map { "line \($0)" })
+        #expect(diff.gaps.map(\.count) == [9, 10])
+    }
+
+    @Test("the user's colors, external diff tool and context setting never reach the panel") func ignoresTheUsersDiffConfig() async throws {
+        let (repo, head) = try await longFileRepo()
+        await repo.git("config", "color.ui", "always")
+        await repo.git("config", "diff.external", "/usr/bin/false")
+        await repo.git("config", "diff.context", "1")
+        let diff = try await commitDiff(repo, head, "long.txt")
+        let lines = try #require(diff.hunks.first?.lines)
+        #expect(!lines.contains { $0.text.contains("\u{1b}") })
+        #expect(lines.count == 12, "5 unchanged lines either side of the two changed")
+    }
+
+    /// P-18
+    @Test("a renamed file: both paths, its row as git prints it, its diff pairing them") func rename() async throws {
+        let repo = try await TempRepo.initialized()
+        repo.write("src/old/a.txt", (1...10).map { "a\($0)\n" }.joined())
+        repo.write("dir/b.txt", (1...10).map { "b\($0)\n" }.joined())
+        await repo.git("add", "-A")
+        await repo.git("commit", "-q", "-m", "files")
+        try FileManager.default.removeItem(atPath: repo.dir + "/src/old/a.txt")
+        repo.write("src/new/a.txt", (1...10).map { $0 == 5 ? "A5\n" : "a\($0)\n" }.joined())
+        try FileManager.default.moveItem(atPath: repo.dir + "/dir/b.txt", toPath: repo.dir + "/dir/c.txt")
+        await repo.git("add", "-A")
+        await repo.git("commit", "-q", "-m", "renames")
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        let detail = try await repo.reader.readCommit(repo.dir, hash: head).get()
+        #expect(detail.files.map(\.path).sorted() == ["dir/c.txt", "src/new/a.txt"])
+        #expect(detail.files.first { $0.path == "src/new/a.txt" }?.oldPath == "src/old/a.txt")
+        let printed = try #require(await repo.git("show", "--numstat", "--format=", "HEAD"))
+        let gitsLabels = printed.split(separator: "\n").map { $0.split(separator: "\t", maxSplits: 2).last.map(String.init) ?? "" }
+        #expect(detail.files.map(\.displayPath).sorted() == gitsLabels.sorted())
+
+        let changed = try await commitDiff(repo, head, "src/new/a.txt")
+        #expect(changed.hunks.count == 1)
+        #expect(changed.hunks.first?.lines.contains(FileDiff.Line(kind: .added, text: "A5", new: 5)) == true)
+        #expect(changed.base?.count == 10, "the old path's file")
+        let moved = try await commitDiff(repo, head, "dir/c.txt")
+        #expect(moved.hunks.isEmpty && !moved.binary, "a pure rename changes no lines")
+    }
+
+    @Test("a root commit's file is every line added, with no old file") func rootCommit() async throws {
+        let repo = try await SharedRepo.merge.value
+        let root = try #require(await repo.git("rev-list", "--max-parents=0", "HEAD"))
+        let diff = try await commitDiff(repo, root, "root.txt")
+        #expect(diff.hunks.first?.lines == [FileDiff.Line(kind: .added, text: "root", new: 1)])
+        #expect(diff.base == nil)
+        #expect(diff.gaps.isEmpty)
+    }
+
+    @Test("a merge's file is against its first parent") func merge() async throws {
+        let repo = try await SharedRepo.merge.value
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        let diff = try await commitDiff(repo, head, "feature.txt")
+        #expect(diff.hunks.first?.lines == [FileDiff.Line(kind: .added, text: "feature", new: 1)])
+    }
+
+    @Test("a deleted file is every line removed, and nothing hidden") func deleted() async throws {
+        let repo = try await initialRepo()
+        await repo.git("rm", "-q", "orig.txt")
+        await repo.git("commit", "-q", "-m", "delete")
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        let diff = try await commitDiff(repo, head, "orig.txt")
+        #expect(diff.hunks.first?.lines.map(\.kind) == [.removed, .removed])
+        #expect(diff.rows(revealed: []).count == 2)
+    }
+
+    /// P-13
+    @Test("a binary file and a mode change have no lines") func binaryAndMode() async throws {
+        let repo = try await initialRepo()
+        FileManager.default.createFile(atPath: repo.dir + "/i.bin", contents: Data([0, 1, 2]))
+        await repo.git("add", "-A")
+        await repo.git("commit", "-q", "-m", "binary")
+        FileManager.default.createFile(atPath: repo.dir + "/i.bin", contents: Data([0, 1, 3]))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: repo.dir + "/orig.txt")
+        await repo.git("commit", "-q", "-am", "change")
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        #expect(try await commitDiff(repo, head, "i.bin").binary)
+        let mode = try await commitDiff(repo, head, "orig.txt")
+        #expect(mode.hunks.isEmpty && !mode.binary)
+    }
+
+    @Test("a name with a space, a glob character or non-ASCII is that file, not a pattern") func literalNames() async throws {
+        let repo = try await TempRepo.initialized()
+        let names = ["a*.txt", "ab.txt", "é [x].txt"]
+        for (index, name) in names.enumerated() { repo.write(name, "\(index)\n") }
+        await repo.git("add", "-A")
+        await repo.git("commit", "-q", "-m", "names")
+        for (index, name) in names.enumerated() { repo.write(name, "changed \(index)\n") }
+        await repo.git("commit", "-q", "-am", "change")
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        for (index, name) in names.enumerated() {
+            let diff = try await commitDiff(repo, head, name)
+            #expect(
+                diff.hunks.map(\.lines) == [
+                    [
+                        FileDiff.Line(kind: .removed, text: "\(index)", old: 1),
+                        FileDiff.Line(kind: .added, text: "changed \(index)", new: 1),
+                    ]
+                ], "\(name)")
+        }
+    }
+
+    @Test("a CRLF file's lines are its lines, without the CR") func crlf() async throws {
+        let repo = try await TempRepo.initialized()
+        repo.write("dos.txt", "one\r\ntwo\r\nthree\r\n")
+        await repo.git("add", "-A")
+        await repo.git("commit", "-q", "-m", "dos")
+        repo.write("dos.txt", "one\r\nTWO\r\nthree\r\n")
+        await repo.git("commit", "-q", "-am", "change")
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        let diff = try await commitDiff(repo, head, "dos.txt")
+        #expect(diff.hunks.first?.lines.map(\.text) == ["one", "two", "TWO", "three"])
+        #expect(diff.base == ["one", "two", "three"])
+    }
+
+    @Test("a pane on a subdirectory: the files are named from the root, and read from there") func fromASubdirectory() async throws {
+        let (repo, head) = try await longFileRepo()
+        repo.write("sub/kept.txt", "kept\n")
+        await repo.git("add", "-A")
+        await repo.git("commit", "-q", "-m", "sub")
+        let file = try await listedFile(repo, head, "long.txt", dir: repo.dir + "/sub")
+        let diff = try await repo.reader.readCommitFileDiff(repo.dir, hash: head, file: file).get()
+        #expect(diff.hunks.count == 1)
+    }
+
+    @Test("the working tree: a tracked file against HEAD, with HEAD's file for the hidden runs") func workingTreeTracked() async throws {
+        let (repo, _) = try await longFileRepo()
+        repo.write("long.txt", (1...30).map { $0 == 3 ? "THREE\n" : $0 == 15 ? "LINE 15\n" : "line \($0)\n" }.joined())
+        let file = try #require(try await repo.reader.readWorkingTreeChanges(repo.dir).get().files.first)
+        #expect(!file.readFromDisk)
+        let diff = try await repo.reader.readWorkingTreeFileDiff(repo.dir, file: file).get()
+        #expect(
+            diff.hunks.first?.lines.filter { $0.kind != .context } == [
+                FileDiff.Line(kind: .removed, text: "line 3", old: 3), FileDiff.Line(kind: .added, text: "THREE", new: 3),
+            ])
+        #expect(diff.base?[14] == "LINE 15", "HEAD's file")
+    }
+
+    @Test("a staged new file is added against HEAD, with no old file") func workingTreeStagedNew() async throws {
+        let repo = try await initialRepo()
+        repo.write("new.txt", "n\n")
+        await repo.git("add", "new.txt")
+        let file = try #require(try await repo.reader.readWorkingTreeChanges(repo.dir).get().files.first)
+        #expect(!file.readFromDisk)
+        let diff = try await repo.reader.readWorkingTreeFileDiff(repo.dir, file: file).get()
+        #expect(diff.hunks.first?.lines == [FileDiff.Line(kind: .added, text: "n", new: 1)])
+        #expect(diff.base == nil)
+    }
+
+    @Test("an untracked file, and any with no commits yet, is read off disk: every line added") func workingTreeOffDisk() async throws {
+        let repo = try await initialRepo()
+        repo.write("new.txt", "x\ny")
+        let file = try #require(try await repo.reader.readWorkingTreeChanges(repo.dir).get().files.first)
+        #expect(file.readFromDisk)
+        let diff = try await repo.reader.readWorkingTreeFileDiff(repo.dir, file: file).get()
+        #expect(
+            diff.hunks.first?.lines == [
+                FileDiff.Line(kind: .added, text: "x", new: 1), FileDiff.Line(kind: .added, text: "y", new: 2),
+                FileDiff.Line(kind: .note, text: "\\ No newline at end of file"),
+            ])
+
+        let empty = try await TempRepo.clone(of: SharedRepo.empty)
+        empty.write("staged.txt", "a\n")
+        await empty.git("add", "-A")
+        let staged = try #require(try await empty.reader.readWorkingTreeChanges(empty.dir).get().files.first)
+        #expect(staged.readFromDisk)
+        #expect(try await empty.reader.readWorkingTreeFileDiff(empty.dir, file: staged).get().hunks.first?.lines.count == 1)
+    }
+}
+
 // MARK: - Reading the log
 
 @Suite struct ReadLogRealTests {
@@ -542,7 +763,7 @@ private func changedPaths(_ repo: TempRepo) async throws -> [String] {
         #expect(log.hasUncommittedChanges)
         let detail = try await repo.reader.readWorkingTreeChanges(repo.dir).get()
         #expect(detail.parents == [])
-        #expect(detail.files == [ChangedFile(path: "staged.txt", insertions: 2, deletions: 0)])
+        #expect(detail.files == [ChangedFile(path: "staged.txt", insertions: 2, deletions: 0, readFromDisk: true)])
     }
 
     /// H-4: "uncommitted changes appear as a row connected into the graph, and disappear once resolved".
@@ -577,5 +798,159 @@ private func changedPaths(_ repo: TempRepo) async throws -> [String] {
         #expect(await notRepo.defaultDirectory() == "/home/ann")
         let gone = GitRepositorySource(environment: repo.environment, appDirectory: nil, home: "/home/ann")
         #expect(await gone.defaultDirectory() == "/home/ann")
+    }
+}
+
+// MARK: - Files off disk
+
+/// P-6, P-12: a file read off disk, a chunk at a time: binary by git's rule,
+/// its lines counted as git counts them, its diff's first lines kept.
+@Suite struct DiskFileTests {
+    private let dir = TestTemporary.directory("disk-files")
+
+    /// 11 bytes a line, numbered from 1.
+    private func numbered(_ count: Int, terminated: Bool = true) -> String {
+        (1...count).map { String(format: "line %05d", $0) }.joined(separator: "\n") + (terminated ? "\n" : "")
+    }
+
+    private func write(_ name: String, _ data: Data) throws {
+        try data.write(to: dir.appending(path: name))
+    }
+
+    private func unknown(_ name: String) -> ChangedFile {
+        ChangedFile(path: name, insertions: nil, deletions: nil, readFromDisk: true)
+    }
+
+    @Test("binary is a NUL in the first 8000 bytes, and only there") func binaryByGitsRule() throws {
+        var early = Data(repeating: 0x61, count: 9000)
+        early[7999] = 0
+        var late = Data(repeating: 0x61, count: 9000)
+        late[8000] = 0
+        try write("early", early)
+        try write("late", late)
+        #expect(Git.fileStatsFromDisk(dir.path, "early") == unknown("early"))
+        #expect(try Git.diffFromDisk(dir.path, "early").get() == FileDiff(binary: true))
+        #expect(Git.fileStatsFromDisk(dir.path, "late") == ChangedFile(path: "late", insertions: 1, deletions: 0, readFromDisk: true))
+        #expect(try Git.diffFromDisk(dir.path, "late").get().binary == false)
+    }
+
+    @Test("lines are counted across chunks, as git counts them") func linesAcrossChunks() throws {
+        let long = numbered(20_000)
+        #expect(long.utf8.count > 3 * Git.diskChunk)
+        try write("long", Data(long.utf8))
+        #expect(Git.fileStatsFromDisk(dir.path, "long").insertions == 20_000)
+        try write("unterminated", Data(numbered(20_000, terminated: false).utf8))
+        #expect(Git.fileStatsFromDisk(dir.path, "unterminated").insertions == 20_000)
+        // A newline as a chunk's last byte, then one more line.
+        try write("edge", Data((String(repeating: "x", count: Git.diskChunk - 1) + "\ny").utf8))
+        #expect(Git.fileStatsFromDisk(dir.path, "edge").insertions == 2)
+        try write("empty", Data())
+        #expect(Git.fileStatsFromDisk(dir.path, "empty").insertions == 0)
+        #expect(Git.fileStatsFromDisk(dir.path, "missing") == unknown("missing"))
+        try FileManager.default.createDirectory(at: dir.appending(path: "folder"), withIntermediateDirectories: false)
+        #expect(Git.fileStatsFromDisk(dir.path, "folder") == unknown("folder"))
+    }
+
+    @Test("a long file's diff keeps its first 2,000 lines, read across chunks") func longDiff() throws {
+        try write("long", Data(numbered(20_000).utf8))
+        let diff = try Git.diffFromDisk(dir.path, "long").get()
+        let hunk = try #require(diff.hunks.first)
+        #expect(diff.truncated)
+        #expect(hunk.newCount == 20_000)
+        #expect(hunk.lines.count == Git.diffLineCap)
+        #expect(hunk.lines.first == FileDiff.Line(kind: .added, text: "line 00001", new: 1))
+        #expect(hunk.lines.last == FileDiff.Line(kind: .added, text: "line 02000", new: 2000))
+        // Exactly the cap, unterminated: every line, then the note.
+        try write("capped", Data(numbered(Git.diffLineCap, terminated: false).utf8))
+        let whole = try Git.diffFromDisk(dir.path, "capped").get()
+        #expect(!whole.truncated)
+        #expect(whole.hunks.first?.lines.count == Git.diffLineCap + 1)
+        #expect(whole.hunks.first?.lines.last == FileDiff.Line(kind: .note, text: "\\ No newline at end of file"))
+        try write("empty", Data())
+        #expect(try Git.diffFromDisk(dir.path, "empty").get() == FileDiff())
+    }
+
+    @Test("a read goes no further than its limit, and says the file goes on") func limit() throws {
+        try write("lines", Data(numbered(100).utf8))
+        let path = dir.appending(path: "lines").path
+        let cut = try #require(Git.readDiskFile(path, keepLines: 2, limit: 110))
+        #expect(cut.cut)
+        #expect(cut.lineCount == 10)
+        #expect(cut.head == Data("line 00001\nline 00002\n".utf8))
+        let whole = try #require(Git.readDiskFile(path, limit: 1_100))
+        #expect(!whole.cut)
+        #expect(whole.lineCount == 100)
+        #expect(whole.head.isEmpty, "no lines kept unless asked for")
+    }
+}
+
+// MARK: - The runner
+
+/// E-7: a run always answers, whatever the process does with its output or
+/// with SIGTERM. Driven with `/bin/sh`, standing in for a git whose hook
+/// misbehaves, or a git that won't stop.
+@Suite struct GitProcessTests {
+    private func sh(_ script: String, timeout: Duration, drainGrace: Duration = GitProcess.drainGrace) async -> (
+        outcome: GitProcess.Outcome, elapsed: Duration
+    ) {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let outcome = await GitProcess.run(
+            executable: "/bin/sh", arguments: ["-c", script], directory: "/", environment: ProcessInfo.processInfo.environment,
+            timeout: timeout, maxBuffer: Git.maxBuffer, drainGrace: drainGrace)
+        return (outcome, start.duration(to: clock.now))
+    }
+
+    /// The grace after an exit counts only once the pipes are quiet: output
+    /// still waiting in a pipe when it ends, its reader not yet run (a loaded
+    /// machine), is read, not dropped. No grace at all makes every run hit
+    /// that moment; answering at the grace regardless lost the file list of
+    /// a commit's detail under `make test`.
+    @Test("an exit's whole output is answered, however late its reader runs") func outputWaitingAtTheGrace() async throws {
+        let expected = (1...2_000).map { "\($0)\n" }.joined()
+        let outcomes = await withTaskGroup(of: GitProcess.Outcome.self) { group in
+            for _ in 0..<40 { group.addTask { await sh("seq 1 2000; seq 1 2000 >&2", timeout: .seconds(20), drainGrace: .zero).outcome } }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        for outcome in outcomes {
+            guard case .exited(let status, let stdout, let stderr) = outcome else {
+                Issue.record("expected an exit, got \(outcome)")
+                continue
+            }
+            #expect(status == 0)
+            #expect(stdout == expected, "stdout: \(stdout.count) of \(expected.count) bytes")
+            #expect(stderr == expected, "stderr: \(stderr.count) of \(expected.count) bytes")
+        }
+    }
+
+    /// A post-checkout hook that puts a job in the background without
+    /// redirecting its output: the job holds stderr after git has exited.
+    @Test("an exit is answered soon, though a job it left running still holds stderr") func aBackgroundJobHoldingStderr() async throws {
+        let (outcome, elapsed) = await sh("sleep 30 >/dev/null & echo $!; echo said >&2; exit 3", timeout: .seconds(20))
+        guard case .exited(let status, let stdout, let stderr) = outcome else {
+            Issue.record("expected an exit, got \(outcome)")
+            return
+        }
+        let job = try #require(pid_t(stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { kill(job, SIGKILL) }
+        #expect(kill(job, 0) == 0, "the job is still running, holding stderr")
+        #expect(status == 3)
+        #expect(stderr == "said\n")
+        #expect(elapsed < .seconds(10), "answered \(elapsed) in: not when the job ends (30 s), nor at the timeout (20 s)")
+    }
+
+    /// A process that won't stop for SIGTERM (git stuck in I/O stops for
+    /// neither): answered at the timeout, then killed.
+    @Test("a process ignoring SIGTERM is answered at the timeout, then killed") @MainActor func aProcessIgnoringSigterm() async throws {
+        let (outcome, elapsed) = await sh("trap '' TERM; echo $$ >&2; exec sleep 30", timeout: .seconds(2))
+        guard case .timedOut(let stderr) = outcome else {
+            Issue.record("expected a timeout, got \(outcome)")
+            return
+        }
+        let pid = try #require(pid_t(stderr.trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(elapsed < .seconds(8), "answered \(elapsed) in: at the timeout (2 s), not when the process ends (30 s)")
+        let killed = await eventually(timeout: .seconds(15)) { kill(pid, 0) != 0 }
+        if !killed { kill(pid, SIGKILL) }
+        #expect(killed, "killed after SIGTERM's grace")
     }
 }

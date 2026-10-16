@@ -160,21 +160,9 @@ final class TreeOverlayView: FlippedView {
     override func draw(_ dirtyRect: NSRect) {
         guard let host, let tree, let pane = tree.paneView(host.layout.activePaneID), !pane.isHiddenOrHasHiddenAncestor else { return }
         // A signal on the active pane outlines it instead.
-        if pane.isLeaf, !host.signals(on: pane.nodeID).isEmpty { return }
+        if !host.signals(on: pane.nodeID).isEmpty { return }
         let rect = outlineRect(of: pane)
         let (left, right) = pane.cornerRadii
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        context.saveGState()
-        // The active tab covers the outline where it opens onto the content.
-        if let bar = pane.tabBar, let active = bar.strip.orderedTabs.first(where: \.isActive) {
-            let stripClip = bar.strip.convert(bar.strip.bounds, to: self)
-            let tabRect = active.convert(active.bounds, to: self).intersection(stripClip)
-            if !tabRect.isNull {
-                let gap = NSBezierPath(rect: bounds)
-                gap.append(NSBezierPath(rect: CGRect(x: tabRect.minX, y: rect.minY, width: tabRect.width, height: 1)).reversed)
-                gap.addClip()
-            }
-        }
         // Part of the pane: a dragged pane's outline dims with it.
         let dimmed = host.dragVisuals.sourcePane.flatMap { tree.paneView($0) }.map { pane.isDescendant(of: $0) } ?? false
         let accent = host.appearance.theme.accent.withAlphaComponent(dimmed ? 0.4 : 1)
@@ -189,7 +177,6 @@ final class TreeOverlayView: FlippedView {
             path.lineWidth = 1
             path.stroke()
         }
-        context.restoreGState()
     }
 
     /// Where a drag would dock: half the pane (inside its border) for an

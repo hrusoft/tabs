@@ -1,8 +1,7 @@
 import Foundation
 import JavaScriptCore
 
-/// A bounded, sequence-numbered log: the shape of the console buffer, and of
-/// any capture buffer that follows.
+/// A bounded, sequence-numbered log: the shape of the console buffer.
 ///
 /// Two properties matter for how it's used:
 ///
@@ -30,10 +29,7 @@ final class RingLog<Entry: Sequenced> {
         self.capacity = capacity
     }
 
-    /// Appends an entry, assigning it the next `seq`. Returns the stored value
-    /// (for a reference type, the very object stored, so a caller can keep
-    /// completing it; mutating an entry that has since been evicted is
-    /// harmless: it is simply no longer in the log).
+    /// Appends an entry, assigning it the next `seq`, and returns it as stored.
     @discardableResult
     func add(_ entry: Entry) -> Entry {
         var stored = entry
@@ -43,15 +39,6 @@ final class RingLog<Entry: Sequenced> {
         // Adds are one at a time, so at most one entry is ever over.
         if entries.count > capacity { entries.removeFirst() }
         return stored
-    }
-
-    /// Removes the entry carrying `seq`, reporting whether it was still
-    /// present: false means it was already evicted, cleared, or never existed.
-    @discardableResult
-    func remove(seq: Int) -> Bool {
-        guard let index = entries.firstIndex(where: { $0.seq == seq }) else { return false }
-        entries.remove(at: index)
-        return true
     }
 
     /// Drops every entry, e.g. because the pane started loading a new document.

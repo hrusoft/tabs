@@ -19,10 +19,10 @@ package final class ContributionRegistry {
     }
 
     /// A point and the one contribution type it accepts.
-    package struct Declaration {
-        package let pointID: String
-        package let contributionType: ObjectIdentifier
-        package let typeName: String
+    private struct Declaration {
+        let pointID: String
+        let contributionType: ObjectIdentifier
+        let typeName: String
     }
 
     /// Checks a contribution's id against the contributing plugin's manifest.
@@ -78,8 +78,6 @@ package final class ContributionRegistry {
         (entries[point.id] ?? []).first { $0.contributionID == id }.flatMap(Self.typed)
     }
 
-    package func declaration(of pointID: String) -> Declaration? { declarations[pointID] }
-
     /// Per point, how many contributions `owner` made.
     package func counts(for owner: PluginID) -> [String: Int] {
         var counts: [String: Int] = [:]
@@ -122,7 +120,6 @@ package final class ContributionRegistry {
 
     /// Commits everything or nothing. Returns the problems that prevented it.
     package func commit(_ transaction: ContributionTransaction) -> [String] {
-        defer { transaction.isOpen = false }
         var problems = transaction.problems
         for check in commitChecks { problems += check(transaction.manifest, transaction.staged) }
         guard problems.isEmpty else { return problems }
@@ -132,7 +129,6 @@ package final class ContributionRegistry {
     }
 
     package func discard(_ transaction: ContributionTransaction) {
-        transaction.isOpen = false
         transaction.staged.removeAll()
     }
 
@@ -161,7 +157,6 @@ package final class ContributionTransaction {
     package let manifest: PluginManifest
     fileprivate(set) var staged: [ContributionRegistry.Entry] = []
     fileprivate(set) var problems: [String] = []
-    package fileprivate(set) var isOpen = true
 
     fileprivate init(manifest: PluginManifest) {
         self.manifest = manifest

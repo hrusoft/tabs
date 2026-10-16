@@ -54,6 +54,9 @@ final class ShellProcess: @unchecked Sendable {
     private var readerIsSuspended = false
     private var exitWatch: DispatchSourceProcess?
     private var pending: [UInt8] = []
+    /// How much of `pending` the shell has taken: an offset, so a paste it
+    /// takes a piece at a time isn't copied again after every piece.
+    private var pendingOffset = 0
     private var retryingWrite = false
     private var writeRetryDelay = 10
     private var masterIsOpen = true
@@ -288,14 +291,16 @@ final class ShellProcess: @unchecked Sendable {
     }
 
     private func flush() {
-        while !pending.isEmpty, masterIsOpen {
-            let written = pending.withUnsafeBytes { Darwin.write(master, $0.baseAddress, $0.count) }
+        while pendingOffset < pending.count, masterIsOpen {
+            let offset = pendingOffset
+            let written = pending.withUnsafeBytes { Darwin.write(master, $0.baseAddress! + offset, $0.count - offset) }
             if written > 0 {
-                pending.removeFirst(written)
+                pendingOffset += written
                 writeRetryDelay = 10
             } else if written < 0, errno == EINTR {
                 continue
             } else if written < 0, errno == EAGAIN {
+                compactPending()
                 // The shell isn't reading: try again later, never blocking,
                 // backing off to a quarter second while it goes on not reading.
                 guard !retryingWrite else { return }
@@ -308,10 +313,28 @@ final class ShellProcess: @unchecked Sendable {
                 }
                 return
             } else {
-                pending.removeAll()
+                dropPending()
             }
         }
-        if !masterIsOpen { pending.removeAll() }
+        if !masterIsOpen { dropPending() }
+        compactPending()
+    }
+
+    /// Lets go of what the shell has taken: all of it once it took
+    /// everything, else once that's more than half the buffer, so each byte
+    /// is moved a bounded number of times however slowly the shell reads.
+    private func compactPending() {
+        if pendingOffset == pending.count {
+            dropPending()
+        } else if pendingOffset > pending.count / 2 {
+            pending.removeFirst(pendingOffset)
+            pendingOffset = 0
+        }
+    }
+
+    private func dropPending() {
+        pending.removeAll()
+        pendingOffset = 0
     }
 
     // MARK: Called from the main actor

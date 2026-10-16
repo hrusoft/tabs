@@ -180,7 +180,7 @@ struct SignalIconRow {
 final class SignalIconView: FlippedView {
     private let glyph = SignalGlyphView()
     private(set) var shown: ShownSignal?
-    private var theme: Theme = .dark
+    private var theme: Theme = .placeholder
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -217,9 +217,6 @@ final class SignalIconView: FlippedView {
         super.layout()
         glyph.frame = bounds
     }
-
-    /// The glyph as drawn, for tests: its layer's opacity now.
-    var glyphOpacity: Float { glyph.layer?.presentation()?.opacity ?? glyph.layer?.opacity ?? 1 }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

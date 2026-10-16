@@ -26,9 +26,8 @@ package typealias ShownSignal = (kind: SignalKind, signal: RaisedSignal)
 /// the windows and asks the renderer which one has focus.
 @MainActor
 package protocol PaneSignalHost: AnyObject {
-    /// The user is looking at `pane`: it is its window's active pane (exactly:
-    /// a tab group being active doesn't count for the leaves in it) and that
-    /// window has the focus.
+    /// The user is looking at `pane`: it is its window's active pane (always a
+    /// leaf) and that window has the focus.
     func isLookedAt(_ pane: PaneID) -> Bool
     /// Whether the window holding `pane` has the focus (false: in none).
     func isWindowFocused(holding pane: PaneID) -> Bool

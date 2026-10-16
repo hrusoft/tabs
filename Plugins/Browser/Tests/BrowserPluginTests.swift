@@ -200,32 +200,3 @@ import Testing
         #expect(seen > 8, "the page rendered blank")
     }
 }
-
-/// State a `@MainActor` closure changes after capture (such closures are Sendable).
-@MainActor
-final class Box<Value> {
-    var value: Value
-    init(_ value: Value) { self.value = value }
-}
-
-/// Polls until `condition` holds; false if it doesn't within `timeout`.
-@MainActor
-func eventually(timeout: Duration = .seconds(10), _ condition: () -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
-    while !condition() {
-        guard ContinuousClock.now < deadline else { return false }
-        try? await Task.sleep(for: .milliseconds(20))
-    }
-    return true
-}
-
-/// `eventually` for a condition that has to ask something that answers later (the page).
-@MainActor
-func eventuallyAsync(timeout: Duration = .seconds(10), _ condition: () async -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
-    while await !condition() {
-        guard ContinuousClock.now < deadline else { return false }
-        try? await Task.sleep(for: .milliseconds(20))
-    }
-    return true
-}

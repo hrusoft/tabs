@@ -117,7 +117,7 @@ import Testing
 
     /// L-3, L-4, L-7: the input on `--bg`, the segment on `--bg-elevated`, its border-right and the bar's border on `--border`; both themes.
     @Test func paintsTheBarInTheThemesColorsInBothThemes() throws {
-        for theme in [PaneTheme.dark, PaneTheme.light] {
+        for theme in [PaneTheme.standInDark, PaneTheme.standInLight] {
             let (browser, toolbar) = try opened()
             browser.paneAppearanceDidChange(theme: theme, depth: 0)
             toolbar.bar.title = "Title"
@@ -151,6 +151,7 @@ import Testing
     /// L-1: the hover wash is `--hover` at 12%; a disabled button is dimmed to 35% and takes no hover.
     @Test func aButtonWashesOnHoverAndDimsWhenDisabled() throws {
         let (browser, toolbar) = try opened()
+        browser.paneAppearanceDidChange(theme: .standInDark, depth: 0)
         let button = toolbar.refresh
         // The wash is drawn under the button's own bounds: sample its corner interior, clear of the icon.
         func fill() throws -> NSColor {
@@ -169,7 +170,7 @@ import Testing
         button.mouseExited(with: event)
         #expect(try fill().alphaComponent < 0.01)
         // Light theme: black wash.
-        browser.paneAppearanceDidChange(theme: .light, depth: 0)
+        browser.paneAppearanceDidChange(theme: .standInLight, depth: 0)
         button.mouseEntered(with: event)
         #expect(try fill().redComponent < 0.1, "black on the light theme")
         button.mouseExited(with: event)
@@ -191,7 +192,8 @@ import Testing
 
     /// L-1, L-8: each nav glyph draws inside its 13 × 13 box, and the globe fills its 16 × 16 template.
     @Test func theGlyphsDrawInsideTheirBoxes() throws {
-        let (_, toolbar) = try opened()
+        let (browser, toolbar) = try opened()
+        browser.paneAppearanceDidChange(theme: .standInDark, depth: 0)
         for button in [toolbar.back, toolbar.forward, toolbar.refresh] {
             let rep = try paint(button)
             let scale = Double(rep.pixelsWide) / button.bounds.width
@@ -355,16 +357,17 @@ import Testing
         #expect(info["url"] == .string(server.url("/a")) && info["title"] == "Page A")
         #expect(info["isLoading"] == false && info["canGoBack"] == false && info["canGoForward"] == false)
         #expect(info["pageInstance"] == .string(String(browser.page.pageInstance)))
-        #expect(info["hidden"] == true && info["viewport"] == nil, "not in a window: hidden, no viewport")
         #expect(info["showingErrorPage"] == nil && info["loadError"] == nil)
-        // Shown: the page's own viewport.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = browser.view
-        info = await browser.paneInfoFields()
+        // Shown (the harness puts a shown pane's page in a 400 × 300 window): the page's own viewport.
         #expect(info["viewport"]?["width"]?.doubleValue == 400 && info["viewport"]?["height"]?.doubleValue == 300 && info["hidden"] == nil)
+        // Not shown (a background tab: its page in no window): hidden, no viewport.
+        let window = try #require(harness.engine.model.window(holding: pane.id)).id
+        let other = try #require(harness.open("browser", placement: .tab(near: pane.id)))
+        #expect(harness.engine.model.window(window)?.isShowing(pane.id) == false)
+        info = await browser.paneInfoFields()
+        #expect(info["hidden"] == true && info["viewport"] == nil, "not shown: hidden, no viewport")
+        harness.engine.close(other.id)
+        #expect(harness.engine.model.window(window)?.isShowing(pane.id) == true)
         // On an error page: flagged, with the code.
         let dead = try await FixtureServer.closedPort()
         browser.page.load("http://127.0.0.1:\(dead)/")

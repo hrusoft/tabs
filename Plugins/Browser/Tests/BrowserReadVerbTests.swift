@@ -332,7 +332,7 @@ import Testing
         let (id, page) = try await create("about:blank")
         page.destroy()
         let sentence =
-            "the page could not run script — it may be mid-navigation, showing an error page, or a viewer (such as the PDF viewer) that runs none"
+            "the page could not run script — it may be mid-navigation, or its process may have ended (a reload brings it back)"
         for command in ["get-page-text", "read-page"] {
             let response = await ctl(command, ["pane": id])
             #expect(response == ["ok": false, "error": .string(sentence)], "\(command): \(response)")
@@ -349,25 +349,6 @@ import Testing
         let both = await ctl("screenshot", ["pane": id, "selector": "#go", "ref": "e1-x"])
         #expect(both["ok"] == false)
         #expect(both["error"] == "pass only one of selector or ref — they are different ways to name one element")
-    }
-
-    /// J-6: `--no-activate` on a pane that isn't on screen fails, naming the remedy (curly apostrophe and all), and
-    /// leaves the user's visible tab alone.
-    @Test func screenshotNoActivateFailsOnAPaneThatIsNotShown() async throws {
-        let (id, _) = try await create("about:blank")
-        let pane = PaneID(try #require(id.stringValue))
-        // The user goes back to the agent's tab: the browser is backgrounded.
-        let window = try #require(harness.engine.model.window(holding: pane)).id
-        let agent = harness.agentPane
-        harness.engine.perform(in: window) { layout, titles in layout.reveal(agent, titles: titles) }
-        #expect(harness.engine.model.window(window)?.isShowing(pane) == false)
-        let refused = await ctl("screenshot", ["pane": id, "no-activate": true])
-        #expect(refused["ok"] == false)
-        #expect(
-            refused["error"]
-                == "the pane is hidden — it is not its tab group’s active tab, so it has no frame to capture; rerun without noActivate, or run activatePane first"
-        )
-        #expect(harness.engine.model.window(window)?.isShowing(pane) == false, "the user's visible tab did not change")
     }
 
     // MARK: The declaration

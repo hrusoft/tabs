@@ -22,14 +22,10 @@ extension UIDriver {
     /// Drags `view` from `start` (its coordinates) to `end` in `target` — in
     /// the same window or another — then releases, or finishes with `finish`.
     func drag(
-        _ view: NSView, from start: NSPoint, to end: NSPoint, in target: NSView, wait: TimeInterval? = nil,
-        finish: InputSynthesizer.DragStep = .release
+        _ view: NSView, from start: NSPoint, to end: NSPoint, in target: NSView, finish: InputSynthesizer.DragStep = .release
     ) throws {
         let destination = try point(end, of: target, from: view)
-        var steps: [InputSynthesizer.DragStep] = [.move(to: destination, steps: 10)]
-        if let wait { steps.append(.wait(wait)) }
-        steps.append(finish)
-        try drag(from: start, in: view, steps)
+        try drag(from: start, in: view, [.move(to: destination, steps: 10), finish])
     }
 
     /// Where a press picks up a pane: on its header's title (or, for a group, its bar clear of the tabs).

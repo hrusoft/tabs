@@ -48,7 +48,7 @@ python3 Visual/compare.py [--baseline DIR] [--current DIR] [--out DIR] [--scenar
 |---|---|
 | `description` | What the capture must show (shown in `compare.py`'s report) |
 | `size` | `{width, height}`: the window's content size, in points |
-| `settings` | Always has `colorTheme` (`dark`/`light`). Also applied: `dimInactivePanes`, `dimInactivePanesIntensity`, `snapResizeSeparators`, `enableBellIndicator`/`enableControlIndicator` (with `signals`), `disabledContentTypes` (creation actions), `plugins` (`{"<plugin id>": {…}}`: plugins' settings, as in settings.json). Map anything new in `VisualCapture.stage` |
+| `settings` | The scenario's settings.json, and the app's look drawn from it as the app draws it (`PaneAppearance.apply`): every key is core's pane settings (`core.panes`, `SettingsStore.PaneSettings`, their defaults where absent) but two. Always has `colorTheme`: a theme's id (`dark`, `light`, any file in `Sources/Tabs/Resources/Themes`); also used: `dimInactivePanes`, `dimInactivePanesIntensity`, `snapResizeSeparators`, `tabTitlesFollowPanes` (default on: a tab holding a live pane shows its title), `disabledSignals` (kinds switched off, with `signals`). The two: `plugins` (`{"<plugin id>": {…}}`: plugins' settings, as in settings.json) and `disabledContentTypes` (the capture's own: creation actions left out) |
 | `layout` | One window's saved layout: `{version: 1, root, activePaneId, floating}`, `root` a tabs group. Leaves: `empty`, or a plugin's content type with the config the plugin saves (a plugin scenario's own; staged through `content`). Node ids are the geometry keys |
 | `pointer` | `{x, y}`: mouse there, no buttons |
 | `drag` | `{from, to}`: left button down at `from`, 10 steps to `to`, captured while held |
@@ -57,7 +57,7 @@ python3 Visual/compare.py [--baseline DIR] [--current DIR] [--out DIR] [--scenar
 | `contextMenu` | `{x, y}`: right-click there |
 | `palette` | `{step: "type" \| "placement", highlight?, hover?}`: ⌘P palette open; `placement` = first row chosen; `highlight` = that many ArrowDown; `hover` = pointer on that row's center (takes the highlight) |
 | `paletteTypes` | Integer ≥ 0: extra stub types after the stub (`sample-<n>`, "Sample <n>", "New sample <n>", icon ▣, n from 2), for lists over nine rows |
-| `signals` | `{"<leaf id>": ["bell" \| "controlled", …]}`, raised before any pointer step. `bell` rings as if the window were unfocused (kept on the active pane); `controlled` = owned by another pane. Hidden when `enableBellIndicator`/`enableControlIndicator` is false |
+| `signals` | `{"<leaf id>": ["bell" \| "controlled", …]}`, raised before any pointer step. `bell` rings as if the window were unfocused (kept on the active pane); `controlled` = owned by another pane. Hidden when `settings.disabledSignals` lists their kind |
 | `pulse` | Seconds: every cue pulse held at that time; without it pulses show at their peak (opacity 1). Bell cycle 3 s, controlled 4.5 s; both at their 0.3 trough at 0 |
 | `content` | `{"<leaf id>": {…}}`: a plugin pane's content, as its plugin stages it (below); its shape is the plugin's (its spec's "Checking the look") |
 | `creationActions` | Content types (a plugin scenario's own, e.g. `["browser"]`) that empty panes offer before the stub; otherwise the stub alone |
@@ -222,7 +222,7 @@ Only while the ⌘P palette is open.
 - **Text**: chrome 11pt system font, line box 13. Baselines: tab title = strip top + 17 (25 on the
   root bar); leaf header title = header top + 16.5. Grip `⠿` 10pt (glyph from Apple Braille); tab
   `×` 12pt Arial.
-- **Colors** (`PaneTheme`, `Sources/TabsPluginSDK/PaneTheme.swift`), dark / light: `bg` `#1e1f24` /
+- **Colors** (`PaneTheme`'s tokens, from `Sources/Tabs/Resources/Themes/dark.json` / `light.json`, docs/THEMES.md), dark / light: `bg` `#1e1f24` /
   `#ffffff` (root bar, even depths); `bgElevated` `#2a2c33` / `#eff0f3` (odd depths, active tab on
   the root bar); `border` `#3a3b44` / `#d2d3da` (every 1pt line); `accent` `#4f8cff` / `#2f6fe4`
   (active outline); `text` `#e6e6eb` / `#1c1d22` (active tab); `textDim` `#9a9ba6` / `#63646e` (the

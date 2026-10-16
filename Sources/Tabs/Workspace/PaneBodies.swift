@@ -15,17 +15,15 @@ final class PaneBodyHost: FlippedView {
     private(set) var bodyKey: String?
     private(set) var contentType: ContentTypeID?
     private(set) var content: NSView?
-    /// The plugin's header accessory and header actions, once its view is built.
-    private(set) var accessory: NSView?
-    /// The plugin's header title, which replaces the pane's own.
+    /// The plugin's header title, which replaces the pane's own, once its view is built.
     private(set) var headerTitle: NSView?
+    /// The plugin's header actions, once its view is built.
     private(set) var actions: [PaneHeaderAction] = []
     private var pending: (@MainActor () -> Content)?
 
     /// What a body shows: its view, and what it adds to the pane's header.
     struct Content {
         var view: NSView
-        var accessory: NSView? = nil
         var headerTitle: NSView? = nil
         var actions: [PaneHeaderAction] = []
     }
@@ -54,7 +52,6 @@ final class PaneBodyHost: FlippedView {
         self.contentType = contentType
         content?.removeFromSuperview()
         content = nil
-        accessory = nil
         headerTitle = nil
         actions = []
         pending = build
@@ -87,7 +84,6 @@ final class PaneBodyHost: FlippedView {
         addSubview(view)
         needsLayout = true
         content = view
-        accessory = built.accessory
         headerTitle = built.headerTitle
         actions = built.actions
         applyDim()
@@ -113,18 +109,11 @@ final class PaneBodyHost: FlippedView {
             return
         }
         layerUsesCoreImageFilters = true
-        let k = 1 - dim.grayscale
         let b = dim.brightness
         let filter = CIFilter(name: "CIColorMatrix")
-        filter?.setValue(
-            CIVector(x: (0.2126 + 0.7874 * k) * b, y: (0.7152 - 0.7152 * k) * b, z: (0.0722 - 0.0722 * k) * b, w: 0), forKey: "inputRVector"
-        )
-        filter?.setValue(
-            CIVector(x: (0.2126 - 0.2126 * k) * b, y: (0.7152 + 0.2848 * k) * b, z: (0.0722 - 0.0722 * k) * b, w: 0), forKey: "inputGVector"
-        )
-        filter?.setValue(
-            CIVector(x: (0.2126 - 0.2126 * k) * b, y: (0.7152 - 0.7152 * k) * b, z: (0.0722 + 0.9278 * k) * b, w: 0), forKey: "inputBVector"
-        )
+        for (row, key) in zip(Dimming.grayscale(dim.grayscale), ["inputRVector", "inputGVector", "inputBVector"]) {
+            filter?.setValue(CIVector(x: row.r * b, y: row.g * b, z: row.b * b, w: 0), forKey: key)
+        }
         content.layer?.filters = filter.map { [$0] }
     }
 
@@ -165,6 +154,35 @@ final class EmptyPaneView: FlippedView, PointerHover, NSViewToolTipOwner {
             case .image(let image): self = .image(image)
             }
         }
+
+        /// The icon's box width: 16, or a stand-in glyph's own in `glyphText`.
+        func width(glyphText: ChromeText) -> CGFloat {
+            if case .glyph(let glyph) = self { return glyphText.width(glyph) }
+            return 16
+        }
+
+        /// Draws the icon centered in `box` (16 tall, `width` wide) in a flipped
+        /// view, in `color`: a symbol at 13pt, a plugin's template tinted to fill
+        /// the box, a stand-in glyph in `glyphText`, its line box centered.
+        @MainActor
+        func draw(in box: CGRect, color: NSColor, glyphText: ChromeText) {
+            switch self {
+            case .symbol(let name):
+                guard
+                    let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                        .withSymbolConfiguration(.init(pointSize: 13, weight: .regular).applying(.init(paletteColors: [color])))
+                else { return }
+                let size = image.size
+                image.draw(
+                    in: CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            case .image(let template):
+                EmptyPaneView.tinted(template, color: color).draw(
+                    in: box, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            case .glyph(let glyph):
+                glyphText.draw(glyph, at: CGPoint(x: box.minX, y: box.midY - glyphText.lineHeight / 2 + glyphText.ascent), color: color)
+            }
+        }
     }
 
     let paneID: PaneID
@@ -184,6 +202,8 @@ final class EmptyPaneView: FlippedView, PointerHover, NSViewToolTipOwner {
     private var tracking: NSTrackingArea?
 
     static let message = NoContentTypes.message
+    /// The stand-in glyph's text on a button.
+    private static let glyphText = ChromeText(size: 13.333)
 
     init(paneID: PaneID, actions: [Action], theme: Theme, create: @escaping @MainActor (ContentTypeID) -> Void) {
         self.paneID = paneID
@@ -256,29 +276,11 @@ final class EmptyPaneView: FlippedView, PointerHover, NSViewToolTipOwner {
             color(fill).setFill()
             Self.segment(rect.insetBy(dx: 1, dy: 1), left: max((isFirst ? radius : 0) - 1, 0), right: max((isLast ? radius : 0) - 1, 0))
                 .fill()
-            let iconColor = color(isHovered ? theme.text : theme.textDim)
-            switch actions[index].icon {
-            case .symbol(let name):
-                if let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-                    .withSymbolConfiguration(.init(pointSize: 13, weight: .regular).applying(.init(paletteColors: [iconColor])))
-                {
-                    let size = image.size
-                    image.draw(
-                        in: CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
-                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-                }
-            case .image(let template):
-                // A 16×16 box, centered, tinted like the symbols.
-                let box = CGRect(x: rect.midX - 8, y: rect.midY - 8, width: 16, height: 16)
-                Self.tinted(template, color: iconColor).draw(
-                    in: box, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            case .glyph(let glyph):
-                let text = ChromeText(size: 13.333)
-                let width = text.width(glyph)
-                text.draw(
-                    glyph, at: CGPoint(x: rect.midX - width / 2, y: text.baseline(centeredIn: rect.height - 2, top: rect.minY + 1)),
-                    color: iconColor)
-            }
+            let icon = actions[index].icon
+            let width = icon.width(glyphText: Self.glyphText)
+            icon.draw(
+                in: CGRect(x: rect.midX - width / 2, y: rect.midY - 8, width: width, height: 16),
+                color: color(isHovered ? theme.text : theme.textDim), glyphText: Self.glyphText)
         }
     }
 
@@ -349,10 +351,7 @@ final class EmptyPaneView: FlippedView, PointerHover, NSViewToolTipOwner {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        tracking = replaceTrackingArea(tracking, events: [.mouseEnteredAndExited, .mouseMoved])
     }
 
     private func index(at event: NSEvent) -> Int? {
@@ -394,7 +393,7 @@ final class EmptyPaneView: FlippedView, PointerHover, NSViewToolTipOwner {
 final class UnavailablePaneView: FlippedView {
     let type: ContentTypeID?
     let reason: String
-    var theme: Theme = .dark { didSet { needsDisplay = true } }
+    var theme: Theme = .placeholder { didSet { needsDisplay = true } }
 
     init(type: ContentTypeID?, reason: String) {
         self.type = type

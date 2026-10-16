@@ -7,33 +7,16 @@ import TabsPluginSDK
 package enum ShortcutText {
     /// How `chord` reads — "⌘T", "⌥⌘←", "⌘Enter" — its modifiers in the
     /// order macOS itself shows them, regardless of the order they were pressed.
+    /// `KeyChord`'s own spelling, but for Return, which reads "Enter" here.
     package static func formatBinding(_ chord: KeyChord?, unbound: String = "Not set") -> String {
         guard let chord else { return unbound }
-        return formatModifiers(chord.modifiers) + displayKey(chord.key)
+        return chord.key == .return ? formatModifiers(chord.modifiers) + "Enter" : chord.description
     }
 
     /// Modifiers alone ("⌃⌥"): the recorder's preview while a combination is
     /// still forming.
     package static func formatModifiers(_ modifiers: KeyChord.Modifiers) -> String {
-        (modifiers.contains(.control) ? "⌃" : "") + (modifiers.contains(.option) ? "⌥" : "")
-            + (modifiers.contains(.shift) ? "⇧" : "") + (modifiers.contains(.command) ? "⌘" : "")
-    }
-
-    /// How the key reads on the page — '←', 'Space', ','.
-    private static func displayKey(_ key: KeyChord.Key) -> String {
-        switch key {
-        case .character(let character): String(character).uppercased()
-        case .return: "Enter"
-        case .space: "Space"
-        case .delete: "⌫"
-        case .tab: "⇥"
-        case .escape: "⎋"
-        case .arrow(.left): "←"
-        case .arrow(.right): "→"
-        case .arrow(.up): "↑"
-        case .arrow(.down): "↓"
-        case .function(let number): "F\(number)"
-        }
+        modifiers.symbols
     }
 
     /// Whether a key can be a shortcut at all. AppKit gives Home, End, Page
@@ -70,19 +53,13 @@ package enum ShortcutText {
         "opt": .option, "option": .option, "shift": .shift,
     ]
 
-    /// Named keys a query may use, the stored names (`delete`, `tab`, `escape`)
-    /// included.
-    private static let namedKeys: [String: KeyChord.Key] = [
-        "left": .arrow(.left), "right": .arrow(.right), "up": .arrow(.up), "down": .arrow(.down), "space": .space,
-        "return": .return, "backspace": .delete, "delete": .delete, "tab": .tab, "escape": .escape, "esc": .escape,
-    ]
-
-    /// Reverse of `queryKey`: the key portion of a query → a key.
+    /// Reverse of `queryKey`: the key portion of a query → a key. The stored
+    /// names (`KeyChord.Key(name:)`: `delete`, `tab`, `esc`, `f5`…), plus
+    /// `backspace` for delete; never a key with no shortcut form.
     private static func parseKeyToken(_ token: String) -> KeyChord.Key? {
-        if let key = namedKeys[token] { return key }
-        if token.count == 1, let character = token.first, isRecordable(.character(character)) { return .character(character) }
-        if token.hasPrefix("f"), let number = Int(token.dropFirst()), (1...20).contains(number) { return .function(number) }
-        return nil
+        if token == "backspace" { return .delete }
+        guard let key = KeyChord.Key(name: token), isRecordable(key) else { return nil }
+        return key
     }
 
     /// A query as a key combination, or nil when it isn't one — including
@@ -122,20 +99,11 @@ package enum ShortcutText {
         return parts.joined(separator: "+")
     }
 
+    /// The key's stored name, lowercased, but `backspace` for delete; nil for a
+    /// key with no shortcut form.
     private static func queryKey(_ key: KeyChord.Key) -> String? {
-        switch key {
-        case .character(let character): isRecordable(key) ? String(character).lowercased() : nil
-        case .return: "return"
-        case .space: "space"
-        case .delete: "backspace"
-        case .tab: "tab"
-        case .escape: "escape"
-        case .arrow(.left): "left"
-        case .arrow(.right): "right"
-        case .arrow(.up): "up"
-        case .arrow(.down): "down"
-        case .function(let number): "f\(number)"
-        }
+        guard isRecordable(key) else { return nil }
+        return key == .delete ? "backspace" : key.name.lowercased()
     }
 
     /// The rows `query` shows, grouped in order of first appearance: empty

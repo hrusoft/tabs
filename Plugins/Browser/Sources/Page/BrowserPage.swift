@@ -267,6 +267,7 @@ final class BrowserPage: NSObject {
         lastLoadError = nil
         exemptLoopback(false)
         webView.goBack()
+        keepProcessInForeground()
     }
 
     func goForward() {
@@ -274,6 +275,25 @@ final class BrowserPage: NSObject {
         lastLoadError = nil
         exemptLoopback(false)
         webView.goForward()
+        keepProcessInForeground()
+    }
+
+    /// Gives a history step the priority a load gets. WebKit runs a page's
+    /// process at foreground priority only while it holds an activity for it:
+    /// the page being visible, a load asked for ("Client navigation"), a script
+    /// call awaiting its answer. A back/forward step holds none (WebKit's log),
+    /// so on a page nobody can see (a background tab, a never-shown test window)
+    /// the step waits for a background-priority process once the last load's
+    /// assertion has run out, about a second after it ended. On a busy machine
+    /// that is seconds (measured beside a CPU burner: a median of 2.2 s, up to
+    /// 15.7 s, against 0.03 s with this; a full test gate saw 10 s pass with the
+    /// step not yet started). A no-op
+    /// script in a private world, sent right after the step, holds an activity
+    /// until the process answers, which it does only after taking the step (the
+    /// two go in order over one connection); the assertion's grace period covers
+    /// the rest of a back/forward cache restore.
+    private func keepProcessInForeground() {
+        call("return 0", in: .defaultClient) { _ in }
     }
 
     /// Ends the page: nothing more is loaded, listeners are told, the console
@@ -383,7 +403,7 @@ final class BrowserPage: NSObject {
         defer { watch.cancel() }
         var outcome = await waitForLoadEnd(timeoutMs: timeoutMs)
         while outcome.loaded, outcome.loadError == nil, await loadStarts(withinMs: BrowserLimits.redirectQuietMs) {
-            let remainingMs = Int(deadline.timeIntervalSinceNow * 1000)
+            let remainingMs = millisecondsLeft(until: deadline)
             guard remainingMs > 0 else { return LoadOutcome(loaded: false) }
             outcome = await waitForLoadEnd(timeoutMs: remainingMs)
             if outcome.loadError == nil, let failure { outcome = LoadOutcome(loaded: false, loadError: failure) }
@@ -448,6 +468,30 @@ final class BrowserPage: NSObject {
         }
     }
 
+    /// A read a caller can do without: `body` run in `world` as `call` runs it,
+    /// its answer turned into a value by `reading`, or nil if the page doesn't
+    /// answer within `timeoutMs` (a page busy in a script of its own). Raced as
+    /// `call` is, so a read a navigation orphans answers rather than never, and
+    /// the read is cancelled once the budget wins.
+    func boundedCall<Value: Sendable>(
+        _ body: String, in world: WKContentWorld = .page, timeoutMs: Int,
+        reading: @escaping @MainActor (Result<JSONValue, PageScriptError>) -> Value?
+    ) async -> Value? {
+        let answer = OneShot<Value?>()
+        let read = Task { @MainActor in
+            let result = await call(body, in: world)
+            answer.resolve(reading(result))
+        }
+        let budget = Task { @MainActor in
+            await delay(milliseconds: timeoutMs)
+            answer.resolve(nil)
+        }
+        let value = await answer.wait()
+        read.cancel()
+        budget.cancel()
+        return value
+    }
+
     func evaluate(_ script: String, completion: @escaping @MainActor (Result<JSONValue, PageScriptError>) -> Void) {
         call("return await (\(script))", in: .page, completion: completion)
     }
@@ -491,31 +535,28 @@ final class BrowserPage: NSObject {
     /// The page's own viewport and scale, read from the page: exact by
     /// definition, where the view's own size is a rounded stand-in. The
     /// fallback (a page that can't run script, or one too busy to answer in
-    /// 500 ms) is the view's size and its window's scale. nil for a page that
-    /// isn't on screen: never an invented viewport.
+    /// 500 ms) is `viewViewport`. nil for a page that isn't on screen: never an
+    /// invented viewport.
     func viewport() async -> PageViewport? {
         guard isVisible else { return nil }
-        let answer = OneShot<PageViewport?>()
-        evaluate("[window.innerWidth, window.innerHeight, window.devicePixelRatio]") { result in
-            if case .success(.array(let numbers)) = result, numbers.count == 3,
+        let read = await boundedCall("return [window.innerWidth, window.innerHeight, window.devicePixelRatio]", timeoutMs: 500) {
+            result -> PageViewport? in
+            guard case .success(.array(let numbers)) = result, numbers.count == 3,
                 let width = numbers[0].doubleValue, let height = numbers[1].doubleValue, let scale = numbers[2].doubleValue,
                 width > 0, height > 0, scale > 0
-            {
-                answer.resolve(PageViewport(width: width, height: height, scaleFactor: scale))
-            } else {
-                answer.resolve(nil)
-            }
+            else { return nil }
+            return PageViewport(width: width, height: height, scaleFactor: scale)
         }
-        let budget = Task { @MainActor in
-            await delay(milliseconds: 500)
-            answer.resolve(nil)
-        }
-        let read = await answer.wait()
-        budget.cancel()
-        if let read { return read }
-        return PageViewport(
+        return read ?? viewViewport
+    }
+
+    /// The view's own size and its window's scale: the stand-in for a viewport
+    /// the page doesn't report. A view in no window takes the main screen's
+    /// scale, where a window would most likely show it, else 1.
+    var viewViewport: PageViewport {
+        PageViewport(
             width: Double(webView.bounds.width).rounded(.up), height: Double(webView.bounds.height).rounded(.up),
-            scaleFactor: Double(webView.window?.backingScaleFactor ?? 1))
+            scaleFactor: Double(webView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1))
     }
 
     /// The page's pixels as a PNG: the whole view, or `rect` (in CSS pixels of
@@ -540,23 +581,14 @@ final class BrowserPage: NSObject {
     func inputCounts(timeoutMs: Int) async -> InputCounts? {
         let seen = InputAcknowledgement.counters
         let script = "return [\(seen).mouseup, \(seen).keyup, \(seen).input, \(seen).mousemove]"
-        let answer = OneShot<InputCounts?>()
-        let read = Task { @MainActor in
-            let result = await call(script, in: .world(name: ConsoleCapture.errorWorldName))
+        return await boundedCall(script, in: .world(name: ConsoleCapture.errorWorldName), timeoutMs: timeoutMs) {
+            result -> InputCounts? in
             guard case .success(.array(let numbers)) = result, numbers.count == 4,
                 let mouseup = numbers[0].intValue, let keyup = numbers[1].intValue, let input = numbers[2].intValue,
                 let mousemove = numbers[3].intValue
-            else { return answer.resolve(nil) }
-            answer.resolve(InputCounts(mouseup: Int(mouseup), keyup: Int(keyup), input: Int(input), mousemove: Int(mousemove)))
+            else { return nil }
+            return InputCounts(mouseup: Int(mouseup), keyup: Int(keyup), input: Int(input), mousemove: Int(mousemove))
         }
-        let budget = Task { @MainActor in
-            await delay(milliseconds: timeoutMs)
-            answer.resolve(nil)
-        }
-        let counts = await answer.wait()
-        read.cancel()
-        budget.cancel()
-        return counts
     }
 
     // MARK: Console
@@ -679,13 +711,19 @@ extension BrowserPage: WKNavigationDelegate {
     /// load shows. Its console starts empty (safe on commit: the page's own
     /// scripts don't run until after this, so nothing of theirs is captured yet),
     /// and its URL is where a re-created pane returns to.
+    ///
+    /// Its address is its history entry's (C-11): WebKit adds or moves to the
+    /// entry before it reports the commit, while the web view's `url` already
+    /// shows a load or step asked for since, when one was asked for before this
+    /// commit arrived (a press on Back in the moment between WebKit adding this
+    /// entry, which turns Back on, and the commit reaching the app).
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         inProvisional = false
         hasCommitted = true
         console.clear()
-        guard let current = webView.url else { return }
-        committedDocument = current
         let item = webView.backForwardList.currentItem
+        guard let current = item?.url ?? webView.url else { return }
+        committedDocument = current
         if let parsed = ErrorPage.parse(current) {
             errorPage = parsed
             url = parsed.failedURL

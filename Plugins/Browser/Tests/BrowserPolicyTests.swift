@@ -191,7 +191,7 @@ import WebKit
             server.page("/one", title: "One"); server.page("/two", title: "Two")
         })
         await bed.load("/one")
-        let answer = Box<Result<JSONValue, PageScriptError>?>(nil)
+        let answer = Ref<Result<JSONValue, PageScriptError>?>(nil)
         bed.page.evaluate("new Promise(() => {})") { answer.value = $0 }
         try await Task.sleep(for: .milliseconds(200))
         await bed.load("/two")

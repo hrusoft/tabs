@@ -28,6 +28,8 @@
 #  12. Versions: the app, every framework, every plugin and the relay carry
 #      Config/Version.xcconfig's MARKETING_VERSION, verbatim, as CFBundleShortVersionString
 #      and CFBundleVersion.
+#  13. The themes: Contents/Resources/Themes holds light.json and dark.json (System's pair)
+#      and is byte-identical to Sources/Tabs/Resources/Themes (docs/THEMES.md).
 #
 # Usage: Scripts/verify-app.sh path/to/Tabs.app
 set -uo pipefail
@@ -60,6 +62,19 @@ executable_of() { echo "$1/Contents/MacOS/$(plist "$1/Contents/Info.plist" CFBun
 stamp_of_framework() { echo "$1/Resources/TabsBuildStamp.plist"; }
 stamp_of_plugin() { echo "$1/Contents/Resources/TabsBuildStamp.plist"; }
 app_stamp="$app/Contents/Resources/TabsBuildStamp.plist"
+
+# same_as_source <noun> <verb> <source, from the repository> <bundled folder>: a folder the build copies into
+# the bundle unchanged (checks 10 and 13) is byte-identical to its source. Fails and returns 1 if it isn't.
+same_as_source() {
+  local source="$here/../$3" difference
+  if [ ! -d "$source" ]; then
+    fail "the source $1 directory $source is missing"
+    return 1
+  fi
+  difference="$(diff -r "$source" "$4" 2>&1)" && return 0
+  fail "the bundled $1 $2 from $3: $(echo "$difference" | head -3 | tr '\n' ' ')"
+  return 1
+}
 
 # Dependencies of an image (all architecture slices), minus its own install name.
 deps_of() {
@@ -214,20 +229,11 @@ rm -rf "$data"
 
 # 10. The bundled skill (Settings ▸ AI symlinks this directory into an agent's skills; the
 #     agent's shell runs its tabs-ctl as a plain process, so it must be real, executable files).
-skill_source="$here/../Sources/Tabs/Resources/skills/tabs"
 skill_bundled="$app/Contents/Resources/skills/tabs"
 skill_problems=0
 [ -f "$skill_bundled/SKILL.md" ] || { fail "the bundle has no skills/tabs/SKILL.md"; skill_problems=$((skill_problems + 1)); }
 [ -x "$skill_bundled/scripts/tabs-ctl" ] || { fail "skills/tabs/scripts/tabs-ctl is missing or not executable"; skill_problems=$((skill_problems + 1)); }
-if [ ! -d "$skill_source" ]; then
-  fail "the source skill directory $skill_source is missing"
-  skill_problems=$((skill_problems + 1))
-elif difference="$(diff -r "$skill_source" "$skill_bundled" 2>&1)"; then
-  :
-else
-  fail "the bundled skill differs from Sources/Tabs/Resources/skills/tabs: $(echo "$difference" | head -3 | tr '\n' ' ')"
-  skill_problems=$((skill_problems + 1))
-fi
+same_as_source skill differs Sources/Tabs/Resources/skills/tabs "$skill_bundled" || skill_problems=$((skill_problems + 1))
 [ "$skill_problems" -eq 0 ] && pass "bundled skill: SKILL.md and an executable tabs-ctl, identical to Sources/Tabs/Resources/skills/tabs"
 
 # 11. The relay (the skill's scripts/tabs-ctl is a stub that runs it).
@@ -281,6 +287,15 @@ for key in CFBundleShortVersionString CFBundleVersion; do
   version_problems=$((version_problems + 1))
 done
 [ "$version_problems" -eq 0 ] && pass "every image's version is Config/Version.xcconfig's ($expected_version)"
+
+# 13. The themes (the Theme menu lists every file; System is light.json or dark.json).
+themes_bundled="$app/Contents/Resources/Themes"
+themes_problems=0
+for id in light dark; do
+  [ -f "$themes_bundled/$id.json" ] || { fail "the bundle has no Themes/$id.json"; themes_problems=$((themes_problems + 1)); }
+done
+same_as_source themes differ Sources/Tabs/Resources/Themes "$themes_bundled" || themes_problems=$((themes_problems + 1))
+[ "$themes_problems" -eq 0 ] && pass "bundled themes: light and dark among them, identical to Sources/Tabs/Resources/Themes"
 
 echo
 if [ "$failures" -eq 0 ]; then

@@ -16,7 +16,7 @@ PLUGIN_E2E_TESTS := $(foreach dir,$(wildcard Plugins/*/Tests/E2E),$(word 2,$(sub
 XCB       = xcodebuild -project Tabs.xcodeproj -scheme $(1) -configuration $(CONFIG) \
             -derivedDataPath $(DERIVED) -destination 'platform=macOS' -skipPackagePluginValidation
 
-.PHONY: help project build build-tests test test-verbose test-core test-plugins test-ui test-e2e verify verify-built lint warnings warnings-clean check-scaffold format check check-release bundle report run visual-baseline visual visual-golden clean
+.PHONY: help project build build-tests test test-verbose test-core test-plugins test-ui test-e2e verify verify-built lint warnings warnings-clean check-scaffold format check check-release bundle quick report run visual-baseline visual visual-golden clean
 
 # Test runs never meet Oh My Zsh's update prompt: a shell started on someone's
 # real dotfiles would take the first typed key as its answer.
@@ -26,7 +26,7 @@ check test test-verbose test-core test-plugins test-ui test-e2e check-scaffold: 
 help:
 	@echo "check          everything a change must pass: lint + no warnings + every test + packaging gate + the scaffold (Debug), side by side"
 	@echo "check-release  build Release (universal, optimized) and run the packaging gate on it"
-	@echo "bundle         check-release, then the dmg ($(DMG))"
+	@echo "bundle         check-release, then the dmg ($(DMG)); \`make bundle quick\` skips the clean warnings build (Release build, gate, dmg)"
 	@echo "test           every tier: core, plugins, app and UI, end to end; bundles in LANES=$(LANES) concurrent lanes"
 	@echo "test-verbose   every tier, printing each test as it starts and finishes (for watching a run by hand)"
 	@echo "test-core      core logic, unhosted; builds only the SDK and core (fastest)"
@@ -125,9 +125,16 @@ check:
 check-release: warnings-clean
 	$(MAKE) verify CONFIG=Release
 
-# What a release ships: the Release app, packaging gate passed, in a dmg.
-bundle: check-release
+# What a release ships: check-release, then the Release app in a dmg. `make bundle
+# quick` leaves out its clean build of every target (warnings-clean), the slow
+# part: the Release app is still built and gated (seconds) before it is packed.
+bundle: $(if $(filter quick,$(MAKECMDGOALS)),,warnings-clean)
+	$(MAKE) verify CONFIG=Release
 	Scripts/make-dmg.sh "$(DERIVED)/Build/Products/Release/Tabs.app" "$(DMG)"
+
+# A word for bundle (`make bundle quick`), not a target of its own.
+quick:
+	@$(if $(filter bundle,$(MAKECMDGOALS)),:,echo "quick goes with bundle: make bundle quick" >&2; exit 1)
 
 report: build
 	TABS_DATA_DIR="$$(mktemp -d)" "$(APP)/Contents/MacOS/Tabs" --plugin-report

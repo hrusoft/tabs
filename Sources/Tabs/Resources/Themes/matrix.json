@@ -1,0 +1,16 @@
+{
+  "name": "Matrix",
+  "appearance": "dark",
+  "bg": "#000000",
+  "bgElevated": "#0a1a0e",
+  "border": "#0a4214",
+  "text": "#00ff41",
+  "textDim": "#00b030",
+  "accent": "#00ff41",
+  "onAccent": "#000000",
+  "bellAlert": "#ff453a",
+  "agent": "#b48cff",
+  "hover": "#00ff41",
+  "shadow": "#00ff41",
+  "shadowStrength": 0.4
+}

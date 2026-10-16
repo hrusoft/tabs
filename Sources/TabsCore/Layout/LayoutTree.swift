@@ -55,15 +55,27 @@ package struct LayoutLeaf: Equatable, Sendable {
 }
 
 /// One tab: a title and the content it shows (any node, a group or a split included).
+///
+/// `title` is what the tab was named: by what it held when it was made, or by
+/// the user (`titleIsManual`). While tab titles follow panes, a tab the user
+/// didn't name shows its pane's title instead (`LayoutEngine.tabTitle`).
 package struct Tab: Equatable, Sendable {
     package var id: NodeID
     package var title: String
+    package var titleIsManual: Bool
     package var content: LayoutNode
 
-    package init(id: NodeID = .make(), title: String, content: LayoutNode) {
+    package init(id: NodeID = .make(), title: String, titleIsManual: Bool = false, content: LayoutNode) {
         self.id = id
         self.title = title
+        self.titleIsManual = titleIsManual
         self.content = content
+    }
+
+    /// A new tab holding `content` under this one's name (a tab rebuilt around
+    /// what it held keeps the user's name).
+    package func renamed(holding content: LayoutNode) -> Tab {
+        Tab(title: title, titleIsManual: titleIsManual, content: content)
     }
 }
 
@@ -177,14 +189,6 @@ package enum Tree {
     }
 
     package static func contains(_ root: LayoutNode, _ id: NodeID) -> Bool { findNode(root, id) != nil }
-
-    /// The first pane reachable from `root`: into a split's first child, but
-    /// not into a tab group's tabs (a group is itself a pane that can be
-    /// active). `Navigation.entryPaneID` descends to the visible leaf.
-    package static func firstPaneID(_ root: LayoutNode) -> NodeID {
-        if case .split(let split) = root, let first = split.children.first { return firstPaneID(first) }
-        return root.id
-    }
 
     package enum ParentRef: Equatable {
         case split(parent: Split, index: Int)
@@ -456,11 +460,33 @@ package enum Tree {
             })
     }
 
+    /// Names a tab as the user typed it: its title stops following its pane.
     package static func renameTab(_ root: LayoutNode, _ tabID: NodeID, _ title: String) -> LayoutNode {
-        guard let ref = findTab(root, tabID), ref.tab.title != title else { return root }
+        updateTab(root, tabID) { tab in
+            tab.title = title
+            tab.titleIsManual = true
+        }
+    }
+
+    /// Takes a tab's name back from the user: the title a new tab holding its
+    /// content would get, and it follows its pane again.
+    package static func resetTabTitle(_ root: LayoutNode, _ tabID: NodeID, _ titleOf: TabTitler) -> LayoutNode {
+        guard let ref = findTab(root, tabID) else { return root }
+        return updateTab(root, tabID) { tab in
+            tab.title = titleOf(ref.tab.content, ref.group.id)
+            tab.titleIsManual = false
+        }
+    }
+
+    /// Applies `change` to the tab `tabID`; one that changes nothing returns `root`.
+    private static func updateTab(_ root: LayoutNode, _ tabID: NodeID, _ change: (inout Tab) -> Void) -> LayoutNode {
+        guard let ref = findTab(root, tabID) else { return root }
+        var next = ref.tab
+        change(&next)
+        if next == ref.tab { return root }
         return updateTabsGroup(root, ref.group.id) { group in
             var group = group
-            for index in group.tabs.indices where group.tabs[index].id == tabID { group.tabs[index].title = title }
+            group.tabs[ref.index] = next
             return .tabs(group)
         }
     }
@@ -481,17 +507,6 @@ package enum Tree {
             var leaf = leaf
             leaf.title = title
             leaf.titleIsManual = title != nil
-            return leaf
-        }
-    }
-
-    /// Sets a pane's title from its content — ignored once the user renamed it.
-    package static func setLiveTitle(_ root: LayoutNode, _ id: NodeID, _ title: String) -> LayoutNode {
-        let next: String? = title.isEmpty ? nil : title
-        return updateLeaf(root, id) { leaf in
-            guard !leaf.titleIsManual, leaf.title != next else { return leaf }
-            var leaf = leaf
-            leaf.title = next
             return leaf
         }
     }
@@ -567,17 +582,17 @@ package enum Tree {
     }
 
     /// Promotes the bare content at `targetID` into a two-tab group holding it
-    /// and `incoming`. `wrapperTitle` rebuilds the collapsed-root case: when
-    /// the removal left the target as the whole tree, the promotion is nested
-    /// one level in under the preserved title.
+    /// and `incoming`. `wrapper` rebuilds the collapsed-root case: when the
+    /// removal left the target as the whole tree, the promotion is nested one
+    /// level in under the wrapping tab's preserved name.
     private static func promoteIntoTabs(
-        _ tree: LayoutNode, _ targetID: NodeID, _ incoming: Tab, _ titleOf: TabTitler, _ wrapperTitle: String?
+        _ tree: LayoutNode, _ targetID: NodeID, _ incoming: Tab, _ titleOf: TabTitler, _ wrapper: Tab?
     ) -> LayoutNode {
         func promotion(_ target: LayoutNode) -> LayoutNode {
             .tabs(TabGroup(tabs: [Tab(title: titleOf(target, nil), content: target), incoming], activeTabID: incoming.id))
         }
-        if let wrapperTitle, tree.id == targetID {
-            return normalize(.tabs(TabGroup(tabs: [Tab(title: wrapperTitle, content: promotion(tree))])))
+        if let wrapper, tree.id == targetID {
+            return normalize(.tabs(TabGroup(tabs: [wrapper.renamed(holding: promotion(tree))])))
         }
         return normalize(replaceNode(tree, targetID) { promotion($0) } ?? tree)
     }
@@ -595,13 +610,13 @@ package enum Tree {
 
     /// Places `tab` at `targetID`/`zone`, any same-tree removal already done.
     private static func insertTab(
-        _ root: LayoutNode, _ tab: Tab, _ targetID: NodeID, _ zone: DockZone, _ titleOf: TabTitler, _ targetOwnTabTitle: String?,
+        _ root: LayoutNode, _ tab: Tab, _ targetID: NodeID, _ zone: DockZone, _ titleOf: TabTitler, _ targetOwnTab: Tab?,
         at index: Int? = nil
     ) -> LayoutNode {
         if zone == .center {
             guard let target = findNode(root, targetID) else { return root }
             if target.isTabs || target.isEmpty { return insertTabIntoGroupOrEmpty(root, tab, targetID, at: index) }
-            return promoteIntoTabs(root, targetID, tab, titleOf, targetOwnTabTitle)
+            return promoteIntoTabs(root, targetID, tab, titleOf, targetOwnTab)
         }
         let (direction, before) = edgeZoneToSplit(zone)
         return splitContent(root, targetID, direction, .tabs(TabGroup(tabs: [tab])), before: before)
@@ -620,7 +635,7 @@ package enum Tree {
             let targetOwnTab = wrappingTab(in: root, targetID, ref.group.id)
             let removed = removeTabFromGroup(root, ref.group.id, tabID) ?? root
             guard contains(removed, targetID) else { return root }
-            return insertTab(removed, ref.tab, targetID, zone, titleOf, targetOwnTab?.title)
+            return insertTab(removed, ref.tab, targetID, zone, titleOf, targetOwnTab)
         }
         let removed = removeTabFromGroup(root, ref.group.id, tabID) ?? root
         var effectiveTarget = targetID
@@ -705,10 +720,11 @@ package enum Tree {
     }
 
     /// The docked root's invariant: always a tab group (its bar is the
-    /// window's title bar). Wraps anything else as the only tab.
-    package static func ensureTabsRoot(_ node: LayoutNode, _ titleOf: (LayoutNode) -> String) -> TabGroup {
+    /// window's title bar). Wraps anything else as the only tab, the one
+    /// `tabHolding` makes.
+    package static func ensureTabsRoot(_ node: LayoutNode, _ tabHolding: (LayoutNode) -> Tab) -> TabGroup {
         if case .tabs(let group) = node { return group }
-        return TabGroup(tabs: [Tab(title: titleOf(node), content: node)])
+        return TabGroup(tabs: [tabHolding(node)])
     }
 
     /// Whether docking the pane `paneID` against `targetID` would change anything.
@@ -746,7 +762,7 @@ package enum Tree {
 
     /// Places `pane` at `targetID`/`zone`, any same-tree removal already done.
     private static func insertPane(
-        _ root: LayoutNode, _ pane: LayoutNode, _ targetID: NodeID, _ zone: DockZone, _ titleOf: TabTitler, _ targetOwnTabTitle: String?,
+        _ root: LayoutNode, _ pane: LayoutNode, _ targetID: NodeID, _ zone: DockZone, _ titleOf: TabTitler, _ targetOwnTab: Tab?,
         at index: Int? = nil
     ) -> LayoutNode {
         if zone == .center {
@@ -758,7 +774,7 @@ package enum Tree {
                 // The pane takes the placeholder's slot under its own id.
                 return normalize(replaceNode(root, targetID) { _ in pane } ?? root)
             }
-            return promoteIntoTabs(root, targetID, Tab(title: titleOf(pane, nil), content: pane), titleOf, targetOwnTabTitle)
+            return promoteIntoTabs(root, targetID, Tab(title: titleOf(pane, nil), content: pane), titleOf, targetOwnTab)
         }
         let (direction, before) = edgeZoneToSplit(zone)
         return splitContent(root, targetID, direction, pane, before: before)
@@ -789,7 +805,7 @@ package enum Tree {
             else { return root }
             effectiveTarget = survivor.content.id
         }
-        return insertPane(detached, pane, effectiveTarget, zone, titleOf, targetOwnTab?.title)
+        return insertPane(detached, pane, effectiveTarget, zone, titleOf, targetOwnTab)
     }
 
     /// Inserts a pane not yet anywhere in `root` (the cross-window counterpart of `dockPane`).
