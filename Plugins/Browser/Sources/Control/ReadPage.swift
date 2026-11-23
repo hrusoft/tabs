@@ -12,6 +12,8 @@ enum ReadPage {
     /// - `isLoading` from the page host-side; `readyState`/`settled` from the page script's
     ///   answer (`settled` is the persistent tracker's "no mutation for `waitIdleQuietMs`", the
     ///   same quiet `wait-for --idle` waits for);
+    /// - `contentType` only when the document isn't a web page (a PDF, an image, plain text: the
+    ///   pane shows a viewer the reads see nothing of; `BrowserPage.viewerContentType`);
     /// - `frames`/`shadowRoots`: always-present integers, 0 included, counting content one
     ///   level below the top document that these verbs structurally cannot see into
     ///   (`querySelectorAll` and `innerText` don't descend into a frame or a shadow tree). A
@@ -26,6 +28,7 @@ enum ReadPage {
         if let settled = guest?["settled"]?.boolValue { fields["settled"] = .bool(settled) }
         if let frames = number(guest?["frames"]) { fields["frames"] = frames }
         if let shadowRoots = number(guest?["shadowRoots"]) { fields["shadowRoots"] = shadowRoots }
+        if let contentType = page.viewerContentType { fields["contentType"] = .string(contentType) }
         return fields
     }
 
@@ -68,14 +71,14 @@ enum ReadPage {
     /// controls", the least intended reading there is.
     static func readPageFilterError(_ arguments: [String: JSONValue]) -> String? {
         for key in ["selector", "role"] {
-            if let value = arguments[key], !VerbSupport.namedString(value) { return "\(key) must be a non-empty string" }
+            if let value = arguments[key], !VerbSupport.namedString(value) { return "--\(key) must be a non-empty string" }
         }
         // A role outside the ARIA vocabulary can never match: refused rather than answered with
         // an empty list that reads as "none here".
         if let role = arguments["role"]?.stringValue, let unknown = roleFilterError(role) { return unknown }
         if let offset = arguments["offset"] {
             guard let value = offset.doubleValue, value >= 0, value == value.rounded(), value.isFinite else {
-                return "offset must be a non-negative integer (it is a 0-based index into the matching elements)"
+                return "--offset must be a non-negative integer (it is a 0-based index into the matching elements)"
             }
         }
         return nil
@@ -109,6 +112,7 @@ enum ReadPage {
         var name: String
         var role: String
         var tag: String
+        var submits: Bool
         var index: Int
     }
 
@@ -123,7 +127,7 @@ enum ReadPage {
         let candidates = (array(described["candidates"])).enumerated().map { index, json in
             Candidate(
                 json: json, name: json["name"]?.stringValue ?? "", role: json["role"]?.stringValue ?? "",
-                tag: json["tag"]?.stringValue ?? "", index: index)
+                tag: json["tag"]?.stringValue ?? "", submits: json["submits"] == true, index: index)
         }
         let ranked = findElements(
             candidates, description: description, maxResults: invocation["maxResults"]?.doubleValue.map { Int($0) } ?? 10)

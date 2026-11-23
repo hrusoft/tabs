@@ -34,12 +34,12 @@
     },
     "root": {
       "buttons": {
-        "pane-close-button": [275, 7.5, 23, 17],
-        "pane-new-tab-button": [243, 7.5, 23, 17]
+        "pane-close-button": [238, 7.5, 23, 17],
+        "pane-new-tab-button": [206, 7.5, 23, 17]
       },
       "dropdown": null,
-      "rect": [243, 7.5, 55, 17],
-      "separator": [270, 10.5, 1, 11],
+      "rect": [206, 7.5, 55, 17],
+      "separator": [233, 10.5, 1, 11],
       "visible": false
     }
   },
@@ -86,12 +86,13 @@
   },
   "tabBars": {
     "root": {
+      "caffeinateOpen": [269, 4.5, 23, 23],
       "grip": null,
       "newTab": [210.01, 13, 20, 14],
       "rect": [1, 1, 338, 30],
       "root": true,
       "settings": [306, 4.5, 23, 23],
-      "strip": [90, 8, 145, 24],
+      "strip": [90, 8, 108, 24],
       "tabs": {
         "tab-main": {
           "active": true,

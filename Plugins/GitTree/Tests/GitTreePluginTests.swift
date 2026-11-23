@@ -42,7 +42,7 @@ import Testing
         #expect(await eventually { bed.harness.config(of: id) == ["cwd": "/repo"] })
     }
 
-    /// PS-1, PS-2: only its four keys are its own; everything else survives.
+    /// PS-1, PS-2: only its own keys change; everything else survives.
     @Test func savesItsStateInTheConfigAndKeepsUnknownKeys() async throws {
         let (id, pane) = try await bed.openRepo(extra: ["somethingElse": 1])
         pane.chooseBranchScope(.local)

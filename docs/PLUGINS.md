@@ -335,7 +335,7 @@ sees those failures.
   `targetPaneId` (nor `target` with a composition).
   - Kinds: `string`, `integer`, `number`, `bool`, `object`, `array`, `path`, `csv` (comma list → array of strings),
     `json` (parsed; any JSON unless `schema:` says more).
-  - `enumValues`, `minimum`, `defaultValue` (flags only; never applied to a raw wire request), `placeholder` (the usage
+  - `enumValues`, `minimum`, `maximum`, `defaultValue` (flags only; never applied to a raw wire request), `placeholder` (the usage
     line's `<css>`), `schema` (the wire property's own JSON Schema).
   - A bare flag arrives as `true`: accepted only for `bool` and `path` (a bare `--out` = "generate one", `true` on the
     wire); otherwise `--<flag> needs a value`, never sent as `1` or `"true"`.

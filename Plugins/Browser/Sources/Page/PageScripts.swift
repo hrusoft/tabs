@@ -31,8 +31,35 @@ private let domActivity = "__tabsDomActivity"
 /// Elements worth reporting: everything interactive, plus headings for orientation.
 private let candidateSelector = [
     "a[href]", "button", "input", "select", "textarea", "summary", "[role]", "[onclick]", "[tabindex]", "[contenteditable=\"true\"]",
-    "h1", "h2", "h3", "h4", "h5", "h6",
+    "[contenteditable=\"\"]", "[contenteditable=\"plaintext-only\"]", "h1", "h2", "h3", "h4", "h5", "h6",
 ].joined(separator: ",")
+
+/// HTML-AAM's implicit role for each tag whose role holds whatever its attributes;
+/// `roleFor` (`describeElementJS`) decides the rest itself: links, headings, images,
+/// inputs, selects, table cells, header and footer, section and form.
+private let implicitRoleOfTag: [String: String] = [
+    "button": "button", "summary": "button", "textarea": "textbox", "option": "option", "datalist": "listbox",
+    "table": "table", "caption": "caption", "thead": "rowgroup", "tbody": "rowgroup", "tfoot": "rowgroup", "tr": "row",
+    "ul": "list", "ol": "list", "menu": "list", "li": "listitem", "nav": "navigation", "main": "main", "aside": "complementary",
+    "article": "article", "dialog": "dialog", "fieldset": "group", "details": "group", "optgroup": "group", "hr": "separator",
+    "progress": "progressbar", "meter": "meter", "output": "status", "p": "paragraph", "blockquote": "blockquote",
+    "figure": "figure",
+]
+
+/// The tags that may hold each role implicitly: a `--role` naming one widens the
+/// default pool (controls and headings) by them, so `--role table` finds a table the
+/// default read never lists.
+private let tagsOfImplicitRole: [String: String] = {
+    var tags: [String: [String]] = [:]
+    for (tag, role) in implicitRoleOfTag { tags[role, default: []].append(tag) }
+    let decided: [String: [String]] = [
+        "img": ["img"], "presentation": ["img"], "none": ["img"], "listbox": ["select"], "cell": ["td"], "gridcell": ["td"],
+        "columnheader": ["th"], "rowheader": ["th"], "banner": ["header"], "contentinfo": ["footer"], "region": ["section"],
+        "form": ["form"],
+    ]
+    for (role, extra) in decided { tags[role, default: []] += extra }
+    return tags.mapValues { $0.sorted().joined(separator: ",") }
+}()
 
 /// Response-size discipline: a caller's context is the real budget here, not memory.
 private let maxElements = 200
@@ -52,6 +79,11 @@ private let findPool = "__tabsFindPool"
 /// change. `file` is here too (it can't be set at all), and each gets a loud
 /// `unfillable` outcome pointing at `click` instead.
 private let unfillableInputTypes = ["checkbox", "radio", "button", "submit", "reset", "image", "file"]
+
+/// Input types whose value is text the browser edits, as a textarea's is: `form-input`
+/// fills them through its editing commands, one undoable edit. The others (a date, a
+/// color, a range) have no text to edit and are set by value.
+private let textEditedInputTypes = ["text", "search", "url", "tel", "password", "email", "number"]
 
 /// A value as a JavaScript literal (JSON is one).
 func jsLiteral(_ value: JSONValue) -> String {
@@ -207,28 +239,52 @@ let mintRefJS = #"""
 /// reports a hit in: the same vocabulary `read-page` speaks, so a caller can compare
 /// the two directly.
 let describeElementJS = #"""
+      // An element's role: its explicit one, else the one HTML-AAM gives its tag
+      // (what WebKit and Chromium expose). The tags whose role holds unconditionally
+      // are `implicitRoles`; the rest depend on attributes or ancestors, below.
+      const implicitRoles = \#(jsLiteral(.object(implicitRoleOfTag.mapValues(JSONValue.string))))
+      const named = (el) => {
+        const label = el.getAttribute('aria-label')
+        return Boolean((label && label.trim()) || el.getAttribute('aria-labelledby'))
+      }
       const roleFor = (el) => {
         const explicit = el.getAttribute('role')
         if (explicit) return explicit
         const tag = el.tagName.toLowerCase()
         if (tag === 'a') return 'link'
-        if (tag === 'button' || tag === 'summary') return 'button'
-        if (tag === 'select') return 'combobox'
-        if (tag === 'textarea') return 'textbox'
         if (/^h[1-6]$/.test(tag)) return 'heading'
-        // HTML-AAM: an image with alt="" and no label is decoration, any other an image.
-        if (tag === 'img') {
-          const unlabelled = !el.hasAttribute('aria-label') && !el.hasAttribute('aria-labelledby')
-          return el.getAttribute('alt') === '' && unlabelled ? 'presentation' : 'img'
-        }
+        // An image with alt="" and no label is decoration, any other an image.
+        if (tag === 'img') return el.getAttribute('alt') === '' && !named(el) ? 'presentation' : 'img'
         if (tag === 'input') {
           const type = (el.getAttribute('type') || 'text').toLowerCase()
           if (type === 'checkbox') return 'checkbox'
           if (type === 'radio') return 'radio'
-          if (type === 'submit' || type === 'button' || type === 'reset') return 'button'
+          if (['submit', 'button', 'reset', 'image'].includes(type)) return 'button'
           if (type === 'range') return 'slider'
+          if (type === 'number') return 'spinbutton'
+          // No ARIA role names these: a color or file input is pressed to open a picker (a button, as browsers
+          // expose a file input), and a date or time one is a set of segments, day, month and year (a group, as
+          // Firefox exposes it). Neither is a text field (#86).
+          if (type === 'color' || type === 'file') return 'button'
+          if (['date', 'time', 'datetime-local', 'month', 'week'].includes(type)) return 'group'
+          if (el.hasAttribute('list') && ['text', 'search', 'url', 'tel', 'email'].includes(type)) return 'combobox'
+          if (type === 'search') return 'searchbox'
           return 'textbox'
         }
+        if (tag === 'select') return el.multiple || el.size > 1 ? 'listbox' : 'combobox'
+        if (tag === 'th') return el.getAttribute('scope') === 'row' ? 'rowheader' : 'columnheader'
+        if (tag === 'td') return ['grid', 'treegrid'].includes(el.closest('table')?.getAttribute('role')) ? 'gridcell' : 'cell'
+        // A page's header and footer are its banner and contentinfo; inside sectioning content they're plain.
+        if (tag === 'header' || tag === 'footer') {
+          if (el.parentElement?.closest('article, aside, main, nav, section')) return 'generic'
+          return tag === 'header' ? 'banner' : 'contentinfo'
+        }
+        // A section or a form is a landmark only once it is named.
+        if (tag === 'section') return named(el) ? 'region' : 'generic'
+        if (tag === 'form') return named(el) ? 'form' : 'generic'
+        if (implicitRoles[tag]) return implicitRoles[tag]
+        // An editing host is a text field (what WebKit exposes); what it holds is its content.
+        if (el.isContentEditable && !el.parentElement?.isContentEditable) return 'textbox'
         return 'generic'
       }
 
@@ -282,6 +338,17 @@ let describeElementJS = #"""
             })
             .join(' ').trim()
           if (text) return text
+        }
+        // An input button says what it is in its value (HTML-AAM): an image one in its alt,
+        // and a submit or reset with neither by its default label.
+        if (el.tagName === 'INPUT') {
+          const type = (el.getAttribute('type') || 'text').toLowerCase()
+          if (['submit', 'reset', 'button', 'image'].includes(type)) {
+            const own = type === 'image' ? el.getAttribute('alt') || el.getAttribute('value') : el.getAttribute('value')
+            if (own && own.trim()) return own
+            if (type === 'submit' || type === 'image') return 'Submit'
+            if (type === 'reset') return 'Reset'
+          }
         }
         if (el.labels && el.labels.length) {
           const text = Array.from(el.labels).map((l) => labelText(l, el)).join(' ').trim()
@@ -337,15 +404,16 @@ let describeElementJS = #"""
 let candidatePoolJS = #"""
       // The selector *replaces* the candidate set rather than filtering it — the
       // interactive-and-headings default is a guess at what matters, and a caller
-      // naming a selector has a better one (an <img>, a table row, a card
-      // container), none of which the default would ever have listed. Images
+      // naming a selector has a better one (an <img>, a card container), none of
+      // which the default would ever have listed. Images, tables and landmarks
       // aren't in the default either (they aren't controls, and a page of them
       // would crowd the controls out of a read), but a caller asking for one by
-      // role has said it wants them.
+      // role has said it wants them: the tags that hold that role join the pool.
+      const roleTags = \#(jsLiteral(.object(tagsOfImplicitRole.mapValues(JSONValue.string))))
       const candidatePool = (selector, role) => {
-        const imageRole = ['img', 'presentation', 'none'].includes(String(role ?? '').toLowerCase())
+        const tags = roleTags[String(role ?? '').toLowerCase()]
         try {
-          return Array.from(document.querySelectorAll(selector ?? \#(jsonQuoted(candidateSelector)) + (imageRole ? ',img' : '')))
+          return Array.from(document.querySelectorAll(selector ?? \#(jsonQuoted(candidateSelector)) + (tags ? ',' + tags : '')))
         } catch {
           return { error: 'invalid selector: ' + selector }
         }
@@ -492,8 +560,10 @@ func findCandidatesScript(token: String) -> String {
         if (kept.length === \#(maxElements)) break
       }
       window.\#(findPool) = { token: \#(jsonQuoted(token)), elements: kept.map(([el]) => el) }
+      // A control that submits its form (a submit button with a form owner): what "the submit button" means.
+      const submits = (el) => (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) && ['submit', 'image'].includes(el.type) && el.form !== null
       return {
-        candidates: kept.map(([el, rect]) => ({ ...describeEl(el), rect: roundRect(rect) })),
+        candidates: kept.map(([el, rect]) => ({ ...describeEl(el), rect: roundRect(rect), ...(submits(el) ? { submits: true } : {}) })),
         ...readiness(),
         ...documentShape()
       }
@@ -620,6 +690,25 @@ func semanticResolverExpression(_ target: SemanticTarget) -> String {
             const matchesRole = roleMatcher(criteria.role)
             const roleFiltered = matchesRole === null ? visible : visible.filter(matchesRole)
             const matches = nameTiered(roleFiltered)
+            // Why a miss may not mean "not on the page": a hidden element would have
+            // matched (hidden ones never do), or the page has frames or shadow roots,
+            // which targeting can't search. Read only on a miss.
+            \#(documentShapeJS)
+            const missWhy = () => {
+              const hidden = pool.filter((el) => !isVisible(el))
+              const hiddenMatches = nameTiered(matchesRole === null ? hidden : hidden.filter(matchesRole))
+              if (hiddenMatches.length > 0) {
+                const first = '<' + hiddenMatches[0].tagName.toLowerCase() + '>'
+                return hiddenMatches.length === 1
+                  ? '; a hidden ' + first + ' matches — hidden elements can\'t be targeted (execute-js can reach it)'
+                  : '; ' + hiddenMatches.length + ' hidden elements match (the first a ' + first + ') — hidden elements can\'t be targeted (execute-js can reach them)'
+              }
+              const { frames, shadowRoots } = documentShape()
+              const parts = []
+              if (frames) parts.push(frames + (frames === 1 ? ' frame' : ' frames'))
+              if (shadowRoots) parts.push(shadowRoots + (shadowRoots === 1 ? ' shadow root' : ' shadow roots'))
+              return parts.length ? '; the page has ' + parts.join(' and ') + ', which targeting can\'t search inside' : ''
+            }
             if (matches.length === 0) {
               // Near-miss diagnosis, role+name only (see the doc above for why): does
               // the name match under some other role? role stays a hard filter even
@@ -642,7 +731,7 @@ func semanticResolverExpression(_ target: SemanticTarget) -> String {
                   }
                 }
               }
-              return { error: 'no element matches ' + label + ' — read-page shows what the page calls its controls' }
+              return { error: 'no element matches ' + label + missWhy() + (criteria.role !== undefined || criteria.name !== undefined ? ' — read-page shows what the page calls its controls' : '') }
             }
             if (typeof criteria.nth === 'number') {
               if (criteria.nth >= matches.length) {
@@ -769,15 +858,45 @@ func describePointScript(x: Double, y: Double) -> String {
 /// it. `reason` distinguishes "the resolver failed, and says why" from "matched, but
 /// focus() didn't take": both worth a caller's while, and only the page can tell
 /// them apart.
+///
+/// A field this focus reaches gets its caret at the end, so `type` appends: WebKit
+/// selects all of a text field focused from script that has never had a caret
+/// (measured), and the first key would replace what it held. A text field without the
+/// selection API (`email`, `number`) has the selection moved to its end by
+/// `Selection.modify`, which reaches inside it. Its value is never set for this:
+/// setting it, even to itself, replaces the text WebKit's undo entries point into, so
+/// the field's earlier edits stopped undoing (#86). A contenteditable host gets a
+/// collapsed range at its end. An element already focused keeps its caret.
 func focusTargetScript(_ resolver: String) -> String {
     #"""
     (() => {
         \#(describeElementJS)
         \#(resolvedElementPrologue(resolver, failKey: "focused"))
+        const wasFocused = document.activeElement === el
         el.focus()
         if (document.activeElement !== el) {
           const d = describeEl(el)
           return { focused: false, reason: 'matched ' + d.role + ' "' + d.name + '" <' + d.tag + '> but it did not take focus — it may not be a focusable element' }
+        }
+        if (!wasFocused) {
+          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+            const end = el.value.length
+            try {
+              el.setSelectionRange(end, end)
+            } catch (error) {
+              // Any other input that refuses a selection range (a file input, a button) has no caret to place.
+              if (el instanceof HTMLInputElement && ['email', 'number'].includes(el.type)) {
+                getSelection().modify('move', 'forward', 'documentboundary')
+              }
+            }
+          } else if (el.isContentEditable) {
+            const range = document.createRange()
+            range.selectNodeContents(el)
+            range.collapse(false)
+            const selection = getSelection()
+            selection.removeAllRanges()
+            selection.addRange(range)
+          }
         }
         return { focused: true }
       })()
@@ -822,12 +941,25 @@ func executeScript(_ code: String) -> String {
 ///
 /// - A `<select>` picks the option whose value or visible label equals the
 ///   requested value, and reports the valid options if none matches.
-/// - An `<input>`/`<textarea>` is set through the **native prototype setter**, then
+/// - A `<textarea>` or a text `<input>` (`textEditedInputTypes`) has its text selected
+///   and replaced through the browser's editing commands (`insertText`, or `delete` for
+///   an empty value), then `change` is dispatched: one edit on the field's own undo
+///   stack, with the trusted `beforeinput`/`input` events typing gives, so frameworks
+///   see what they see from a keyboard. Setting the value directly instead left WebKit's
+///   undo entries pointing into text the field no longer held: an undo or redo after
+///   it replayed old edits onto the new value ("hello worldHix", #86). The typing the
+///   edit opens is closed by the step it runs in (`closeTypingScript`).
+/// - Before either, a value the `<input>`/`<textarea>` can't hold is refused with nothing
+///   changed (`refused`): what its type's sanitizing makes of the value, run on a
+///   detached twin carrying the attributes that sanitizing reads (a range's `min`,
+///   `max` and `step`), and its `maxlength`. A colour's hex is lowercased first.
+/// - Any other `<input>` (a date, a color), or a text field that is read-only (a custom
+///   date picker's often is: `readOnly` in the answer), is set through the **native prototype setter**, then
 ///   `input`/`change` are dispatched with `bubbles: true`. The prototype setter (not
 ///   `el.value = ...`) is what keeps React and friends honest: their value tracker
 ///   dedupes events against the last value it saw, and a direct assignment updates
 ///   that tracker so the dispatched event reads as "no change" and is ignored.
-///   `length` is the element's own value length *after* the set: the engine
+/// - Either way `length` is the element's own value length *after* the fill: the engine
 ///   sanitizes on write (a single-line `<input>` strips `\n`, a date input rejects
 ///   non-dates to empty), and the read-back is what lets the host report that instead
 ///   of counting the field filled.
@@ -845,7 +977,7 @@ func fillFocusedScript(_ value: String) -> String {
     (() => {
         \#(describeElementJS)
         const el = document.activeElement
-        const wanted = \#(jsonQuoted(value))
+        let wanted = \#(jsonQuoted(value))
         if (!el || ((el === document.body || el === document.documentElement) && !el.isContentEditable)) {
           return { mode: 'none' }
         }
@@ -873,6 +1005,32 @@ func fillFocusedScript(_ value: String) -> String {
           if (inputType !== null && \#(jsLiteral(.array(unfillableInputTypes.map { .string($0) }))).includes(inputType)) {
             return { mode: 'unfillable', element: describeEl(el) }
           }
+          const tag = el.tagName.toLowerCase()
+          // What the field can't hold is refused before anything changes, so a field that fails is left as it
+          // was: what its type's own sanitizing makes of the value, run on a detached twin (a number field
+          // holds no "abc", a single-line one no line break), and its maxlength.
+          // The twin carries what the sanitizing reads besides the type: a range's bounds and step, an email
+          // field's multiple. A colour's hex is the same colour in either case, and the field keeps it lowercase.
+          if (inputType === 'color') wanted = wanted.toLowerCase()
+          const twin = document.createElement(tag)
+          if (inputType !== null) twin.type = inputType
+          for (const attr of ['min', 'max', 'step', 'multiple']) {
+            if (el.hasAttribute(attr)) twin.setAttribute(attr, el.getAttribute(attr))
+          }
+          twin.value = wanted
+          if (twin.value !== wanted) return { mode: 'refused', holds: twin.value, inputType, tag }
+          if (el.maxLength >= 0 && wanted.length > el.maxLength) return { mode: 'refused', maxLength: el.maxLength, inputType, tag }
+          // A read-only field takes no edit; it is set by value (a custom date picker's often is read-only), and
+          // the answer says so.
+          const editable = !el.readOnly && (inputType === null || \#(jsLiteral(.array(textEditedInputTypes.map { .string($0) }))).includes(inputType))
+          if (editable) {
+            el.select()
+            const edited = wanted === '' ? document.execCommand('delete') : document.execCommand('insertText', false, wanted)
+            if (edited || el.value === wanted) {
+              el.dispatchEvent(new Event('change', { bubbles: true }))
+              return { mode: 'set', length: el.value.length, exact: el.value === wanted, tag }
+            }
+          }
           const proto = el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
           try {
             Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, wanted)
@@ -881,7 +1039,7 @@ func fillFocusedScript(_ value: String) -> String {
           }
           el.dispatchEvent(new Event('input', { bubbles: true }))
           el.dispatchEvent(new Event('change', { bubbles: true }))
-          return { mode: 'set', length: el.value.length, tag: el.tagName.toLowerCase() }
+          return { mode: 'set', length: el.value.length, exact: el.value === wanted, tag, ...(el.readOnly ? { readOnly: true } : {}) }
         }
         if (el.isContentEditable) {
           document.execCommand('selectAll')
@@ -900,17 +1058,104 @@ func fillFocusedScript(_ value: String) -> String {
 /// It is also the route `fillFocusedScript` already takes for a contenteditable, so
 /// the two agree about what an editing command is. `execCommand` returns false when
 /// it declines outright. It returns *true* for an `undo` with nothing on the stack,
-/// which is why the caller documents the limitation rather than trying to report it.
+/// which is why the caller asks the pane's undo history first.
+///
+/// `element` is what the command changed, as the `input` event it fires within
+/// `execCommand` says: an undo or a redo steps the page's last edit, which can be
+/// another field's. A command that fires none (select all) acted on the focused
+/// element; an undo or a redo that fires none (an edit in a frame, whose events stay
+/// there) names nothing. `focused` is what the page had focused, for a refusal.
+///
+/// **An undo or a redo of another element's edit puts the focus and the caret back.**
+/// WebKit selects the edit it stepped, in that field: the focus follows at once while
+/// the page holds the keyboard, else the next time it takes it, so the `key` after an
+/// undo typed into the field the undo changed (measured, #86). So the focused
+/// element's selection is kept beforehand and restored after: a selection range, or
+/// for a text field without the selection API (`email`, `number`) the caret WebKit
+/// caches and puts back when the field is focused again, which needs a blur first if
+/// the focus never left. With nothing focused, whatever the undo focused is blurred.
 func editingCommandScript(_ command: String) -> String {
     #"""
     (() => {
         \#(describeElementJS)
-        const el = document.activeElement
-        const applied = document.execCommand(\#(jsonQuoted(command)))
-        return { applied, element: el instanceof Element ? describeEl(el) : null }
+        const command = \#(jsonQuoted(command))
+        const focused = document.activeElement
+        const history = command === 'undo' || command === 'redo'
+        // What the focused element's selection was, to put back after an undo or a redo of another element's edit.
+        const field = focused instanceof HTMLElement && focused !== document.body && focused !== document.documentElement
+        const ranged = (focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement) && typeof focused.selectionStart === 'number'
+        const cached = !ranged && focused instanceof HTMLInputElement && ['email', 'number'].includes(focused.type)
+        const kept = ranged
+          ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection]
+          : getSelection().rangeCount > 0 ? getSelection().getRangeAt(0).cloneRange() : null
+        const putBack = () => {
+          if (!field) {
+            if (document.activeElement instanceof HTMLElement && document.activeElement !== focused) document.activeElement.blur()
+          } else if (cached) {
+            if (document.activeElement === focused) focused.blur()
+            focused.focus({ preventScroll: true })
+            return
+          } else if (document.activeElement !== focused) {
+            focused.focus({ preventScroll: true })
+          }
+          if (ranged) {
+            focused.setSelectionRange(kept[0], kept[1], kept[2])
+            return
+          }
+          const selection = getSelection()
+          selection.removeAllRanges()
+          if (kept) selection.addRange(kept)
+        }
+        let edited = null
+        const note = (event) => {
+          if (edited === null) edited = event.composedPath()[0]
+        }
+        window.addEventListener('input', note, true)
+        let applied
+        try {
+          applied = document.execCommand(command)
+        } finally {
+          window.removeEventListener('input', note, true)
+        }
+        if (history && applied && edited !== focused) putBack()
+        const el = edited instanceof Element ? edited : history ? null : focused
+        return {
+          applied,
+          element: el instanceof Element ? describeEl(el) : null,
+          focused: focused instanceof Element ? describeEl(focused) : null
+        }
       })()
     """#
 }
+
+/// Ends the run of typing the focused element's last edit opened, leaving the caret
+/// where it is, so the next edit is an undo step of its own (`BrowserPage.asOneUndoStep`).
+/// WebKit extends an open typing command with the next text typed or deleted near
+/// it, however it arrives, and closes it whenever the selection is set, even to where
+/// it already was. While the page held the keyboard, nothing else set it between two
+/// `type`s, and they undid as one (#86).
+///
+/// A field with the selection API has its selection set to itself. A text field
+/// without one (`email`, `number`) or a contenteditable has its caret moved a
+/// character on and back by `Selection.modify`, which reaches inside a text field;
+/// at the end, where there is no character to move to (the move sets nothing), to
+/// the end again. A selection that isn't a caret came from moving it, which closed
+/// the typing already.
+let closeTypingScript = #"""
+    const el = document.activeElement
+    if (!(el instanceof Element)) return false
+    if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && typeof el.selectionStart === 'number') {
+      el.setSelectionRange(el.selectionStart, el.selectionEnd, el.selectionDirection)
+      return true
+    }
+    if (!(el.isContentEditable || (el instanceof HTMLInputElement && ['email', 'number'].includes(el.type)))) return false
+    const selection = getSelection()
+    if (selection.type !== 'Caret') return false
+    selection.modify('extend', 'forward', 'character')
+    if (selection.type === 'Range') selection.modify('extend', 'backward', 'character')
+    else selection.modify('move', 'forward', 'documentboundary')
+    return true
+    """#
 
 /// Scrolls the document and reports where it actually ended up. Nested scroll
 /// containers are out of scope.

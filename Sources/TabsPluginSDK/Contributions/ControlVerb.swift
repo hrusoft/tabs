@@ -171,6 +171,8 @@ public struct ControlArgument: Sendable, Equatable {
     public var enumValues: [String]?
     /// A numeric floor for a `number` or `integer` flag, refused below it.
     public var minimum: Double?
+    /// A numeric ceiling for a `number` or `integer` flag, refused above it.
+    public var maximum: Double?
     /// The value used when the flag is absent (flags only; a raw wire request
     /// gets no defaults).
     public var defaultValue: JSONValue?
@@ -181,7 +183,7 @@ public struct ControlArgument: Sendable, Equatable {
     /// `timeoutMs` → `timeout`, `pollMs` → `poll`, `outPath` → `out`.
     public var flag: String?
     /// The JSON Schema of the wire field, when the one derived from `kind`
-    /// (and `enumValues`, `minimum`) isn't enough: `{type: array, items:
+    /// (and `enumValues`, `minimum`, `maximum`) isn't enough: `{type: array, items:
     /// {enum: […]}}`.
     public var schema: JSONValue?
 
@@ -192,6 +194,7 @@ public struct ControlArgument: Sendable, Equatable {
         summary: String = "",
         enumValues: [String]? = nil,
         minimum: Double? = nil,
+        maximum: Double? = nil,
         defaultValue: JSONValue? = nil,
         placeholder: String? = nil,
         flag: String? = nil,
@@ -203,6 +206,7 @@ public struct ControlArgument: Sendable, Equatable {
         self.summary = summary
         self.enumValues = enumValues
         self.minimum = minimum
+        self.maximum = maximum
         self.defaultValue = defaultValue
         self.placeholder = placeholder
         self.flag = flag

@@ -12,7 +12,7 @@ enum NavigationVerbs {
 
     /// Where a navigation left the pane.
     private static let settledPage: [String: JSONValue] = [
-        "url": "string", "title": "string", "titleFromUrl": "boolean", "status": "number", "statusText": "string",
+        "url": "string", "title": "string", "titleFromUrl": "boolean", "status": "number", "statusText": "string", "contentType": "string",
     ]
 
     private static func shape(_ own: [String: JSONValue]) -> JSONValue {

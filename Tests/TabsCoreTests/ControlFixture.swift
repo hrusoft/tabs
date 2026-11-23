@@ -55,7 +55,7 @@ final class ControlFixture {
         "navigate": "navigate", "reload": "reload", "click": "click", "type": "type", "scroll": "scroll",
         "get-page-text": "getPageText", "read-console": "readConsoleMessages", "key": "key", "read-network": "readNetworkRequests",
         "execute-js": "executeJavaScript", "save-resource": "saveResource", "wait-for": "waitFor",
-        "create-web-pane": "createWebPane", "steal-pane": "stealPane", "hang": "hang", "slow": "slow", "nap": "nap",
+        "create-web-pane": "createWebPane", "steal-pane": "stealPane", "hang": "hangForever", "slow": "slow", "nap": "nap",
     ]
 
     /// - Parameters:
@@ -220,7 +220,7 @@ final class ControlFixture {
         verb(
             "waitFor", "wait-for", "Wait for a condition.",
             arguments: [
-                ControlArgument("text", .string), ControlArgument("timeoutMs", .number, flag: "timeout"),
+                ControlArgument("text", .string), ControlArgument("timeoutMs", .number, minimum: 0, maximum: 300_000, flag: "timeout"),
                 ControlArgument("gone", .bool),
             ],
             timeoutFor: { arguments in
@@ -228,7 +228,7 @@ final class ControlFixture {
             })
         // A handler that never answers, and one that answers slowly.
         verb(
-            "hang", "hang", "Never answers.", timeout: .milliseconds(20),
+            "hangForever", "hang", "Never answers.", timeout: .milliseconds(20),
             handle: { _ in
                 await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
                 return nil

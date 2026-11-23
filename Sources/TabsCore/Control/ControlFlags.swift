@@ -20,6 +20,7 @@ package struct ControlFlag: Equatable {
     package var required: Bool
     package var enumValues: [String]?
     package var minimum: Double?
+    package var maximum: Double?
     package var defaultValue: JSONValue?
     package var placeholder: String?
     package var doc: String
@@ -51,7 +52,8 @@ package struct ControlFlag: Equatable {
                 ControlFlag(
                     name: argument.flagName, wire: argument.name, coercion: coercion, declaresType: argument.kind != .string,
                     required: argument.required, enumValues: argument.enumValues, minimum: argument.minimum,
-                    defaultValue: argument.defaultValue, placeholder: argument.placeholder, doc: argument.summary))
+                    maximum: argument.maximum, defaultValue: argument.defaultValue, placeholder: argument.placeholder,
+                    doc: argument.summary))
         }
         return flags
     }

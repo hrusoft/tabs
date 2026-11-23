@@ -38,6 +38,7 @@ enum NavigationPage {
             if !status.statusText.isEmpty { state["statusText"] = .string(status.statusText) }
         }
         if !explicit { state["titleFromUrl"] = true }
+        if let contentType = page.viewerContentType { state["contentType"] = .string(contentType) }
         return state
     }
 

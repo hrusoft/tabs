@@ -152,10 +152,10 @@ import Testing
         let negative = await ctl("read-page", ["pane": id, "offset": -3])
         #expect(negative["ok"] == false && negative["error"]?.stringValue?.contains("at least 0") == true, "\(negative)")
         let blank = await ctl("read-page", ["pane": id, "selector": "  "])
-        #expect(blank["error"] == "selector must be a non-empty string")
+        #expect(blank["error"] == "--selector must be a non-empty string")
         let fractional = await harness.wire(["type": "readPage", "targetPaneId": id, "offset": 1.5])
         #expect(
-            fractional["error"] == "offset must be a non-negative integer (it is a 0-based index into the matching elements)",
+            fractional["error"] == "--offset must be a non-negative integer (it is a 0-based index into the matching elements)",
             "\(fractional)")
     }
 
@@ -222,6 +222,60 @@ import Testing
         let first = try #require(matches[0])
         for key in ["ref", "name", "role", "tag", "rect", "score"] { #expect(first[key] != nil, "\(key)") }
         #expect(first["role"] == "checkbox" && first["tag"] == "input")
+    }
+
+    /// C-7, J-11 (#86, S6): a document that isn't a web page (an image, plain text, a PDF) shows in a viewer the reads
+    /// see nothing of; `pane-info` and every read say what it is, so an empty read points at `save-resource`, and a
+    /// history step back onto it keeps it. A web page reports none.
+    @Test func aDocumentThatIsNotAWebPageSaysWhatItIs() async throws {
+        let server = try await FixtureServer.startStandard()
+        defer { server.stop() }
+        server.route("/notes.txt", .init(contentType: "text/plain; charset=utf-8", body: "plain notes"))
+        let (id, page) = try await create(server.url("/asset.png"))
+        #expect(result(await ctl("pane-info", ["pane": id]))["contentType"] == "image/png")
+        #expect(result(await ctl("get-page-text", ["pane": id]))["contentType"] == "image/png")
+        #expect(result(await ctl("read-page", ["pane": id]))["contentType"] == "image/png")
+        #expect(result(await ctl("find", ["pane": id, "description": "anything"]))["contentType"] == "image/png")
+
+        // A navigation's answer says so too (#86, N6), and plain text, unlike a PDF or an image, reads as its text.
+        let navigated = result(await ctl("navigate", ["pane": id, "url": .string(server.url("/notes.txt"))]))
+        #expect(navigated["contentType"] == "text/plain", "\(navigated)")
+        #expect(result(await ctl("pane-info", ["pane": id]))["contentType"] == "text/plain")
+        #expect(result(await ctl("get-page-text", ["pane": id]))["text"] == "plain notes")
+        let html = result(await ctl("navigate", ["pane": id, "url": .string(server.url("/page"))]))
+        #expect(html["contentType"] == nil)
+        #expect(result(await ctl("pane-info", ["pane": id]))["contentType"] == nil, "a web page reports none")
+        #expect(result(await ctl("get-page-text", ["pane": id]))["contentType"] == nil)
+        _ = await ctl("go-back", ["pane": id])
+        #expect(page.url == server.url("/notes.txt"))
+        #expect(result(await ctl("pane-info", ["pane": id]))["contentType"] == "text/plain", "a history step keeps it")
+    }
+
+    /// J-9 (#86, B7): on the issue's page, "submit button" finds the two buttons that submit a form, "color dropdown"
+    /// the select labelled Colour, and "zebra button" nothing.
+    @Test func findReadsRoleWordsAsRolesAndSubmitAsWhatSubmits() async throws {
+        let server = try await FixtureServer.startStandard()
+        defer { server.stop() }
+        server.route(
+            "/submits",
+            .init(
+                body: """
+                    <!doctype html><html><head><title>Submits</title></head><body>
+                    <form onsubmit="event.preventDefault()"><button type="submit">Save profile</button></form>
+                    <form action="#"><button type="submit">Go</button></form>
+                    <p><button>Covered button</button></p>
+                    <p><label>Colour <select><option value="r">Red</option></select></label></p>
+                    </body></html>
+                    """))
+        let (id, _) = try await create(server.url("/submits"))
+        func names(_ description: String) async -> [String] {
+            let found = result(await ctl("find", ["pane": id, "description": .string(description)]))
+            guard case .array(let matches)? = found["matches"] else { return [] }
+            return matches.compactMap { $0["name"]?.stringValue }
+        }
+        #expect(await names("submit button") == ["Save profile", "Go"])
+        #expect(await names("color dropdown") == ["Colour"])
+        #expect(await names("zebra button") == [])
     }
 
     // MARK: Readiness (J-11)

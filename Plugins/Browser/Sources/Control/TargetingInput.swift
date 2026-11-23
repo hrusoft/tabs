@@ -19,6 +19,17 @@ struct TargetingInput {
         var element: ElementDescription?
     }
 
+    /// A coordinate on a pane in a background tab: the page is in its window, hidden, and keeps its last
+    /// layout, so the point would land there, on nothing anyone can see or screenshot to check. A ref or
+    /// semantic target still resolves against that layout and is taken. A page in no window is left to
+    /// the not-mounted refusal.
+    private var backgroundTabRefusal: VerbFailure? {
+        guard page.webView.window != nil, !page.isVisible else { return nil }
+        return VerbFailure(
+            "the pane is in a background tab, so nothing is on screen for a coordinate to point at — run activate-pane first, or target by --role, --name, --selector or --ref"
+        )
+    }
+
     /// How long the host waits before the one hit-test retry. Host-timed rather
     /// than an in-page `requestAnimationFrame` on purpose: a page that is not on
     /// screen throttles rAF and timers, and agents routinely drive panes that
@@ -34,9 +45,11 @@ struct TargetingInput {
     /// longer holds the element (an overlay, a collapse) gets one retry (transient
     /// reflows settle within it) and then a loud failure naming both elements,
     /// which beats silently clicking the wrong thing. A raw `{x, y}` is taken
-    /// as-is and only described, never refused: the caller named the exact point.
+    /// as-is and only described, never refused on a pane on screen: the caller named
+    /// the exact point (one in a background tab is: `backgroundTabRefusal`).
     func resolveClickTarget(_ target: ElementTarget) async -> Result<Point, VerbFailure> {
         if case .point(let x, let y) = target {
+            if let hidden = backgroundTabRefusal { return .failure(hidden) }
             // A page that can't run script (an error page, a viewer) can still be
             // clicked: the description is reporting, never a gate.
             var element: ElementDescription?
@@ -70,7 +83,7 @@ struct TargetingInput {
         guard outcome["matched"] == true else {
             let remedy: String
             if case .ref = target {
-                remedy = "call readPage again, or click by coordinate to press what is actually there"
+                remedy = "call read-page again, or click by coordinate to press what is actually there"
             } else {
                 remedy = "dismiss what covers it, or click by coordinate to press what is actually there"
             }
@@ -94,6 +107,7 @@ struct TargetingInput {
     /// or just skips the field (`form-input`).
     func focusTypingTarget(_ target: ElementTarget) async throws -> VerbFailure? {
         if case .point(let x, let y) = target {
+            if let hidden = backgroundTabRefusal { return hidden }
             try await input.click(x: x, y: y)
             return nil
         }

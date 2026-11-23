@@ -79,15 +79,17 @@ import Testing
         #expect(stops.ok, "a selector that matches nothing is already gone: \(stops.json)")
 
         let none = await bed.ctl("wait-for")
-        #expect(none.error == "waitFor needs a condition: one of text, selector, urlContains, idle")
+        #expect(none.error == "wait-for needs a condition: one of --text, --selector, --url-contains, --idle")
         let two = await bed.ctl("wait-for", ["text": "x", "idle": true])
         #expect(
             two.error
-                == "waitFor takes exactly one condition per call — run several waits (or a batch of them) to combine conditions")
+                == "wait-for takes exactly one condition per call — run several waits (or a batch of them) to combine conditions")
         let badGone = await bed.ctl("wait-for", ["idle": true, "gone": true])
-        #expect(badGone.error == "gone inverts text or selector — it needs one of them to invert")
+        #expect(badGone.error == "--gone inverts --text or --selector — it needs one of them to invert")
         let blank = await bed.ctl("wait-for", ["text": "  "])
-        #expect(blank.error == "waitFor needs a condition: one of text, selector, urlContains, idle", "a blank string is no condition")
+        #expect(
+            blank.error == "wait-for needs a condition: one of --text, --selector, --url-contains, --idle", "a blank string is no condition"
+        )
     }
 
     /// J-20: `--url-contains` is host-side, never injects, and rides navigation. An in-page condition survives a
@@ -213,11 +215,11 @@ import Testing
         #expect(urlFailed.error == "assertion failed: the URL does not contain \"/nowhere\"")
 
         let none = await bed.ctl("assert")
-        #expect(none.error == "assert needs a condition: one of text, selector, urlContains")
+        #expect(none.error == "assert needs a condition: one of --text, --selector, --url-contains")
         let two = await bed.ctl("assert", ["text": "x", "selector": "#y"])
         #expect(two.error == "assert takes exactly one condition per call — batch several asserts to combine them")
         let badGone = await bed.ctl("assert", ["url-contains": "x", "gone": true])
-        #expect(badGone.error == "gone inverts text or selector — it needs one of them to invert")
+        #expect(badGone.error == "--gone inverts --text or --selector — it needs one of them to invert")
         let idle = await bed.ctl("assert", ["idle": true])
         #expect(idle.error?.contains("idle") == true, "assert has no idle: \(idle.json)")
     }
@@ -301,14 +303,34 @@ import Testing
         }
     }
 
-    /// J-20: `--timeout 0` never checks: the wait ends at once, on the deadline, even against a condition
-    /// that already holds. (The supervisor tests the deadline before its first injection.)
-    @Test func aTimeoutOfZeroNeverChecks() async throws {
+    /// J-20 (#86): every wait checks its condition at least once, however short its timeout: `--timeout 0` is one
+    /// look, which settles a condition that holds and times out on one that doesn't.
+    @Test func aTimeoutOfZeroChecksOnce() async throws {
         let bed = try await ScriptVerbBed.open("/waity")
-        let answer = await bed.ctl("wait-for", ["text": "Waity fixture", "timeout": 0])
-        #expect(answer.error == "timed out after 0ms waiting for text \"Waity fixture\" to appear", "\(answer.json)")
-        let assertion = await bed.ctl("assert", ["text": "Waity fixture"])
-        #expect(assertion.ok, "an assert has its own budget")
+        let holds = await bed.ctl("wait-for", ["text": "Waity fixture", "timeout": 0])
+        #expect(holds.ok, "\(holds.json)")
+        let selector = await bed.ctl("wait-for", ["selector": "body", "timeout": 0])
+        #expect(selector.ok, "\(selector.json)")
+        let never = await bed.ctl("wait-for", ["text": "NEVER_THERE", "timeout": 0])
+        #expect(never.error == "timed out after 0ms waiting for text \"NEVER_THERE\" to appear", "\(never.json)")
+    }
+
+    /// J-20 (#86): a timeout or poll outside its bounds is refused by name, never clamped silently: a negative
+    /// timeout used to time out at once without a look, one past the ceiling waited the ceiling out.
+    @Test func aTimeoutOrPollOutsideItsBoundsIsRefused() async throws {
+        let bed = try await ScriptVerbBed.open("/waity")
+        let refused: [([String: JSONValue], String)] = [
+            (["timeout": -5], "--timeout must be at least 0 (got -5)"),
+            (["timeout": 999_999], "--timeout must be at most 300000 (got 999999)"),
+            (["poll": 10], "--poll must be at least 50 (got 10)"),
+            (["poll": 300_001], "--poll must be at most 300000 (got 300001)"),
+        ]
+        for (flags, error) in refused {
+            let answer = await bed.ctl("wait-for", flags.merging(["text": "Waity fixture"]) { $1 })
+            #expect(answer.error == error, "\(flags): \(answer.json)")
+        }
+        let wire = await bed.wire("waitFor", ["text": "Waity fixture", "timeoutMs": 999_999])
+        #expect(wire.error == "request.timeoutMs must be at most 300000 (got 999999)", "\(wire.json)")
     }
 
     /// J-20: a wait whose pane closes aborts with the pane-gone error rather than burning the rest of its budget.
@@ -349,13 +371,13 @@ import Testing
         #expect(wait.arguments.map(\.name) == ["text", "selector", "gone", "urlContains", "idle", "timeoutMs", "pollMs"])
         #expect(
             wait.arguments.first { $0.name == "timeoutMs" }?.summary
-                == "Default 10000, capped at 300000. Long waits also need the Bash tool timeout raised.")
+                == "Default 10000, at most 300000; 0 checks once. Long waits also need the Bash tool timeout raised.")
         #expect(
             wait.arguments.first { $0.name == "idle" }?.summary
                 == "Resolve when the DOM stops mutating for 500ms — the fallback when nothing specific marks readiness.")
         #expect(
             wait.arguments.first { $0.name == "pollMs" }?.summary
-                == "Fallback check interval, default 250; mutations are noticed immediately regardless.")
+                == "How often the page checks the condition, default 250: a change, DOM or not, is noticed at the next check.")
         let assertion = try #require(bed.verb("browser.assert"))
         #expect(assertion.command == "assert" && assertion.wireType == "assert")
         #expect(assertion.arguments.map(\.flagName) == ["text", "selector", "gone", "url-contains"])

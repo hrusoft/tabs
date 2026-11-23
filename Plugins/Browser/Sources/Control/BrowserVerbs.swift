@@ -42,9 +42,10 @@ enum BrowserGuide {
 }
 
 extension BrowserLimits {
-    /// `describe`'s structured limits, the manifest's `limits` (same key names).
+    /// `describe`'s structured limits, by the names of these constants.
     static var described: [String: JSONValue] {
         [
+            "consoleMessageMax": .int(Int64(consoleMessageMax)),
             "pageTextDefaultMax": .int(Int64(defaultPageTextMax)),
             "pageTextHardMax": .int(Int64(pageTextHardMax)),
             "waitDefaultTimeoutMs": .int(Int64(waitDefaultTimeoutMs)),
@@ -52,6 +53,7 @@ extension BrowserLimits {
             "waitIdleQuietMs": .int(Int64(waitIdleQuietMs)),
             "waitDefaultPollMs": .int(Int64(waitDefaultPollMs)),
             "executeResultMax": .int(Int64(executeResultMax)),
+            "executeTimeoutMs": .int(Int64(executeTimeoutMs)),
         ]
     }
 }

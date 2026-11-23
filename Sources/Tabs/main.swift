@@ -7,7 +7,7 @@ UserDefaults.standard.register(defaults: ["NSApplicationCrashOnExceptions": true
 
 /// A background process from the start: no Dock tile, no menu bar, never
 /// frontmost. For the runs nobody sees (headless, hidden, hosting tests, a
-/// capture). Before `NSApplication.shared`: it checks in with LaunchServices
+/// capture). Before `TabsApplication.shared`: it checks in with LaunchServices
 /// from the main bundle's Info.plist, so `setActivationPolicy(.prohibited)`
 /// after that still flashes a Dock tile (measured: ~0.6s per launch).
 func runInBackground() {
@@ -29,15 +29,15 @@ if let command = HeadlessCommand(arguments: CommandLine.arguments) {
 if let capture = VisualCapture.arguments(CommandLine.arguments) {
     // Views need the app, but nothing is shown and the app never activates.
     runInBackground()
-    _ = NSApplication.shared
+    _ = TabsApplication.shared
     Task { @MainActor in
         exit(await VisualCapture.run(scenarios: capture.scenarios, out: capture.out, names: capture.names))
     }
-    NSApplication.shared.run()
+    TabsApplication.shared.run()
 }
 #endif
 
 if AppDelegate.isHidden || AppDelegate.isHostingTests { runInBackground() }
 let delegate = AppDelegate()
-NSApplication.shared.delegate = delegate
-NSApplication.shared.run()
+TabsApplication.shared.delegate = delegate
+TabsApplication.shared.run()

@@ -319,6 +319,58 @@ private func changedPaths(_ repo: TempRepo) async throws -> [String] {
     }
 }
 
+/// BR-2, BR-3, BR-5: the branches sidebar's read.
+@Suite("readRefs") struct ReadRefsRealTests {
+    @Test("reads every branch, remote-tracking branch and tag, with the configured remotes, an empty one too") func everything()
+        async throws
+    {
+        let repo = try await initialRepo()
+        let initialBranch = try #require(await repo.git("rev-parse", "--abbrev-ref", "HEAD"))
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        await repo.git("remote", "add", "origin", "https://example.invalid/repo.git")
+        await repo.git("remote", "add", "upstream", "https://example.invalid/upstream.git")
+        await repo.git("branch", "my/branch/name")
+        await repo.git("update-ref", "refs/remotes/origin/my/branch/name", head)
+        await repo.git("update-ref", "refs/remotes/origin/main-mirror", head)
+        await repo.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main-mirror")
+        await repo.git("tag", "light")
+        let refs = try await repo.reader.readRefs(repo.dir).get()
+        #expect(refs.remotes == ["origin", "upstream"])
+        #expect(
+            refs.refs.map(\.refname).sorted()
+                == [
+                    "refs/heads/\(initialBranch)", "refs/heads/my/branch/name", "refs/remotes/origin/main-mirror",
+                    "refs/remotes/origin/my/branch/name", "refs/tags/light",
+                ].sorted())
+        let remote = try #require(refs.refs.first { $0.refname == "refs/remotes/origin/my/branch/name" })
+        #expect(remote.remote == "origin")
+        #expect(remote.name == "my/branch/name")
+        #expect(refs.refs.allSatisfy { $0.hash == head })
+        let tree = buildBranchTree(refs)
+        #expect(tree.map(\.title) == ["Local", "origin", "upstream", "Tags"])
+        #expect(tree[1].find("remote:origin:my/branch/")?.children.map(\.title) == ["name"])
+    }
+
+    @Test("names an annotated tag by the commit it peels to, not the tag object") func annotatedTag() async throws {
+        let repo = try await initialRepo()
+        let head = try #require(await repo.git("rev-parse", "HEAD"))
+        await repo.git("tag", "-a", "v1.0", "-m", "release")
+        let tagObject = try #require(await repo.git("rev-parse", "refs/tags/v1.0"))
+        #expect(tagObject != head)
+        let refs = try await repo.reader.readRefs(repo.dir).get()
+        #expect(refs.refs.first { $0.refname == "refs/tags/v1.0" }?.hash == head)
+    }
+
+    @Test("fails outside a repository") func notARepo() async throws {
+        let plain = try TempRepo(prefix: "tabs-git-plain-")
+        guard case .failure(let error) = await plain.reader.readRefs(plain.dir) else {
+            Issue.record("read refs outside a repository")
+            return
+        }
+        #expect(error.reason == .notARepo(path: plain.dir))
+    }
+}
+
 /// C-11
 @Suite("checkout") struct CheckoutRealTests {
     @Test("switches to a local branch") func switchesToLocal() async throws {

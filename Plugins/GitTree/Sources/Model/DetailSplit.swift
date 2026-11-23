@@ -1,7 +1,7 @@
 import TabsPluginSDK
 
 // How a git tree pane divides its body between the commit list (above) and the
-// detail panel (below): the model behind `DetailDivider`, pure so the snapping
+// detail panel (below): the model behind its `PanelDivider`, pure so the snapping
 // and clamping rules are testable without views.
 //
 // The split lives in the pane's config (`detailFraction`, `detailCollapsed`),

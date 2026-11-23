@@ -11,7 +11,7 @@ enum WaitVerbs {
     /// The one wait/assert message that names neither verb: hoisted because the two validators are
     /// deliberately separate per verb (their other messages name their own verb), and a shared
     /// string is the only part that may not fork.
-    private static let goneNeedsTarget = "gone inverts text or selector — it needs one of them to invert"
+    private static let goneNeedsTarget = "--gone inverts --text or --selector — it needs one of them to invert"
 
     /// What core tells the owner of a pane that has closed (`ControlPlane.paneGoneError`), which
     /// a wait re-checks between injections: a closed pane aborts the wait rather than burning the
@@ -33,9 +33,9 @@ enum WaitVerbs {
     /// is what keeps "the deadline always outlives the wait" true for every request: the timeout answer
     /// names the condition that never held and must always beat the budget to the caller.
     ///
-    /// A `--timeout` of 0 never checks: the supervisor tests the deadline before its first injection,
-    /// so the wait ends at once, on the deadline, even against a condition that already holds.
-    /// (Pinned: a caller wanting one look uses `assert`.)
+    /// The bounds are the arguments' own (`minimum`, `maximum`), so core refuses a timeout or poll
+    /// outside them by its flag's name before this runs; the clamps stay for the budget's arithmetic on
+    /// untyped input. Every wait checks at least once (`PageWait`): `--timeout 0` is one look.
     private static let waitForVerb = ControlVerbContribution(
         name: "browser.waitFor",
         summary:
@@ -58,13 +58,14 @@ enum WaitVerbs {
             ControlArgument(
                 "timeoutMs", .number,
                 summary:
-                    "Default \(BrowserLimits.waitDefaultTimeoutMs), capped at \(BrowserLimits.waitMaxTimeoutMs). Long waits also need the Bash tool timeout raised.",
-                placeholder: "ms", flag: "timeout"),
+                    "Default \(BrowserLimits.waitDefaultTimeoutMs), at most \(BrowserLimits.waitMaxTimeoutMs); 0 checks once. Long waits also need the Bash tool timeout raised.",
+                minimum: 0, maximum: Double(BrowserLimits.waitMaxTimeoutMs), placeholder: "ms", flag: "timeout"),
             ControlArgument(
                 "pollMs", .number,
                 summary:
-                    "Fallback check interval, default \(BrowserLimits.waitDefaultPollMs); mutations are noticed immediately regardless.",
-                placeholder: "ms", flag: "poll"),
+                    "How often the page checks the condition, default \(BrowserLimits.waitDefaultPollMs): a change, DOM or not, is noticed at the next check.",
+                minimum: Double(BrowserLimits.waitMinPollMs), maximum: Double(BrowserLimits.waitMaxTimeoutMs), placeholder: "ms",
+                flag: "poll"),
         ],
         target: .ownedPane(ofTypes: ["browser"]), timeout: .milliseconds(BrowserLimits.waitDefaultTimeoutMs) + ControlBudget.headroom,
         command: "wait-for", wireType: "waitFor",
@@ -100,9 +101,9 @@ enum WaitVerbs {
             VerbSupport.namedString(arguments["text"]), VerbSupport.namedString(arguments["selector"]),
             VerbSupport.namedString(arguments["urlContains"]), arguments["idle"]?.boolValue == true,
         ].filter { $0 }.count
-        if conditions == 0 { return "waitFor needs a condition: one of text, selector, urlContains, idle" }
+        if conditions == 0 { return "wait-for needs a condition: one of --text, --selector, --url-contains, --idle" }
         if conditions > 1 {
-            return "waitFor takes exactly one condition per call — run several waits (or a batch of them) to combine conditions"
+            return "wait-for takes exactly one condition per call — run several waits (or a batch of them) to combine conditions"
         }
         if arguments["gone"]?.boolValue == true, !VerbSupport.namedString(arguments["text"]),
             !VerbSupport.namedString(arguments["selector"])
@@ -195,7 +196,7 @@ enum WaitVerbs {
             VerbSupport.namedString(arguments["text"]), VerbSupport.namedString(arguments["selector"]),
             VerbSupport.namedString(arguments["urlContains"]),
         ].filter { $0 }.count
-        if conditions == 0 { return "assert needs a condition: one of text, selector, urlContains" }
+        if conditions == 0 { return "assert needs a condition: one of --text, --selector, --url-contains" }
         if conditions > 1 { return "assert takes exactly one condition per call — batch several asserts to combine them" }
         if arguments["gone"]?.boolValue == true, !VerbSupport.namedString(arguments["text"]),
             !VerbSupport.namedString(arguments["selector"])

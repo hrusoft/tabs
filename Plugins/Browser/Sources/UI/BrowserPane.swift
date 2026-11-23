@@ -126,7 +126,8 @@ final class BrowserPane: PaneController {
     /// `pane-info`'s live fields, or nil for a pane that isn't mounted (it has no
     /// page on screen to read): `url`, `title`, `isLoading`, `canGoBack`, `canGoForward`,
     /// `pageInstance` (changes exactly when the page is re-created), `showingErrorPage` and
-    /// `loadError` only on an error page, and `viewport` (the page's own `innerWidth ×
+    /// `loadError` only on an error page, `contentType` only for a document that isn't a web
+    /// page (`BrowserPage.viewerContentType`), and `viewport` (the page's own `innerWidth ×
     /// innerHeight`) or `hidden: true` for a pane not shown: never an invented viewport.
     func paneInfoFields() async -> [String: JSONValue] {
         var fields: [String: JSONValue] = [
@@ -141,6 +142,7 @@ final class BrowserPane: PaneController {
             fields["showingErrorPage"] = true
             fields["loadError"] = .string(error)
         }
+        if let contentType = page.viewerContentType { fields["contentType"] = .string(contentType) }
         if let viewport = await page.viewport() {
             fields["viewport"] = .object(["width": .double(viewport.width), "height": .double(viewport.height)])
         } else {

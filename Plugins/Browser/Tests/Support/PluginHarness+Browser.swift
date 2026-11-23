@@ -9,7 +9,8 @@ extension PluginHarness {
     /// data store (the one the harness's fresh data directory names) is deleted when the test process exits
     /// (`WebDataStores`). Every browser pane the layout shows sits in an `OnScreenWindow`, as the app puts a shown
     /// pane in a window someone is looking at: Browser tests drive active pages (docs/BROWSER.md, Testing). A pane
-    /// the layout doesn't show (a background tab) is in no window, as in the app.
+    /// the layout stops showing (a background tab) stays in its window, hidden, as in the app; one it never showed
+    /// is in none.
     static func browser(
         _ plugin: BrowserPlugin = BrowserPlugin(), withAgent: Bool = false, testFile: String = #filePath
     ) throws -> PluginHarness {
@@ -25,8 +26,9 @@ extension PluginHarness {
     }
 }
 
-/// The windows the harness's shown browser panes sit in, one each: a pane's page is in its window while the
-/// layout shows the pane, and in none while it doesn't.
+/// The windows the harness's shown browser panes sit in, one each: a pane's page is in its window from when
+/// the layout first shows the pane, hidden while the layout doesn't show it (`PaneViews` hides a background
+/// tab's content the same way).
 @MainActor
 final class ShownBrowserPanes {
     private var windows: [PaneID: OnScreenWindow] = [:]
@@ -43,8 +45,9 @@ final class ShownBrowserPanes {
                     windows[leaf.id] = host
                     // A page a test put somewhere of its own (a window, or a view in none) stays there.
                     if view.window == nil && view.superview == nil { host.contentView = view }
+                    if view.window === host { view.isHidden = false }
                 } else if let host = windows[leaf.id], view.window === host {
-                    host.contentView = nil
+                    view.isHidden = true
                 }
             }
         }

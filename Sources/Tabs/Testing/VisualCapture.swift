@@ -732,8 +732,10 @@ struct GeometryDump {
             "grip": bar.grip.isHidden ? .null : rect(of: bar.grip), "newTab": rect(of: bar.strip.newTabButton),
             "settings": bar.settingsButton.isHidden ? .null : rect(of: bar.settingsButton), "tabs": .object(tabs),
         ]
-        // Only while caffeinate runs (absent otherwise).
+        // The cup's slot, root bar only: the cup while caffeinate runs, else the mug (laid out
+        // even while hidden, as the controls it shows with are); the other key is absent.
         if !bar.caffeinateButton.isHidden { fields["caffeinate"] = rect(of: bar.caffeinateButton) }
+        if !bar.caffeinateOpenButton.isHidden { fields["caffeinateOpen"] = rect(of: bar.caffeinateOpenButton) }
         return .object(fields)
     }
 

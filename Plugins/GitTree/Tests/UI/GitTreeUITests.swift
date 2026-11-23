@@ -175,10 +175,13 @@ extension UITests {
                 let color = try #require(image.colorAt(x: x * 2, y: y)?.usingColorSpace(.sRGB))
                 return color.blueComponent - color.redComponent > 0.4
             }
-            let left = Int(list.minX.rounded()), right = Int(list.maxX.rounded())
+            // The list sits right of the branches sidebar; the body spans both.
+            let view = try ui.view("git-tree")
+            let body = root.convert(view.frame, from: view.superview)
+            let left = Int(body.minX.rounded()), right = Int(body.maxX.rounded()), listLeft = Int(list.minX.rounded())
             // The outline takes the border columns either side of the content; the list's own edges stay unlit.
-            let lit = try [left - 1, left, right - 1, right].filter(isAccent)
-            #expect(lit == [left - 1, right], "accent columns \(lit), the list spanning \(left)..<\(right)")
+            let lit = try [left - 1, left, listLeft, right - 1, right].filter(isAccent)
+            #expect(lit == [left - 1, right], "accent columns \(lit), the body spanning \(left)..<\(right), the list from \(listLeft)")
         }
 
         /// S-6: a restored pane is activated while it's still reading (git runs
@@ -219,6 +222,54 @@ extension UITests {
             let list = try ui.view("git-tree-list")
             try ui.click(at: NSPoint(x: 200, y: 24 * 1.5), in: list, count: 2)
             try await ui.gitTree("g") { $0["head"] == "old" }
+            #expect(try repo.git("symbolic-ref", "--short", "HEAD") == "old")
+        }
+
+        /// BR-2, BR-10, BR-14: a real repository's branches in the sidebar.
+        /// The outline's own keys (AppKit's) move its selection, and each
+        /// branch selects its tip in the history; the sidebar keeps the
+        /// keyboard. A click is AppKit's too, but `NSTableView` takes no mouse
+        /// in a never-shown window: the tests select as a click does.
+        @Test func theSidebarsKeysSelectEachBranchsTip() async throws {
+            let repo = try ScratchRepo(commits: ["first", "second"])
+            defer { repo.remove() }
+            let first = try repo.git("rev-parse", "HEAD~1")
+            let second = try repo.git("rev-parse", "HEAD")
+            try repo.git("branch", "old", first)
+            let ui = UIDriver(layout: Self.one(repo.path))
+            try await ui.gitTree("g") { $0["branches"] == ["Local", "  main", "  old", "Tags"] && $0["detailHash"] != .null }
+            let outline = try #require(try ui.view("git-tree-branches") as? NSOutlineView)
+            let window = try #require(outline.window)
+            window.makeFirstResponder(outline)
+            outline.selectRowIndexes([0], byExtendingSelection: false)
+            #expect(try ui.press(KeyChord(.arrow(.down), [])) == false, "the key is the outline's, not the app's")
+            var state = try await ui.gitTree("g") { $0["selectedBranch"] == "refs/heads/main" }
+            #expect(state["selected"]?.stringValue == second)
+            #expect(try ui.press(KeyChord(.arrow(.down), [])) == false)
+            state = try await ui.gitTree("g") { $0["selected"]?.stringValue == first && $0["detailHash"]?.stringValue == first }
+            #expect(state["selectedBranch"] == "refs/heads/old")
+            #expect(state["branchesFocused"] == true)
+            #expect(state["listFocused"] == false)
+        }
+
+        /// BR-12: a double-click on a branch checks it out with real git.
+        @Test func doubleClickingABranchChecksItOut() async throws {
+            let repo = try ScratchRepo(commits: ["first", "second"])
+            defer { repo.remove() }
+            try repo.git("branch", "old", try repo.git("rev-parse", "HEAD~1"))
+            let ui = UIDriver(layout: Self.one(repo.path))
+            try await ui.gitTree("g") { $0["branches"] == ["Local", "  main", "  old", "Tags"] }
+            let outline = try #require(try ui.view("git-tree-branches") as? NSOutlineView)
+            let row = try #require(
+                (0..<outline.numberOfRows).first {
+                    (outline.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue == "old"
+                })
+            // What a double-click does (AppKit's, but no mouse reaches a
+            // never-shown window): the row selected, then the double action.
+            outline.selectRowIndexes([row], byExtendingSelection: false)
+            let doubleAction = try #require(outline.doubleAction)
+            #expect(outline.sendAction(doubleAction, to: outline.target))
+            try await ui.gitTree("g") { $0["head"] == "old" && $0["branches"] == ["Local", "  main", "  old", "Tags"] }
             #expect(try repo.git("symbolic-ref", "--short", "HEAD") == "old")
         }
 

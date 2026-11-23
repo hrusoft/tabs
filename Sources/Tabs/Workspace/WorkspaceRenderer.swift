@@ -23,6 +23,8 @@ final class WorkspaceRenderer: LayoutRenderer {
     var baseAppearance = PaneAppearance() {
         didSet { if oldValue != baseAppearance { refreshAll() } }
     }
+    /// Opens the Caffeinate dialog (the shell's presenter): the root bar's mug.
+    var showCaffeinateDialog: (@MainActor () -> Void)?
     /// What an empty pane offers, when not the plugins' types (the visual capture).
     var creationActionsOverride: [EmptyPaneView.Action]?
     /// Which windows have the focus, when a test decides (never-shown windows

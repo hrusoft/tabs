@@ -27,8 +27,8 @@ import Testing
 
     @Test func aTypeIsJSONsOwnVocabulary() {
         #expect(check("x", ["type": "number"]) == "request must be a number (got string)")
-        #expect(check([1], ["type": "object"]) == "request must be a object (got array)")
-        #expect(check(nil, ["type": "object"]) == "request must be a object (got null)")
+        #expect(check([1], ["type": "object"]) == "request must be an object (got array)")
+        #expect(check(nil, ["type": "object"]) == "request must be an object (got null)")
         #expect(check(true, ["type": "string"]) == "request must be a string (got boolean)")
         #expect(check(2.5, ["type": "number"]) == nil)
         #expect(check(.array([]), ["type": "array"]) == nil)
@@ -45,6 +45,12 @@ import Testing
         #expect(check(0, ["type": "number", "minimum": 1]) == "request must be at least 1 (got 0)")
         #expect(check(.double(0.5), ["type": "number", "minimum": 1]) == "request must be at least 1 (got 0.5)")
         #expect(check(1, ["type": "number", "minimum": 1]) == nil)
+    }
+
+    @Test func aMaximumRefusesAboveIt() {
+        #expect(check(301, ["type": "number", "maximum": 300]) == "request must be at most 300 (got 301)")
+        #expect(check(.double(300.5), ["type": "integer", "maximum": 300]) == "request must be an integer (got 300.5)")
+        #expect(check(300, ["type": "number", "maximum": 300]) == nil)
     }
 
     @Test func anObjectNamesTheFieldItIsMissingOrDoesNotExpect() {
@@ -124,7 +130,7 @@ import Testing
     @Test func aVerbsSchemaIsItsArgumentsAndNothingElse() {
         let schema = ControlSchema.wire(
             for: verb([
-                ControlArgument("url", .string, required: true), ControlArgument("count", .integer, minimum: 1),
+                ControlArgument("url", .string, required: true), ControlArgument("count", .integer, minimum: 1, maximum: 9),
                 ControlArgument("ratio", .number), ControlArgument("on", .bool), ControlArgument("out", .path),
                 ControlArgument("tags", .csv), ControlArgument("blob", .json), ControlArgument("mode", .string, enumValues: ["a", "b"]),
             ]))
@@ -133,7 +139,7 @@ import Testing
                 "type": "object",
                 "properties": [
                     "type": ["const": "probeIt"], "targetPaneId": ["type": "string"], "url": ["type": "string"],
-                    "count": ["type": "integer", "minimum": 1], "ratio": ["type": "number"], "on": ["type": "boolean"],
+                    "count": ["type": "integer", "minimum": 1, "maximum": 9], "ratio": ["type": "number"], "on": ["type": "boolean"],
                     "out": ["anyOf": [["type": "string"], ["const": true]]],
                     "tags": ["type": "array", "items": ["type": "string"]], "blob": [:], "mode": ["enum": ["a", "b"]],
                 ],

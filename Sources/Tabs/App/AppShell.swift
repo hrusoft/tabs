@@ -28,12 +28,15 @@ final class AppShell {
         input = WorkspaceInput(renderer: renderer, runtime: runtime)
         caffeinateDialog = CaffeinateDialogPresenter(
             caffeinate: runtime.caffeinate, settings: runtime.settings, themes: runtime.themes, presentsWindows: presentsWindows)
-        router.showCaffeinateDialog = { [weak caffeinateDialog] in caffeinateDialog?.show() }
+        // File ▸ Caffeinate… and the root bar's mug open the one dialog.
+        let showCaffeinateDialog: @MainActor () -> Void = { [weak caffeinateDialog] in caffeinateDialog?.show() }
+        router.showCaffeinateDialog = showCaffeinateDialog
+        renderer.showCaffeinateDialog = showCaffeinateDialog
         router.isWorkspaceWindow = { [weak renderer] window in renderer?.isWorkspaceWindow(window) ?? false }
         router.windowController = { [weak renderer] id in renderer?.windowController(id) }
         applyPaneSettings(runtime.settings.panes)
         subscriptions.append(runtime.settings.observePanes { [weak self] settings in self?.applyPaneSettings(settings) })
-        // Every window's root bar shows the cup while caffeinate runs; the menu
+        // Every window's root bar shows the cup while caffeinate runs (the mug otherwise); the menu
         // item relabels itself (Caffeinate… / Decaf) when validated.
         renderer.baseAppearance.caffeinateRunning = runtime.caffeinate.isRunning
         subscriptions.append(

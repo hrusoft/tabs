@@ -126,8 +126,14 @@ import Testing
 
     @Test func aWireRequestFromARawClientNeedsAListOfRequests() async {
         let response = await fixture.wire(["type": "batch", "requests": ["type": "ping"]])
-        #expect(response == ControlDispatcher.failure("request.requests must be a array (got object)"))
+        #expect(response == ControlDispatcher.failure("request.requests must be an array (got object)"))
         #expect(await fixture.wire(["type": "batch"]) == ControlDispatcher.failure("request is missing required field \"requests\""))
+    }
+
+    /// From the CLI, a JSON flag of the wrong shape is named by its flag (#86, S4), not by the wire field.
+    @Test func aRequestsFlagOfTheWrongShapeIsNamedByItsFlag() async {
+        let response = await fixture.ctl("batch", ["requests": #"{"type":"ping"}"#])
+        #expect(response == ControlDispatcher.failure("--requests must be an array (got object)"))
     }
 
     @Test func theFlagFormTakesJSONTextAndABareContinueOnError() async throws {
@@ -142,7 +148,7 @@ import Testing
         fixture.runtime.control.headroom = .milliseconds(20)
         let pane = try await owned()
         let response = await batch(
-            [["type": "hang", "targetPaneId": pane], ["type": "reload", "targetPaneId": pane]], continueOnError: true)
+            [["type": "hangForever", "targetPaneId": pane], ["type": "reload", "targetPaneId": pane]], continueOnError: true)
         #expect(response["ok"] == true, "a batch has no deadline of its own")
         #expect(steps(response)[0]["error"] == "hang timed out after 20ms")
         #expect(steps(response)[1]["ok"] == true)

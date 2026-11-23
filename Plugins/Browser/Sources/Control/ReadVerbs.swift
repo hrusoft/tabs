@@ -17,9 +17,10 @@ enum ReadVerbs {
     private static let rect: JSONValue = ["x": "number", "y": "number", "width": "number", "height": "number"]
     private static let element: JSONValue = ["role": "string", "name": "string", "tag": "string"]
 
-    /// The readiness fields every read carries.
+    /// The readiness fields every read carries (`contentType` only for a document that isn't a web page).
     private static let pageState: [String: JSONValue] = [
         "isLoading": "boolean", "readyState": "string", "settled": "boolean", "frames": "number", "shadowRoots": "number",
+        "contentType": "string",
     ]
 
     private static func shape(_ own: [String: JSONValue]) -> JSONValue {

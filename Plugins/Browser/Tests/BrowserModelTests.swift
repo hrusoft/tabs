@@ -377,6 +377,74 @@ extension BrowserSettings {
         let same = [element("Save", ref: "e1"), element("Save", ref: "e2"), element("Save", ref: "e3")]
         #expect(findElements(same, description: "save").map(\.element.ref) == ["e1", "e2", "e3"])
     }
+
+    /// J-9 (#86, B7): the issue's page — two submit buttons, one that isn't, a combobox named "Colour".
+    private var form: [Candidate] {
+        [
+            Candidate(ref: "save", name: "Save profile", role: "button", tag: "button", submits: true),
+            Candidate(ref: "go", name: "Go", role: "button", tag: "button", submits: true),
+            Candidate(ref: "covered", name: "Covered button", role: "button", tag: "button"),
+            Candidate(ref: "colour", name: "Colour", role: "combobox", tag: "select"),
+        ]
+    }
+
+    private struct Candidate: Scorable {
+        var ref: String
+        var name: String
+        var role: String
+        var tag: String
+        var submits = false
+    }
+
+    /// A role word says what kind of control to look for, and is never matched against names: "button" in
+    /// "Covered button" doesn't make it the submit button, nor anything a "zebra button".
+    @Test func aRoleWordHintsTheRoleAndIsNotMatchedAgainstNames() {
+        #expect(findElements(form, description: "submit button").map(\.element.ref) == ["save", "go"])
+        #expect(findElements(form, description: "zebra button").isEmpty)
+        #expect(findElements(form, description: "the save profile button").first?.element.ref == "save")
+        #expect(scoreElement(form[0], description: "the save profile button") > scoreElement(form[0], description: "save"))
+    }
+
+    /// (#86, N3) Role words alone match nothing, even an element whose name holds them; and a description that names
+    /// a kind of control keeps only that kind when any matches, others only when none does.
+    @Test func roleWordsAloneMatchNothingAndTheNamedKindWinsWhenItMatches() {
+        #expect(findElements(form, description: "button").isEmpty, "\"Covered button\" isn't the button called button")
+        #expect(findElements(form, description: "the buttons").isEmpty)
+        let page = [
+            Candidate(ref: "heading", name: "Save", role: "heading", tag: "h2"),
+            Candidate(ref: "save", name: "Save", role: "button", tag: "button"),
+        ]
+        #expect(findElements(page, description: "save button").map(\.element.ref) == ["save"])
+        #expect(findElements(page, description: "save").map(\.element.ref) == ["heading", "save"], "no kind named, both")
+        let cart = [Candidate(ref: "cart", name: "Add to Cart", role: "group", tag: "div")]
+        #expect(findElements(cart, description: "add to cart button").map(\.element.ref) == ["cart"], "none of the kind: the others")
+    }
+
+    /// An element the whole description names is never dropped for its kind: the role word is part of its name ("copy
+    /// link" and a button called "Copy link"), and a control called just a role word is found by it ("Select").
+    @Test func anElementTheWholeDescriptionNamesIsKeptWhateverItsKind() {
+        let page = [
+            Candidate(ref: "button", name: "Copy link", role: "button", tag: "button"),
+            Candidate(ref: "link", name: "Copy of report", role: "link", tag: "a"),
+            Candidate(ref: "select", name: "Select", role: "button", tag: "button"),
+        ]
+        #expect(findElements(page, description: "copy link").map(\.element.ref) == ["button", "link"])
+        #expect(findElements(page, description: "select").map(\.element.ref) == ["select"])
+        #expect(findElements(page, description: "dropdown").isEmpty)
+    }
+
+    /// "submit" matches a control that submits its form, whatever it is called.
+    @Test func submitMatchesAControlThatSubmitsItsForm() {
+        #expect(scoreElement(form[1], description: "submit") > 0)
+        #expect(scoreElement(form[2], description: "submit") == 0, "a button outside a form submits nothing")
+    }
+
+    /// Spellings fold on both sides (colour/color, a plural), and a dropdown is a combobox.
+    @Test func spellingsFoldAndADropdownIsACombobox() {
+        #expect(findElements(form, description: "color dropdown").map(\.element.ref) == ["colour"])
+        #expect(scoreElement(form[3], description: "color dropdown") > scoreElement(form[3], description: "color"))
+        #expect(findElements([element("Save profiles")], description: "profile").count == 1)
+    }
 }
 
 /// H-16: the console's log.

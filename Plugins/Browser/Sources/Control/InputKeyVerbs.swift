@@ -54,37 +54,42 @@ extension InputVerbs {
                 if let failure = try await TargetingInput(page: pane.page).focusTypingTarget(target) {
                     throw ControlVerbError(failure.message)
                 }
-                try await input.send(typingEvents(text))
-                if invocation["submit"] == true { try await input.send(keystrokeEvents("Enter")) }
+                // One undo step, the Enter's line break included (a textarea's).
+                try await pane.page.asOneUndoStep {
+                    try await input.send(typingEvents(text))
+                    if invocation["submit"] == true { try await input.send(keystrokeEvents("Enter")) }
+                }
                 return .null
             }
         }
     }
 
-    /// Letters the browser claims for its own editing commands under meta/control. A chord naming one is
-    /// delivered faithfully and still does nothing to the selection or the clipboard, which is the
-    /// silent-corruption trap this note exists to break: the verb answered `ok: true`, a follow-up
+    /// Letters whose Command chord is an Edit-menu command (select all, undo, redo, cut, copy, paste). A
+    /// synthesized chord never runs one: WebKit hands a key its page didn't handle back to the app to try
+    /// as a shortcut, and the app drops a key the system didn't deliver (`TabsApplication`). So the chord
+    /// is delivered faithfully and does nothing to the selection, the clipboard or the undo stack, which
+    /// is the silent-corruption trap this note exists to break: the verb answered `ok: true`, a follow-up
     /// Backspace also answered `ok: true`, and between them a field lost one character instead of all of
-    /// them.
+    /// them. Control chords get no note: ⌃A, ⌃V and ⌃Y are the text system's own bindings (line start,
+    /// page down, yank), which act in the page as on a keyboard.
     ///
     /// The chord is **not refused**. A page's own JS shortcut handlers do fire for it — measured — so
     /// refusing would break the legitimate case (an app that binds Cmd+K) to protect the illegitimate
     /// one. Reporting alongside the success is what makes the answer honest without taking a capability
-    /// away. (Measured on WebKit too: a synthesized ⌘A reaches the page as a keydown with `metaKey` and
-    /// leaves the selection alone, so the premise holds.)
+    /// away.
     private static let editingChordKeys: Set<String> = ["a", "c", "v", "x", "z", "y"]
 
     static func editingChordNote(key: String, modifiers: [KeyModifier]) -> String? {
-        guard modifiers.contains(.meta) || modifiers.contains(.control), editingChordKeys.contains(key.lowercased()) else { return nil }
+        guard modifiers.contains(.meta), editingChordKeys.contains(key.lowercased()) else { return nil }
         return
-            "the keystroke was delivered and the page's own handlers saw it, but the browser's built-in editing commands do not respond to a synthesized chord — the selection and clipboard are unchanged. Use --command (select-all, undo, redo, delete) for those, or form-input to replace a field's value"
+            "the page's own handlers saw the keystroke, but a synthesized chord never runs the browser's Edit-menu commands (select all, undo, redo, cut, copy, paste) — the selection, the clipboard and the undo stack are unchanged. Use --command (select-all, undo, redo, delete) for those, or form-input to replace a field's value"
     }
 
     /// One key (or a chord), or one of the browser's own editing commands: exactly one of the two.
     static let key = ControlVerbContribution(
         name: "browser.key",
         summary:
-            "Send one key (Enter, Escape, Tab, ArrowLeft, a), or run one of the browser's own editing commands with --command. A modifier chord cannot reach those — see --command.",
+            "Send one key (Enter, Escape, Tab, ArrowLeft, a), or run one of the browser's own editing commands with --command. A Command chord cannot reach those — see --command.",
         arguments: [
             ControlArgument("key", .string, summary: "The key to press, e.g. Enter, Escape, Tab, ArrowLeft, a."),
             ControlArgument(
@@ -96,7 +101,7 @@ extension InputVerbs {
             ControlArgument(
                 "command", .string,
                 summary:
-                    "Run an editing command through the browser itself, which a synthesized Cmd+A/Cmd+Z cannot reach. Acts on whatever the page has focused. Clipboard commands are deliberately not offered.",
+                    "Run an editing command through the browser itself, which a synthesized Cmd+A/Cmd+Z never reaches. Acts on whatever the page has focused. Clipboard commands are deliberately not offered.",
                 enumValues: EditingCommand.allCases.map(\.rawValue)),
         ], target: .ownedPane(ofTypes: ["browser"]), timeout: quick, command: "key", wireType: "key",
         resultShape: ["command": "string", "element": elementShape, "note": "string"]
@@ -119,7 +124,7 @@ extension InputVerbs {
                 if commanded { return try await run(command: invocation["command"], in: pane) }
                 let held = modifiers(of: invocation["modifiers"])
                 let pressed = keyName ?? ""
-                try await input.send(keystrokeEvents(pressed, modifiers: held))
+                try await pane.page.asOneUndoStep { try await input.send(keystrokeEvents(pressed, modifiers: held)) }
                 guard let note = editingChordNote(key: pressed, modifiers: held) else { return .null }
                 return .object(["note": .string(note)])
             }
@@ -146,14 +151,30 @@ extension InputVerbs {
                 "unknown command \(jsonQuoted(wire?.stringValue ?? "")) — one of \(EditingCommand.allCases.map(\.rawValue).joined(separator: ", "))"
             )
         }
-        let outcome = try await VerbSupport.evalOutcomeInGuest(pane.page, editingCommandScript(command.execName)).orThrow()
-        let element = InputTarget.description(of: outcome["element"])
+        // Asked of the pane's undo history itself: the page's `execCommand('undo')` answers true with
+        // nothing to undo. The history is the page's whole one — the last edit anywhere on it — and a
+        // navigation clears it.
+        if command == .undo || command == .redo {
+            let manager = pane.page.webView.undoManager
+            if (command == .undo ? manager?.canUndo : manager?.canRedo) != true {
+                throw ControlVerbError("there is nothing to \(command.rawValue) on this page")
+            }
+        }
+        // An edit (delete) is one undo step of its own; undo and redo run outside any group, as they must.
+        let script = editingCommandScript(command.execName)
+        let outcome =
+            command == .undo || command == .redo
+            ? try await VerbSupport.evalOutcomeInGuest(pane.page, script).orThrow()
+            : try await pane.page.asOneUndoStep { try await VerbSupport.evalOutcomeInGuest(pane.page, script).orThrow() }
         guard outcome["applied"] == true else {
-            let place = element.map { " on \(Targeting.describeForError($0))" } ?? " (nothing is focused)"
+            let focused = InputTarget.description(of: outcome["focused"])
+            let place = focused.map { " on \(Targeting.describeForError($0))" } ?? " (nothing is focused)"
             throw ControlVerbError("the page refused the \(command.rawValue) command\(place)")
         }
         var result: [String: JSONValue] = ["command": .string(command.rawValue)]
-        if let element { result["element"] = InputTarget.json(element) }
+        // What the command changed: for an undo or a redo, the field whose edit it stepped, which needn't be the
+        // focused one (`editingCommandScript`).
+        if let element = InputTarget.description(of: outcome["element"]) { result["element"] = InputTarget.json(element) }
         return .object(result)
     }
 }

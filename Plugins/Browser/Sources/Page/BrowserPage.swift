@@ -50,6 +50,16 @@ final class BrowserPage: NSObject {
     /// The last committed main-frame document's URL (the seed until then).
     private(set) var url: String
     private(set) var documentStatus: DocumentStatus?
+    /// The MIME type the last committed main-frame document was served as
+    /// (`application/pdf`, `text/html`), kept as its status is; nil for an error page.
+    private(set) var documentContentType: String?
+    /// `documentContentType` when the document isn't a web page, the pane then showing a
+    /// viewer (a PDF, an image, plain text) that the read verbs see nothing of: what
+    /// `pane-info` and the reads report, so the result itself points at `save-resource`.
+    var viewerContentType: String? {
+        guard let type = documentContentType, !["text/html", "application/xhtml+xml"].contains(type) else { return nil }
+        return type
+    }
     /// Why the load in flight failed, as an `ERR_*` name, or nil.
     fileprivate(set) var lastLoadError: String?
     /// The page's title as the browser shows it: the document's own, else a
@@ -67,6 +77,7 @@ final class BrowserPage: NSObject {
     /// Whether a load was ever issued (the starting blank issues none).
     private var hasLoaded = false
     private var pendingStatus: DocumentStatus?
+    private var pendingContentType: String?
     private var statusByItem = NSMapTable<WKBackForwardListItem, StatusBox>.weakToStrongObjects()
     /// Whether the document has the `LoopbackExemption`, what the response of
     /// the navigation in flight said, and the list the content controller holds.
@@ -90,12 +101,14 @@ final class BrowserPage: NSObject {
     private var observations: [NSKeyValueObservation] = []
     private var isDestroyed = false
 
-    /// What a history entry's document had: its status and its exemption.
+    /// What a history entry's document had: its status, its content type and its exemption.
     private final class StatusBox {
         let status: DocumentStatus?
+        let contentType: String?
         let exemptsLoopback: Bool
-        init(_ status: DocumentStatus?, exemptsLoopback: Bool) {
+        init(_ status: DocumentStatus?, contentType: String?, exemptsLoopback: Bool) {
             self.status = status
+            self.contentType = contentType
             self.exemptsLoopback = exemptsLoopback
         }
     }
@@ -151,6 +164,27 @@ final class BrowserPage: NSObject {
     /// Such a page has no document, so no script that could start a
     /// navigation either: a wait for its load has nothing to wait for.
     var isOnStartingBlank: Bool { !hasLoaded && !isLoading }
+
+    /// Runs an agent's edit so it is one undo step of its own: one group of the pane's
+    /// history (`PaneUndoManager.asOneStep`), and the end of the run of typing the edit
+    /// opened (`closeTypingScript`), which WebKit would otherwise extend with the next.
+    /// A page busy in a script of its own past `inputReadMs` keeps it open.
+    func asOneUndoStep<T>(_ body: () async throws -> T) async rethrows -> T {
+        guard let manager = webView.undoManager as? PaneUndoManager else {
+            let result = try await body()
+            await closeTyping()
+            return result
+        }
+        return try await manager.asOneStep {
+            let result = try await body()
+            await closeTyping()
+            return result
+        }
+    }
+
+    private func closeTyping() async {
+        _ = await boundedCall(closeTypingScript, timeoutMs: BrowserLimits.inputReadMs) { _ in true }
+    }
 
     /// Whether the page is on screen: in a window, not hidden, with a size.
     var isVisible: Bool {
@@ -209,7 +243,8 @@ final class BrowserPage: NSObject {
         // The new entry is the same document's: it answers with the same status,
         // whichever way a later history step reaches it.
         if let item = webView.backForwardList.currentItem {
-            statusByItem.setObject(StatusBox(documentStatus, exemptsLoopback: exemptsLoopback), forKey: item)
+            statusByItem.setObject(
+                StatusBox(documentStatus, contentType: documentContentType, exemptsLoopback: exemptsLoopback), forKey: item)
         }
         events.emit(.didNavigateInPage(string))
         onChange?()
@@ -602,6 +637,128 @@ final class BrowserPage: NSObject {
     }
 }
 
+/// A pane's undo history, which groups what the page registers itself rather than
+/// by input event (`groupsByEvent`, off here). AppKit closes an event's group only
+/// once it has dispatched an input event, and an agent driving the page sends none:
+/// every edit since the user last touched the keyboard was one group, so one undo
+/// took back several fields at once, and a fill together with the typing before it
+/// (#86, measured in the shell). Here:
+///
+/// - an agent's edit (`asOneStep`: a field of a `form-input`, a `type`, a key) is one
+///   step, however many run-loop passes it spans;
+/// - anything else (the user's typing, the page's own edits) is grouped by run-loop
+///   pass: a group opens with a pass's first registration and closes as it ends. A
+///   run of typing stays one step (WebKit registers it once and extends it).
+///
+/// Either group opens only at a registration, so an edit that changed nothing leaves
+/// no empty step to undo. An undo or a redo closes an open group first: both refuse
+/// to run inside one. A group AppKit opened can't be closed early from outside: the
+/// next registration then raised "must begin a group before registering undo"
+/// (measured), which is why the manager does its own grouping.
+final class PaneUndoManager: UndoManager {
+    private var passGroupOpen = false
+    /// Agent edits in progress, and whether the group of theirs is open.
+    private var stepDepth = 0
+    private var stepGroupOpen = false
+
+    override init() {
+        super.init()
+        groupsByEvent = false
+    }
+
+    override func registerUndo(withTarget target: Any, selector: Selector, object anObject: Any?) {
+        openGroupForRegistration()
+        super.registerUndo(withTarget: target, selector: selector, object: anObject)
+    }
+
+    override func prepare(withInvocationTarget target: Any) -> Any {
+        openGroupForRegistration()
+        return super.prepare(withInvocationTarget: target)
+    }
+
+    /// The block form, as Objective-C callers and Swift's `registerUndo(withTarget:handler:)`
+    /// reach it. WebKit's edits (typing, paste, drop, a spelling fix) all register through the
+    /// selector form above, but with automatic grouping off a registration that reached the
+    /// stack outside a group raises and takes the app down, so every way in opens one.
+    override func __registerUndoWithTarget(_ target: Any, handler undoHandler: @escaping @MainActor (Any) -> Void) {
+        openGroupForRegistration()
+        super.__registerUndoWithTarget(target, handler: undoHandler)
+    }
+
+    override func undo() {
+        endOpenGroups()
+        super.undo()
+    }
+
+    /// Clearing the whole history ends every open group (Foundation resets the grouping
+    /// level, measured): the manager's own bookkeeping follows, or the pass's scheduled
+    /// end, or a step's, would end a group already gone, which raises.
+    override func removeAllActions() {
+        super.removeAllActions()
+        passGroupOpen = false
+        stepGroupOpen = false
+    }
+
+    override func redo() {
+        endOpenGroups()
+        super.redo()
+    }
+
+    /// Makes what `body` registers one undo step of its own, however many passes it
+    /// spans: an agent's edit, which no input event groups, and which a pass would
+    /// split or merge by timing (two fields' edits registered in one pass were one
+    /// step, under load). An open pass group is closed first, so the step joins
+    /// nothing before it. Not for an undo or a redo.
+    @MainActor func asOneStep<T>(_ body: () async throws -> T) async rethrows -> T {
+        endPassGroup()
+        stepDepth += 1
+        defer {
+            stepDepth -= 1
+            if stepDepth == 0 && stepGroupOpen {
+                stepGroupOpen = false
+                endGroup()
+            }
+        }
+        return try await body()
+    }
+
+    /// Opens the group a registration outside any group goes in: the step's, during
+    /// an agent's edit, else this pass's. Not for an undo's or a redo's own
+    /// registrations, which go where the step being undone says.
+    private func openGroupForRegistration() {
+        guard groupingLevel == 0, !isUndoing, !isRedoing else { return }
+        if stepDepth > 0 {
+            beginUndoGrouping()
+            stepGroupOpen = true
+            return
+        }
+        guard !passGroupOpen else { return }
+        beginUndoGrouping()
+        passGroupOpen = true
+        perform(#selector(endPassGroup), with: nil, afterDelay: 0, inModes: [.common])
+    }
+
+    @objc private func endPassGroup() {
+        guard passGroupOpen else { return }
+        passGroupOpen = false
+        endGroup()
+    }
+
+    /// Ends the manager's own group, unless something has already ended every group
+    /// (Foundation's own `removeAllActions`): an end with none open raises.
+    private func endGroup() {
+        if groupingLevel > 0 { endUndoGrouping() }
+    }
+
+    private func endOpenGroups() {
+        endPassGroup()
+        if stepGroupOpen {
+            stepGroupOpen = false
+            endGroup()
+        }
+    }
+}
+
 /// A `WKWebView` for a pane: no context menu of its own, the app's shortcuts
 /// kept out of the page's hands, and the first click into an inactive window
 /// acting rather than only focusing.
@@ -623,7 +780,7 @@ final class BrowserWebView: WKWebView {
     /// tabs, and a pane can move to another window). The page registers what typing
     /// and editing commands did with the view's undo manager; Edit ▸ Undo and Redo
     /// are answered here, since the web view itself answers neither.
-    private let paneUndoManager = UndoManager()
+    private let paneUndoManager = PaneUndoManager()
     override var undoManager: UndoManager? { paneUndoManager }
     @objc func undo(_ sender: Any?) { paneUndoManager.undo() }
     @objc func redo(_ sender: Any?) { paneUndoManager.redo() }
@@ -690,6 +847,7 @@ extension BrowserPage: WKNavigationDelegate {
             } else {
                 pendingStatus = nil
             }
+            pendingContentType = navigationResponse.response.mimeType?.lowercased()
             pendingExemption = exempts
             await exemptLoopbackCompiling(exempts)
         } else if exempts {
@@ -730,6 +888,7 @@ extension BrowserPage: WKNavigationDelegate {
             // A history step onto a failed entry knows why it failed.
             lastLoadError = parsed.code
             documentStatus = nil
+            documentContentType = nil
             exemptLoopback(false)
         } else {
             errorPage = nil
@@ -738,11 +897,16 @@ extension BrowserPage: WKNavigationDelegate {
             // read: the entry remembers the status and exemption it had.
             let entry = item.flatMap { statusByItem.object(forKey: $0) }
             documentStatus = pendingStatus ?? entry?.status
+            documentContentType = pendingContentType ?? entry?.contentType
             exemptLoopback(pendingExemption ?? entry?.exemptsLoopback ?? false)
         }
         pendingStatus = nil
+        pendingContentType = nil
         pendingExemption = nil
-        if let item { statusByItem.setObject(StatusBox(documentStatus, exemptsLoopback: exemptsLoopback), forKey: item) }
+        if let item {
+            statusByItem.setObject(
+                StatusBox(documentStatus, contentType: documentContentType, exemptsLoopback: exemptsLoopback), forKey: item)
+        }
         lastKnownURL = current.absoluteString
         updateTitle()
         events.emit(.didNavigate(url))

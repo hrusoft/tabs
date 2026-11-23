@@ -31,6 +31,7 @@ extension UITests {
             let bar = try #require(try ui.paneView("root-w").tabBar)
             #expect(bar.strip.newTabButton.toolTip == "New tab")
             #expect(bar.settingsButton.toolTip == "Settings")
+            #expect(bar.caffeinateOpenButton.toolTip == "Caffeinate…")
         }
 
         @Test func everyChromeButtonIsAnAccessibilityButtonNamedLikeItsToolTip() throws {
@@ -40,7 +41,7 @@ extension UITests {
                 try ui.control(HeaderAction.splitHorizontal.accessibilityID, of: "a"),
                 try ui.control(HeaderAction.close.accessibilityID, of: "a"),
                 try ui.control(HeaderAction.newTab.accessibilityID, of: "root-w"), bar.strip.newTabButton, bar.settingsButton,
-                bar.caffeinateButton,
+                bar.caffeinateButton, bar.caffeinateOpenButton,
             ]
             for button in buttons {
                 #expect(button.isAccessibilityElement(), "\(button.label)")

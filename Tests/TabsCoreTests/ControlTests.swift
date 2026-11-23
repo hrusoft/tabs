@@ -25,7 +25,7 @@ import Testing
                             name: "t.echo", summary: "echo",
                             arguments: [
                                 ControlArgument("text", .string, required: true),
-                                ControlArgument("count", .integer),
+                                ControlArgument("count", .integer, maximum: 10),
                                 ControlArgument("file", .path),
                                 ControlArgument("flag", .bool),
                             ]
@@ -72,6 +72,7 @@ import Testing
         ),
         (#"{"command":"t.echo","args":{"text":1}}"#, "t.echo: argument \"text\" must be a string"),
         (#"{"command":"t.echo","args":{"text":"a","count":2.5}}"#, "t.echo: argument \"count\" must be an integer"),
+        (#"{"command":"t.echo","args":{"text":"a","count":11}}"#, "t.echo: argument \"count\" must be at most 10"),
         (
             #"{"command":"t.echo","args":{"text":"a","file":"rel/path"}}"#,
             "t.echo: argument \"file\": relative path \"rel/path\" needs the request's \"cwd\""

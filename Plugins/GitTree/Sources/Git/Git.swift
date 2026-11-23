@@ -617,12 +617,69 @@ struct Git: Sendable {
                 if objectName == hash { remoteRefs.append(rest) }
             }
         }
-        let names =
-            (try? namesResult.get())?.stdout.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty } ?? []
+        let names = Self.parseRemoteNames((try? namesResult.get())?.stdout ?? "")
         return .success(
             BranchesAtCommit(
                 local: local, remotes: remoteRefs.map { splitRemoteRef($0, remoteNames: names) }, allLocalBranches: allLocalBranches))
+    }
+
+    /// `git remote`'s lines: one remote name each.
+    static func parseRemoteNames(_ stdout: String) -> [String] {
+        stdout.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// `for-each-ref`'s fields for the branches sidebar: the object, the
+    /// name, and for an annotated tag the commit it peels to (`%(*objectname)`,
+    /// empty for anything else).
+    static let refListFormat = "%(objectname)\u{1f}%(refname)\u{1f}%(*objectname)"
+
+    /// Every branch, remote-tracking branch and tag, for the branches sidebar,
+    /// with the configured remotes (an empty remote is still one). A failed
+    /// `git remote` read leaves the remotes to the refs (`splitRemoteRef`
+    /// guesses); a failed `for-each-ref` fails the whole read.
+    func readRefs(_ dir: String) async -> GitRefsResult {
+        async let refs = run(
+            dir, ["for-each-ref", "--format=\(Self.refListFormat)", "--sort=refname", "refs/heads", "refs/remotes", "refs/tags"])
+        async let remoteNames = run(dir, ["remote"])
+        let (refsResult, namesResult) = await (refs, remoteNames)
+        switch refsResult {
+        case .failure(let error): return .failure(GitError(error.reason))
+        case .success(let output):
+            let names = Self.parseRemoteNames((try? namesResult.get())?.stdout ?? "")
+            return .success(Self.parseRefList(output.stdout, remoteNames: names))
+        }
+    }
+
+    /// `refListFormat` lines as refs. `<remote>/HEAD` (the remote's default
+    /// branch pointer) is left out, as in `branchesAtCommit`; a remote-tracking
+    /// ref is split against the configured remotes.
+    static func parseRefList(_ stdout: String, remoteNames: [String]) -> GitRefs {
+        var refs: [GitRef] = []
+        for line in stdout.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            let parts = line.split(separator: sep, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 2 else { continue }
+            let peeled = parts.count > 2 ? parts[2] : ""
+            if let ref = ref(refname: parts[1], hash: peeled.isEmpty ? parts[0] : peeled, remoteNames: remoteNames) { refs.append(ref) }
+        }
+        return GitRefs(remotes: remoteNames, refs: refs)
+    }
+
+    /// One full ref name as the sidebar's ref; nil outside the three
+    /// namespaces, and for `<remote>/HEAD`.
+    static func ref(refname: String, hash: String, remoteNames: [String]) -> GitRef? {
+        if refname.hasPrefix("refs/heads/") {
+            return GitRef(kind: .local, refname: refname, name: String(refname.dropFirst("refs/heads/".count)), hash: hash)
+        }
+        if refname.hasPrefix("refs/tags/") {
+            return GitRef(kind: .tag, refname: refname, name: String(refname.dropFirst("refs/tags/".count)), hash: hash)
+        }
+        if refname.hasPrefix("refs/remotes/") {
+            let rest = String(refname.dropFirst("refs/remotes/".count))
+            if rest.hasSuffix("/HEAD") { return nil }
+            let split = splitRemoteRef(rest, remoteNames: remoteNames)
+            return GitRef(kind: .remote, refname: refname, remote: split.remote, name: split.name, hash: hash)
+        }
+        return nil
     }
 
     /// `text` unchanged within `maxLines`, else its first lines and a count of

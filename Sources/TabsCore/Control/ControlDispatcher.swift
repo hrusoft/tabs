@@ -330,6 +330,9 @@ package final class ControlDispatcher {
             if let minimum = argument.minimum, let number = value.doubleValue, number < minimum {
                 return .failure(.init("argument \"\(name)\" must be at least \(ControlSchema.number(minimum))"))
             }
+            if let maximum = argument.maximum, let number = value.doubleValue, number > maximum {
+                return .failure(.init("argument \"\(name)\" must be at most \(ControlSchema.number(maximum))"))
+            }
             switch (argument.kind, value) {
             case (.string, .string), (.bool, .bool), (.object, .object), (.array, .array), (.csv, .array), (.json, _),
                 (.number, .int), (.number, .double), (.integer, .int):
@@ -384,6 +387,7 @@ package final class ControlDispatcher {
                     // Only what the argument sets: a control-plane flag's extras.
                     if let values = argument.enumValues { described["enum"] = .array(values.map(JSONValue.string)) }
                     if let minimum = argument.minimum { described["minimum"] = ControlEnvelope.json(minimum) }
+                    if let maximum = argument.maximum { described["maximum"] = ControlEnvelope.json(maximum) }
                     if let defaultValue = argument.defaultValue { described["default"] = defaultValue }
                     if verb.wireType != nil { described["flag"] = .string(argument.flagName) }
                     return .object(described)

@@ -14,7 +14,7 @@ struct BrowserSettingsPage: View {
                 } label: {
                     Text("New pane placement")
                     Text(
-                        "Where a browser pane created by an agent (via the tabs skill's createBrowserPane) appears relative to the pane that created it."
+                        "Where a browser pane created by an agent (via the tabs skill's create-browser-pane) appears relative to the pane that created it."
                     )
                     .foregroundStyle(.secondary)
                 }

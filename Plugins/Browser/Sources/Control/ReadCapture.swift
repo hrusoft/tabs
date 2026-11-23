@@ -91,7 +91,7 @@ enum ReadCapture {
         if !page.isVisible {
             if invocation["noActivate"]?.boolValue == true {
                 throw ControlVerbError(
-                    "the pane is hidden — it is not its tab group’s active tab, so it has no frame to capture; rerun without noActivate, or run activatePane first"
+                    "the pane is hidden — it is not its tab group’s active tab, so it has no frame to capture; rerun without --no-activate, or run activate-pane first"
                 )
             }
             services.workspace.revealPane(pane.pane.paneID)
