@@ -1,8 +1,9 @@
 # Caffeinate
 
 Keeps the Mac awake: File ▸ Caffeinate… picks `caffeinate(8)` assertions and an optional
-timer, then runs one managed `/usr/bin/caffeinate` for the whole app. While it runs, File ▸
-Decaf and a cup on every window's title bar stop it. Code: `Sources/TabsCore/Caffeinate` (the
+timer, then runs one managed `/usr/bin/caffeinate` for the whole app; a mug among the title bar's
+hover controls opens the dialog too. While it runs, File ▸ Decaf and a steaming cup in the mug's
+place on every window's title bar, shown at rest, stop it. Code: `Sources/TabsCore/Caffeinate` (the
 process) and `Sources/Tabs/Caffeinate` (the dialog, a window of its own).
 
 ## Sources
@@ -12,7 +13,7 @@ process) and `Sources/Tabs/Caffeinate` (the dialog, a window of its own).
 | `Sources/TabsCore/Caffeinate/Caffeinate.swift` | `CaffeinateFlags`, `argsFor`, the managed process and its running state. Core (app-wide, no pane). Owned by `CoreRuntime`, so a test reset kills it |
 | `CoreCommands.caffeinate` | Rebindable command, no default chord |
 | `Sources/Tabs/UI/MainMenu.swift` (`CommandRouter.caffeinate`) | File ▸ Caffeinate… / Decaf |
-| `Sources/Tabs/Workspace/PaneViews.swift` (`TabBarView.caffeinateButton`, `RootIconButton`), `Chrome.swift` (`ChromeIcon.coffeeCup`) | Title-bar cup |
+| `Sources/Tabs/Workspace/PaneViews.swift` (`TabBarView.caffeinateButton`, `.caffeinateOpenButton`, `RootIconButton`), `Chrome.swift` (`ChromeIcon.coffeeCup`, `.coffeeMug`) | Title-bar cup and mug |
 | `Sources/Tabs/Caffeinate/CaffeinateWindow.swift` | The dialog |
 | `SettingsStore.CoreSettings.lastCaffeinate` (`core.lastCaffeinate` in settings.json) | What the dialog last started it with; absent until the first Start |
 | `Sources/Tabs/Testing/TestControlVerbs.swift` (`tabs.test.caffeinate`, `tabs.test.caffeinateDialog`) | Debug-only e2e hooks |
@@ -52,7 +53,7 @@ process) and `Sources/Tabs/Caffeinate` (the dialog, a window of its own).
 | M-5 | Rebindable: Settings ▸ Keyboard lists "Caffeinate…" last in Application, summary "Open the Caffeinate dialog to keep the Mac awake, or turn it off if already running.", no default chord. A user chord runs whichever label the item has: opens the dialog, or stops the process | `UITests.Caffeinate/itIsARebindableCommandWithNoDefaultChord`, `ShortcutsTests` |
 | M-6 | Works whichever window is key (workspace, Settings, About) or with none open: the dialog is its own window, so no workspace window is chosen or reopened to host it | `UITests.Caffeinate/theMenuWorksWithNoWorkspaceWindow` |
 
-### The cup button
+### The cup and the mug
 
 | Id | Case | Test |
 |---|---|---|
@@ -62,6 +63,11 @@ process) and `Sources/Tabs/Caffeinate` (the dialog, a window of its own).
 | B-4 | Never on nested or floating groups' bars | `UITests.Caffeinate/theCupIsOnlyOnTheDockedRootsBar` |
 | B-5 | A window opened while running shows the cup from its first draw | `UITests.Caffeinate/theCupShowsOnEveryWindowsRootBar` |
 | B-6 | Press neither drags the window nor activates panes (carved out of the title bar's drag area) | `UITests.Caffeinate/pressingTheCupDoesNotDragTheWindow` |
+| B-7 | While not running, the mug holds the cup's slot (the root bar's last control, immediately before Settings); starting swaps the cup in and stopping swaps it back, nothing else on the bar moving | `UITests.Caffeinate/theMugTakesTheCupsSlotWhileNotRunning` |
+| B-8 | The mug shows and hides with the bar's hover controls (and stays while one of their menus is open); the cup shows at rest and stays whatever the pointer does | `UITests.Caffeinate/theMugShowsWithTheBarsControlsAndTheCupAlways` |
+| B-9 | Click on the mug = File ▸ Caffeinate…: opens the dialog (or brings the open one forward), starts nothing, activates no pane | `UITests.Caffeinate/clickingTheMugOpensTheDialogAndStartsNothing` |
+| B-10 | Mug: tooltip and accessibility label "Caffeinate…"; id `caffeinate-open-button`; a press doesn't drag the window | `UITests.Caffeinate/theMugIsNamedCaffeinate`, `UITests.Caffeinate/pressingTheCupDoesNotDragTheWindow` |
+| B-11 | Mug: docked root's bar only, like the cup | `UITests.Caffeinate/theCupIsOnlyOnTheDockedRootsBar` |
 
 ### The dialog
 
@@ -87,7 +93,7 @@ process) and `Sources/Tabs/Caffeinate` (the dialog, a window of its own).
 
 ## Look
 
-### The cup button
+### The cup and the mug
 
 Lengths in pt; colors dark / light (`PaneTheme`).
 
@@ -96,6 +102,7 @@ Lengths in pt; colors dark / light (`PaneTheme`).
 | L-1 | Button | 15×15 icon + 4 padding = 23×23, radius 3. Margin right 6 + the bar's 8 gap → right edge 14 left of Settings (Settings: the same 6 margin, then the bar's 4 right padding). Vertically centered | glyph `textDim`; hover: glyph `text`, fill `hover` at 12% | rest, hover | `caffeinate-running`, `caffeinate-light`, `caffeinate-hover` |
 | L-2 | Icon | 16-unit box drawn at 15. Cup `M3.5 7H10.5V11.5A2 2 0 0 1 8.5 13.5H5.5A2 2 0 0 1 3.5 11.5Z`, stroke 1.2, round joins. Handle `M10.5 8.2C12.1 8.2 13.1 9.1 13.1 10.3S12.1 12.4 10.5 12.4`, stroke 1.2, round caps. Steam at x = 4.5, 7.5, 10.5: `M x 6 c0-1 .9-1 .9-2 s-.9-1-.9-2`, stroke 1, round caps | the button's glyph color | — | ″ |
 | L-3 | Placement | Root bar only; same right-aligned slot in fullscreen | — | fullscreen | `caffeinate-fullscreen`, `caffeinate-floating` |
+| L-4 | Mug | The cup's button (L-1) and icon (L-2) without the steam, raised 2.25 units to the box's middle, in the same slot: the bar's controls end the bar's 8 gap before it. Transparent at rest; fades in and out with the controls | as L-1 | rest (transparent), bar hover, hover | `default`, `caffeinate-mug-hover` |
 
 ### The dialog
 
@@ -117,8 +124,10 @@ Start (default) bottom right, 8pt apart. System fonts; painted in the app's them
 ## Checking the look
 
 Scenarios `Visual/scenarios/caffeinate-*.json` (method: [LAYOUT.md](LAYOUT.md), Checking the
-look) set `"caffeinate": true` (the capture sets `appearance.caffeinateRunning`). Geometry:
-`tabBars.<id>.caffeinate` (cup rect; key omitted when not running) beside `settings`.
+look) set `"caffeinate": true` (the capture sets `appearance.caffeinateRunning`); the others show
+the mug (`caffeinate-mug-hover` hovers it). Geometry: `tabBars.<id>.caffeinate` (cup rect; key
+omitted when not running) or `tabBars.<id>.caffeinateOpen` (mug rect, laid out while transparent;
+omitted while running), beside `settings`.
 
 The dialog has no scenario: `UITests.CaffeinateDialog/itListsTheFiveAssertionsInOrderWithTheirHints`
 draws it and, with `TEST_RUNNER_TABS_SNAPSHOT_DIR` set (xcodebuild passes it as

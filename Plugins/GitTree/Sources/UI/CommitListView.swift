@@ -378,6 +378,16 @@ final class CommitListView: GitFlippedView {
         scrollToVisible(rowRect(index))
     }
 
+    /// Brings a row chosen from elsewhere (the branches sidebar) into the
+    /// middle of the list, unless it's already in full view: a jump, not a step.
+    func reveal(_ index: Int) {
+        let row = rowRect(index)
+        let visible = visibleRect
+        guard visible.height > 0, !visible.contains(row) else { return }
+        let top = min(max(row.midY - visible.height / 2, 0), max(bounds.height - visible.height, 0))
+        scroll(CGPoint(x: 0, y: top))
+    }
+
     // MARK: Hover
 
     override func updateTrackingAreas() {

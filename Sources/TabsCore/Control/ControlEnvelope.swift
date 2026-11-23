@@ -62,6 +62,9 @@ package enum ControlEnvelope {
                 if let minimum = flag.minimum, value < minimum {
                     return .failed("--\(flag.name) must be at least \(ControlSchema.number(minimum)) (got \(text(of: raw)))")
                 }
+                if let maximum = flag.maximum, value > maximum {
+                    return .failed("--\(flag.name) must be at most \(ControlSchema.number(maximum)) (got \(text(of: raw)))")
+                }
                 request[flag.wire] = json(value)
             case .boolean:
                 // A present flag is `true`, whatever value it was given.
@@ -69,17 +72,27 @@ package enum ControlEnvelope {
             case .csv:
                 request[flag.wire] = .array(text(of: raw).split(separator: ",").map { .string(String($0)) })
             case .json:
+                let value: JSONValue
                 switch raw {
                 case .string(let source):
                     do {
-                        request[flag.wire] = try JSONDecoder().decode(JSONValue.self, from: Data(source.utf8))
+                        value = try JSONDecoder().decode(JSONValue.self, from: Data(source.utf8))
                     } catch {
                         return .failed("--\(flag.name) is not valid JSON: \(Self.reason(of: error))")
                     }
                 default:
                     // A raw socket client may send the value itself.
-                    request[flag.wire] = raw
+                    value = raw
                 }
+                // Checked here against the argument's own schema, so a value of the wrong
+                // shape is reported by the flag the caller typed (`--requests must be an
+                // array`), not by the wire field the request validation would name.
+                if let argument = verb.arguments.first(where: { $0.name == flag.wire }),
+                    let problem = ControlSchema.validate(value, against: ControlSchema.schema(of: argument), path: "--\(flag.name)")
+                {
+                    return .failed(problem)
+                }
+                request[flag.wire] = value
             case .path:
                 // Bare `--out` is `true`, "generate one", and rides the wire
                 // as `true`; a value is resolved against the caller's own cwd.

@@ -228,7 +228,7 @@ commands or wire types: the dispatcher refuses it at registration, from the verb
 `tabs.shortcuts`, `tabs.setShortcut`.
 
 - **Internal verbs** (no `wireType`): `args` validated against the declared arguments (unknown, missing, kind,
-  `enumValues`, `minimum`); `path` resolved against `cwd`; `.pane(ofTypes:)` requires `paneId` to be an open pane of
+  `enumValues`, `minimum`, `maximum`); `path` resolved against `cwd`; `.pane(ofTypes:)` requires `paneId` to be an open pane of
   those types; `timeout` is the deadline; errors prefixed with the verb name.
 - **Control-plane verbs** (`command` + `wireType`): [below](#the-control-plane). A `.pane(ofTypes:)` target is refused
   on them at registration: their dispatch reads only `.ownedPane`.
@@ -329,7 +329,7 @@ and `enableControl(ofNewPane:from:)` (from `openPane`).
 | `capabilities` | `capabilities` | `core` plus every `ControlCapabilityContribution` (`enabled` = its plugin offers creation), one usage line per command |
 | `describe` | `describe` | a capability's guide, limits and, per command, flags, derived wire schema, `resultShape` |
 
-**Budgets**: `timeoutFor(arguments)` ?? `timeout`. Core answers `<wireType> timed out after <budget>ms` at budget +
+**Budgets**: `timeoutFor(arguments)` ?? `timeout`. Core answers `<command> timed out after <budget>ms` at budget +
 `ControlBudget.headroom` (5 s) and cancels the handler. `ControlBudget.unbounded` = no deadline (`batch`).
 
 ## Build, gate and tests

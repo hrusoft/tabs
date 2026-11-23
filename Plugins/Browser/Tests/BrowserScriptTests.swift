@@ -59,7 +59,7 @@ import Testing
         #expect(element("Search term")?["role"] == "textbox" && element("Search term")?["value"] == "abc")
         #expect(element("Fake button")?["role"] == "button", "an explicit role is the role")
         #expect(element("Group label")?["role"] == "group", "aria-labelledby names it")
-        #expect(element("Send it") == nil, "an unlabelled submit is named by its value attribute? no: by its text")
+        #expect(element("Send it")?["role"] == "button", "a submit input is named by its value (HTML-AAM)")
         #expect(elements.allSatisfy { $0["name"]?.stringValue != "Hidden" }, "a hidden element is never listed")
         for entry in elements {
             let ref = try #require(entry["ref"]?.stringValue)
@@ -69,6 +69,71 @@ import Testing
         #expect(result["total"]?.intValue == Int64(elements.count))
         #expect(result["offset"] == 0 && result["truncated"] == false)
         #expect(result["readyState"] == "complete")
+    }
+
+    /// J-8 (#86, B6): implicit roles follow HTML-AAM, and `--role` finds an element by its implicit role even where
+    /// the default read doesn't list it (a table, its rows and cells, a list, a landmark), as it does images.
+    @Test func implicitRolesFollowHTMLAAMAndARoleFindsTheElementsThatHaveIt() async throws {
+        let bed = try await bed(
+            body: """
+                <header>Site</header>
+                <nav aria-label="Main"><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav>
+                <main>
+                  <section aria-label="Plans"><table><tr><th>Plan</th><th scope=row>Price</th></tr><tr><td>Free</td><td>$0</td></tr></table></section>
+                  <section>Unnamed</section>
+                  <input type=search id=q aria-label="Search"><input type=number aria-label="Count">
+                  <input list=opts aria-label="Pick"><datalist id=opts><option value=x></datalist>
+                  <select multiple aria-label="Many"><option>One</option></select>
+                  <div contenteditable aria-label="Rich editor">Editable <b>bold</b></div>
+                  <input type=submit value="Go"><input type=reset><input type=image alt="Send" src="/asset.png" width=10 height=10>
+                  <form aria-label="Signup"><fieldset><legend>Who</legend><input aria-label="Who"></fieldset></form>
+                  <hr><progress value=1 max=2></progress>
+                </main>
+                <aside>Aside</aside><footer>Foot</footer>
+                """)
+        func found(_ role: String) async -> [JSONValue] {
+            guard case .array(let elements)? = await read(bed, ReadPageFilter(role: role))["elements"] else { return [] }
+            return elements
+        }
+        let tags: [(String, [String])] = [
+            ("table", ["table"]), ("row", ["tr", "tr"]), ("columnheader", ["th"]), ("rowheader", ["th"]), ("cell", ["td", "td"]),
+            ("list", ["ul"]), ("listitem", ["li", "li"]), ("navigation", ["nav"]), ("main", ["main"]), ("banner", ["header"]),
+            ("contentinfo", ["footer"]), ("complementary", ["aside"]), ("region", ["section"]), ("form", ["form"]),
+            ("group", ["fieldset"]), ("separator", ["hr"]), ("progressbar", ["progress"]),
+        ]
+        for (role, expected) in tags {
+            let elements = await found(role)
+            #expect(elements.compactMap { $0["tag"]?.stringValue } == expected, "\(role): \(elements)")
+        }
+        let named: [(String, [String])] = [
+            ("searchbox", ["Search"]), ("spinbutton", ["Count"]), ("combobox", ["Pick"]), ("listbox", ["Many"]),
+            ("textbox", ["Rich editor", "Who"]), ("button", ["Go", "Reset", "Send"]),
+        ]
+        for (role, expected) in named {
+            let elements = await found(role)
+            #expect(elements.compactMap { $0["name"]?.stringValue } == expected, "\(role): \(elements)")
+        }
+    }
+
+    /// J-8 (#86, N5): inputs no ARIA role names aren't text fields: a color or file input is a button (pressed to open
+    /// a picker), a date or time one a group of segments; a text-like one stays a textbox.
+    @Test func pickerAndDateInputsAreNotTextFields() async throws {
+        let bed = try await bed(
+            body: """
+                <input type=color aria-label="Colour"><input type=file aria-label="Upload">
+                <input type=date aria-label="Day"><input type=time aria-label="Time"><input type=datetime-local aria-label="When">
+                <input type=month aria-label="Month"><input type=week aria-label="Week"><input type=password aria-label="Secret">
+                """)
+        guard case .array(let elements)? = await read(bed)["elements"] else { Issue.record("no elements"); return }
+        let roles = Dictionary(
+            uniqueKeysWithValues: elements.compactMap { element in
+                element["name"]?.stringValue.map { ($0, element["role"]?.stringValue ?? "") }
+            })
+        #expect(
+            roles == [
+                "Colour": "button", "Upload": "button", "Day": "group", "Time": "group", "When": "group", "Month": "group",
+                "Week": "group", "Secret": "textbox",
+            ], "\(roles)")
     }
 
     /// J-8: checked state includes `mixed`, a checkbox's value is never its submit token.
@@ -145,7 +210,7 @@ import Testing
         #expect(await bed.value(refResolverExpression(ref) + " instanceof Element") == true)
         await bed.load("/controls?again")
         #expect(await bed.value(refResolverExpression(ref)) == .null)
-        #expect(staleRefError(ref).contains("call readPage again"))
+        #expect(staleRefError(ref).contains("call read-page again"))
         _ = await read(bed, ReadPageFilter(selector: "#b1"))
         #expect(await bed.value(refResolverExpression(ref)) == .null, "and a fresh read never rebinds it")
     }
@@ -182,6 +247,27 @@ import Testing
         #expect(none.contains("no element matches name=\"Nothing like this\"") && none.contains("read-page shows"))
         #expect(await hit(bed, SemanticTarget(selector: "["))["reason"] == "invalid selector: [")
         #expect(await hit(bed, SemanticTarget(selector: "#hiddenbtn"))["resolved"] == false, "a hidden element never matches")
+    }
+
+    /// J-10 (#86, S5): a miss says when it may not mean "not on the page": a hidden element that would have matched,
+    /// or frames and shadow roots targeting can't search. A selector-only miss gets no read-page hint.
+    @Test func aMissSaysWhatTargetingCouldNotReach() async throws {
+        let bed = try await bed()
+        let byName = try #require(await hit(bed, SemanticTarget(name: "Hidden"))["reason"]?.stringValue)
+        #expect(
+            byName
+                == "no element matches name=\"Hidden\"; a hidden <button> matches — hidden elements can't be targeted (execute-js can reach it) — read-page shows what the page calls its controls",
+            "\(byName)")
+        let bySelector = try #require(await hit(bed, SemanticTarget(selector: "#hiddenbtn"))["reason"]?.stringValue)
+        #expect(
+            bySelector
+                == "no element matches selector=\"#hiddenbtn\"; a hidden <button> matches — hidden elements can't be targeted (execute-js can reach it)"
+        )
+        #expect(await hit(bed, SemanticTarget(selector: "#nope"))["reason"] == "no element matches selector=\"#nope\"")
+
+        let framed = try await self.bed(body: Self.controls + "<iframe srcdoc=\"<button>Inside</button>\"></iframe>")
+        let inside = try #require(await hit(framed, SemanticTarget(name: "Inside"))["reason"]?.stringValue)
+        #expect(inside.contains("; the page has 1 frame, which targeting can't search inside — read-page"), "\(inside)")
     }
 
     /// J-9: find mints refs only for what it returns.
@@ -235,12 +321,19 @@ import Testing
     /// J-17: each element kind is filled its own way and read back.
     @Test func fillWritesEachElementKindWholeAndReadsItBack() async throws {
         let bed = try await bed()
-        #expect(await fill(bed, "#q", "new value") == ["mode": "set", "length": 9, "tag": "input"])
+        #expect(await fill(bed, "#q", "new value") == ["mode": "set", "length": 9, "exact": true, "tag": "input"])
         #expect(await bed.value("document.getElementById('q').value") == "new value")
         let multiline = await fill(bed, "#t", "one\ntwo\nthree")
-        #expect(multiline["mode"] == "set" && multiline["length"] == 13 && multiline["tag"] == "textarea")
-        // A single-line input sanitizes on write: the read-back length says so.
-        #expect(await fill(bed, "#q", "a\nb")["length"] == 2)
+        #expect(multiline["mode"] == "set" && multiline["length"] == 13 && multiline["exact"] == true && multiline["tag"] == "textarea")
+        // A value the field can't hold is refused before anything changes (#86): what a single-line input's own
+        // sanitizing makes of it, and a maxlength.
+        let sanitized = await fill(bed, "#q", "a\nb")
+        #expect(sanitized["mode"] == "refused" && sanitized["holds"] == "ab", "\(sanitized)")
+        await bed.value("(document.getElementById('q').maxLength = 3, true)")
+        let cut = await fill(bed, "#q", "abcdef")
+        #expect(cut["mode"] == "refused" && cut["maxLength"] == 3, "\(cut)")
+        #expect(await bed.value("document.getElementById('q').value") == "new value", "left as it was")
+        await bed.value("(document.getElementById('q').removeAttribute('maxlength'), true)")
         // A select by value or by visible label, with real events; an unmatched option lists what is valid.
         #expect(await fill(bed, "#col", "Red")["matched"] == true)
         #expect(await bed.value("document.getElementById('col').value") == "r")
@@ -258,13 +351,15 @@ import Testing
         #expect(await bed.value(fillFocusedScript("x"))["mode"] == "none")
     }
 
-    @Test func fillGoesThroughTheNativeSetterSoFrameworksSeeTheChange() async throws {
+    /// J-17 (#86): a text field is filled through the browser's editing commands, so a framework sees the trusted
+    /// `input` typing gives (with the new value), then a `change`.
+    @Test func fillIsAnEditWhoseTrustedInputFrameworksSee() async throws {
         let bed = try await bed(
             head:
                 "<script>window.seen = []; addEventListener('input', e => seen.push('input:' + e.target.value + ':' + e.isTrusted), true); addEventListener('change', e => seen.push('change:' + e.target.value), true)</script>"
         )
         _ = await fill(bed, "#q", "framework")
-        #expect(await bed.value("JSON.stringify(seen)") == "[\"input:framework:false\",\"change:framework\"]")
+        #expect(await bed.value("JSON.stringify(seen)") == "[\"input:framework:true\",\"change:framework\"]")
     }
 
     /// J-16: instantaneous even on a smooth page; the step is from the page's own viewport.

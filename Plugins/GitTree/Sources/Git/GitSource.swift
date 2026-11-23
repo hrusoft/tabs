@@ -24,6 +24,8 @@ protocol GitSource: AnyObject {
     /// The refs behind the checkout decision, read fresh.
     func branchesAtCommit(_ dir: String, hash: String) async -> GitBranchesAtCommitResult
     func checkout(_ dir: String, _ target: CheckoutTarget) async -> GitCheckoutResult
+    /// Every branch and tag, and the remotes: the branches sidebar.
+    func refs(_ dir: String) async -> GitRefsResult
 }
 
 /// The real thing: `git` in the pane's environment.
@@ -68,6 +70,8 @@ final class GitRepositorySource: GitSource {
     }
 
     func checkout(_ dir: String, _ target: CheckoutTarget) async -> GitCheckoutResult { await git.checkout(dir, target) }
+
+    func refs(_ dir: String) async -> GitRefsResult { await git.readRefs(dir) }
 }
 
 #if DEBUG
@@ -99,6 +103,17 @@ final class ScriptedGitSource: GitSource {
     var fileDiffs: [String: [String: FileDiff]] = [:]
     /// What every file diff read passes through.
     let fileDiffGate = Gate()
+    /// The branches sidebar's answer; unset, one read off the log's ref
+    /// decorations (below).
+    var refsAnswer: GitRefs?
+    /// The remotes a decoration's `<remote>/…` is read against, when the
+    /// refs are read off the log.
+    var remoteNames = ["origin"]
+    /// Makes every refs read fail this way.
+    var refsFailure: GitFailure?
+    /// What every refs read passes through.
+    let refsGate = Gate()
+    private(set) var refsCalls: [String] = []
 
     private(set) var logCalls: [String] = []
     private(set) var logScopes: [GitBranchScope] = []
@@ -211,6 +226,39 @@ final class ScriptedGitSource: GitSource {
         case .remoteBranch(let info): head = .branch(name: info.name)
         }
         return .success(())
+    }
+
+    func refs(_ dir: String) async -> GitRefsResult {
+        refsCalls.append(dir)
+        await refsGate.pass()
+        if let refsFailure { return .failure(GitError(refsFailure)) }
+        if let failure { return .failure(GitError(failure)) }
+        return .success(refsAnswer ?? decoratedRefs)
+    }
+
+    /// The refs the log's decorations name, as git would list them: `tag: x`
+    /// a tag, `<remote>/x` a remote-tracking branch, any other a local
+    /// branch; `HEAD` none.
+    var decoratedRefs: GitRefs {
+        var refs: [GitRef] = []
+        var seen: Set<String> = []
+        for commit in commits {
+            for decoration in commit.refs where decoration != "HEAD" {
+                let refname =
+                    if decoration.hasPrefix("tag: ") {
+                        "refs/tags/\(decoration.dropFirst("tag: ".count))"
+                    } else if remoteNames.contains(where: { decoration.hasPrefix("\($0)/") }) {
+                        "refs/remotes/\(decoration)"
+                    } else {
+                        "refs/heads/\(decoration)"
+                    }
+                guard seen.insert(refname).inserted,
+                    let ref = Git.ref(refname: refname, hash: commit.hash, remoteNames: remoteNames)
+                else { continue }
+                refs.append(ref)
+            }
+        }
+        return GitRefs(remotes: remoteNames, refs: refs.sorted { $0.refname < $1.refname })
     }
 }
 #endif

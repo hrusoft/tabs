@@ -63,13 +63,12 @@ import Testing
         _ = await bed.ctl("key", ["key": "Backspace"])
         #expect(await bed.until { await fieldValue() == "" })
 
-        // undo/redo ride the browser's own undo stack, which only real keystrokes fill: they work after `type`.
-        // (Measured: WebKit undoes a run of typing as one step, and folds the deletion just before it into that step
-        // ("anti-fog" comes back): the intent is pinned, that undo takes the typing back and redo restores it.)
+        // undo/redo ride the browser's own undo stack, which real keystrokes fill: they work after `type`, and each
+        // verb is a step of its own, so undo takes the typing back to the empty field the Backspace left.
         _ = await bed.ctl("type", ["selector": "#name", "text": "hello"])
         #expect(await fieldValue() == "hello")
         #expect(await bed.ctl("key", ["command": "undo"]).ok)
-        #expect(await bed.until { await fieldValue() != "hello" })
+        #expect(await bed.until { await fieldValue() == "" })
         #expect(await bed.ctl("key", ["command": "redo"]).ok)
         #expect(await bed.until { await fieldValue() == "hello" })
 
@@ -131,8 +130,7 @@ import Testing
               return true
             })()
             """)
-        // meta is deliberately not in this matrix: Cmd+Left is the app's own default "Focus Pane Left" shortcut.
-        for modifiers in [[], ["shift"], ["control"], ["alt"]] {
+        for modifiers in [[], ["shift"], ["control"], ["alt"], ["meta"]] {
             var flags: [String: JSONValue] = ["key": "ArrowLeft"]
             if !modifiers.isEmpty { flags["modifiers"] = .string(modifiers.joined(separator: ",")) }
             _ = await bed.ctl("key", flags)
@@ -143,6 +141,35 @@ import Testing
                     "shiftKey": .bool(modifiers.contains("shift")), "ctrlKey": .bool(modifiers.contains("control")),
                 ], "\(modifiers)")
         }
+    }
+
+    /// J-15 (#86): a chord the text system binds acts in the page as on a keyboard, with no note — ⌃A/⌃E to the
+    /// line's ends, ⌘← back, ⌥⇧← selects the word before the caret — while a Command chord on an Edit-menu letter
+    /// never runs its command.
+    @Test func aChordTheTextSystemBindsActsAndNeedsNoNote() async throws {
+        let bed = try await InputVerbBed()
+        let filled = await bed.ctl("form-input", ["fields": json([field(["selector": "#name"], "hello world")])])
+        #expect(filled.result["filled"] == 1, "\(filled.raw)")
+        func selection() async -> JSONValue {
+            await bed.value("(() => { const el = document.getElementById('name'); return el.selectionStart + '-' + el.selectionEnd })()")
+        }
+        let chords: [(key: String, modifiers: String, selection: String)] = [
+            ("a", "control", "0-0"), ("e", "control", "11-11"), ("ArrowLeft", "meta", "0-0"), ("ArrowRight", "meta", "11-11"),
+            ("ArrowLeft", "shift,alt", "6-11"),
+        ]
+        for chord in chords {
+            let answer = await bed.ctl("key", ["key": .string(chord.key), "modifiers": .string(chord.modifiers)])
+            #expect(answer.ok, "\(chord): \(answer.raw)")
+            #expect(answer.result["note"] == nil, "\(chord)")
+            let moved = await bed.until { await selection() == .string(chord.selection) }
+            let landed = await selection()
+            #expect(moved, "\(chord): \(landed)")
+        }
+        let selectAll = await bed.ctl("key", ["key": "a", "modifiers": "meta"])
+        #expect(selectAll.result["note"]?.stringValue?.contains("never runs the browser's Edit-menu commands") == true)
+        // The page's own side only: this tier has no app menu for a chord to reach (that it never reaches the app is the
+        // UI tier's `aKeyThePageDidNotUseNeverReachesTheApp`, D-3).
+        #expect(await selection() == "6-11", "⌘A changed nothing in the page")
     }
 
     // MARK: scroll
@@ -297,7 +324,7 @@ import Testing
         for ref in oldRefs.prefix(3) {
             let stale = await bed.ctl("click", ["ref": .string(ref)])
             #expect(!stale.ok, "\(ref) must not rebind")
-            #expect(stale.error?.contains("readPage") == true, "\(stale.error ?? "")")
+            #expect(stale.error?.contains("call read-page again") == true, "\(stale.error ?? "")")
         }
         // Nothing on the new page was clicked by a stale ref.
         #expect(await bed.value("document.querySelectorAll('input:checked').length") == 0)
@@ -333,7 +360,7 @@ import Testing
         #expect(!clicked.ok)
         #expect(clicked.error?.contains("Shifty target") == true)
         #expect(clicked.error?.contains("Blocking overlay") == true)
-        #expect(clicked.error?.contains("call readPage again, or click by coordinate to press what is actually there") == true)
+        #expect(clicked.error?.contains("call read-page again, or click by coordinate to press what is actually there") == true)
         // And no events were dispatched: the page saw no click at all.
         #expect(await bed.status == "idle")
         // A semantic target's remedy is its own.
@@ -534,6 +561,42 @@ import Testing
         #expect(await bed.ctl("form-input", ["fields": json([field(["selector": "#name"], "x")])]).result["filled"] == 1)
     }
 
+    /// J-24 (#86, B3): a pane in a background tab — in its window, hidden, as the app keeps one — takes semantic and
+    /// ref targets, `key` and `scroll` on its page's last layout, but refuses a coordinate: nothing is on screen for one
+    /// to point at, and nothing to screenshot to check it by.
+    @Test func aPaneInABackgroundTabRefusesACoordinateButTakesTheRest() async throws {
+        let bed = try await InputVerbBed()
+        bed.page.webView.isHidden = true
+        #expect(await bed.ctl("pane-info").result["hidden"] == true)
+        let refusal =
+            "the pane is in a background tab, so nothing is on screen for a coordinate to point at — run activate-pane first, or target by --role, --name, --selector or --ref"
+        for (command, flags) in Self.everyVerb where flags["x"] != nil {
+            #expect(await bed.ctl(command, flags).error == refusal, "\(command)")
+        }
+        let byPoint = await bed.ctl("form-input", ["fields": json([field(["x": 10, "y": 10], "x")])])
+        #expect(byPoint.result["errors"]?[0]?["error"]?.stringValue == refusal, "\(byPoint.raw)")
+
+        #expect(await bed.ctl("click", ["selector": "#go"]).ok)
+        #expect(await bed.ctl("type", ["selector": "#name", "text": "bg"]).ok)
+        #expect(await bed.value("document.getElementById('name').value") == "bg")
+        #expect(await bed.ctl("key", ["key": "Backspace"]).ok)
+        #expect(await bed.ctl("scroll", ["direction": "down"]).ok)
+        #expect(await bed.ctl("form-input", ["fields": json([field(["selector": "#name"], "x")])]).result["filled"] == 1)
+    }
+
+    /// J-6: `screenshot --no-activate` on a pane in a background tab fails, naming the remedies as the CLI spells
+    /// them (#86, S4), rather than bringing the pane to the front.
+    @Test func screenshotWithNoActivateRefusesAPaneInABackgroundTab() async throws {
+        let bed = try await InputVerbBed()
+        bed.page.webView.isHidden = true
+        let refused = await bed.ctl("screenshot", ["no-activate": true])
+        #expect(
+            refused.error
+                == "the pane is hidden — it is not its tab group’s active tab, so it has no frame to capture; rerun without --no-activate, or run activate-pane first",
+            "\(refused.raw)")
+        #expect(bed.page.webView.isHidden, "and it left the pane where it was")
+    }
+
     /// J-25: a page that can't run script answers with the one sentence, never the engine's plumbing.
     @Test func aPageThatCannotRunScriptAnswersInOneSentence() async throws {
         let bed = try await InputVerbBed()
@@ -575,6 +638,260 @@ import Testing
         #expect(unmatched.ok)
     }
 
+    /// J-17 (#86, B4): `form-input` is one edit on the browser's own undo stack, so undo and redo across it give back
+    /// values the field really held, never old edits replayed onto the new value ("hello worldHix" once). The two
+    /// sequences are the issue's.
+    @Test func undoAndRedoAcrossFormInputGiveBackOnlyValuesTheFieldHeld() async throws {
+        let bed = try await InputVerbBed()
+        func value() async -> String { await bed.value("document.getElementById('name').value").stringValue ?? "" }
+        func fill(_ text: String) async {
+            let filled = await bed.ctl("form-input", ["fields": json([field(["selector": "#name"], text)])])
+            #expect(filled.result["filled"] == 1, "\(filled.raw)")
+        }
+        func type(_ text: String) async { #expect(await bed.ctl("type", ["selector": "#name", "text": .string(text)]).ok) }
+        // A step with nothing to undo or redo is refused (J-15); what matters is what the field holds after each.
+        @discardableResult func command(_ name: String) async -> Bool { await bed.ctl("key", ["command": .string(name)]).ok }
+
+        await type("Hi")
+        #expect(await command("select-all"))
+        #expect(await bed.ctl("key", ["key": "x"]).ok)
+        #expect(await bed.until { await value() == "x" })
+        await fill("hello world")
+        #expect(await command("undo"))
+        #expect(await value() == "x", "undo takes the fill back")
+        #expect(await command("redo"))
+        #expect(await value() == "hello world", "and redo puts it back")
+        var steps: [String] = []
+        var values: [String] = []
+        for name in ["undo", "undo", "redo", "redo", "redo", "undo", "undo", "undo", "undo"] {
+            await command(name)
+            values.append(await value())
+            steps.append("\(name) → \(values.last ?? "")")
+        }
+        // Each verb one step, in order: the fill, the x, the typing; then nothing left either way.
+        #expect(values == ["x", "Hi", "x", "hello world", "hello world", "x", "Hi", "", ""], "\(steps)")
+
+        await bed.load("/page")
+        await type("Hi")
+        await type("XYZ")
+        await fill("hello world")
+        await type("!")
+        await fill("hello world")
+        await command("select-all")
+        await type("x")
+        #expect(await value() == "x")
+        steps = []
+        values = []
+        for name in ["undo", "redo", "undo", "undo", "undo", "undo", "undo", "redo", "redo", "redo"] {
+            await command(name)
+            values.append(await value())
+            steps.append("\(name) → \(values.last ?? "")")
+        }
+        // Each verb one step, a `type` right after a fill included (WebKit would extend the fill's typing).
+        let expected = [
+            "hello world", "x", "hello world", "hello world!", "hello world", "HiXYZ", "Hi", "HiXYZ", "hello world", "hello world!",
+        ]
+        #expect(values == expected, "\(steps)")
+    }
+
+    /// A page with fields of each kind the undo tests step through.
+    private func undoFields(_ bed: InputVerbBed) async {
+        bed.server.route(
+            "/fields",
+            .init(
+                body: """
+                    <!doctype html><html><head><title>Fields</title></head><body>
+                    <input id=mail type=email aria-label="Email">
+                    <input id=count type=number aria-label="Count">
+                    <input id=text aria-label="Text">
+                    <input id=other aria-label="Other">
+                    <div id=rich contenteditable=true aria-label="Rich"></div>
+                    </body></html>
+                    """))
+        await bed.load("/fields")
+    }
+
+    /// D-9 (#86): while the page holds the keyboard, each `type`, `key` and `form-input` field is still an undo step
+    /// of its own, in a field of every kind. WebKit extends an open run of typing with the next text typed or deleted,
+    /// and nothing else set the selection between two verbs to close it: two `type`s undid as one. Closing it leaves
+    /// the caret where it was.
+    @Test func eachEditIsItsOwnUndoStepWhileThePageHoldsTheKeyboard() async throws {
+        let bed = try await InputVerbBed()
+        await undoFields(bed)
+        await bed.window.setKey(true)
+        bed.window.makeFirstResponder(bed.page.webView)
+        func value(_ id: String) async -> String {
+            await bed.value("document.getElementById('\(id)').\(id == "rich" ? "textContent" : "value")").stringValue ?? ""
+        }
+        func type(_ id: String, _ text: String) async {
+            #expect(await bed.ctl("type", ["selector": .string("#\(id)"), "text": .string(text)]).ok)
+        }
+        func undo(_ id: String, times: Int) async -> [String] {
+            var values: [String] = []
+            for _ in 0..<times {
+                #expect(await bed.ctl("key", ["command": "undo"]).ok)
+                values.append(await value(id))
+            }
+            return values
+        }
+
+        for id in ["text", "mail", "rich"] {
+            await type(id, "ab")
+            await type(id, "cd")
+            #expect(await bed.ctl("key", ["key": "e"]).ok)
+            #expect(await value(id) == "abcde", "\(id)")
+            #expect(await undo(id, times: 3) == ["abcd", "ab", ""], "\(id)")
+        }
+        let filled = await bed.ctl("form-input", ["fields": json([field(["selector": "#mail"], "x@y.z")])])
+        #expect(filled.result["filled"] == 1, "\(filled.raw)")
+        await type("mail", "!")
+        #expect(await undo("mail", times: 2) == ["x@y.z", ""], "a type after a fill")
+        // In the middle of an email field, which has no selection API: the second `type` lands where the first left
+        // off, and undoes on its own.
+        await type("mail", "abcd")
+        for _ in 0..<2 { #expect(await bed.ctl("key", ["key": "ArrowLeft"]).ok) }
+        await type("mail", "X")
+        await type("mail", "Y")
+        #expect(await value("mail") == "abXYcd")
+        #expect(await undo("mail", times: 1) == ["abXcd"])
+        #expect(bed.window.firstResponder === bed.page.webView, "the page held the keyboard throughout")
+    }
+
+    /// J-14 (#86): putting the caret at the end of a field that focus reaches rewrites nothing, so the field's earlier
+    /// edits still undo once the focus left it and came back. An email or a number field has no selection API; setting
+    /// its value to itself for the caret replaced the text WebKit's undo entries point into, so the first edit's undo
+    /// changed nothing and the field's value before it was lost.
+    @Test func aFieldsEarlierEditsStillUndoOnceTheFocusLeftAndCameBack() async throws {
+        let bed = try await InputVerbBed()
+        await undoFields(bed)
+        func value(_ id: String) async -> String { await bed.value("document.getElementById('\(id)').value").stringValue ?? "" }
+        func undo() async -> Bool { await bed.ctl("key", ["command": "undo"]).ok }
+        func fill(_ id: String, _ text: String) async {
+            let filled = await bed.ctl("form-input", ["fields": json([field(["selector": .string("#\(id)")], text)])])
+            #expect(filled.result["filled"] == 1, "\(filled.raw)")
+        }
+
+        for (id, first, second) in [("mail", "ab", "cd"), ("count", "12", "34"), ("text", "ab", "cd")] {
+            #expect(await bed.ctl("type", ["selector": .string("#\(id)"), "text": .string(first)]).ok)
+            #expect(await bed.ctl("click", ["selector": "#other"]).ok)
+            #expect(await bed.ctl("type", ["selector": .string("#\(id)"), "text": .string(second)]).ok)
+            #expect(await value(id) == first + second, "\(id)")
+            var values: [String] = []
+            for _ in 0..<2 {
+                #expect(await undo(), "\(id)")
+                values.append(await value(id))
+            }
+            #expect(values == [first, ""], "\(id)")
+            #expect(!(await undo()), "\(id): nothing is left to undo")
+        }
+        for id in ["mail", "text"] {
+            await fill(id, "one@x.y")
+            await fill("other", "zzz")
+            await fill(id, "two@x.y")
+            var values: [String] = []
+            for _ in 0..<3 {
+                #expect(await undo(), "\(id)")
+                values.append("\(await value(id))|\(await value("other"))")
+            }
+            #expect(values == ["one@x.y|zzz", "one@x.y|", "|"], "\(id)")
+        }
+    }
+
+    /// J-15 (#86): an editing command's `element` is what it changed, and an undo or a redo leaves the focus and the
+    /// caret where they were, whether or not the page holds the keyboard, so the next `key` goes where the one before
+    /// went. An undo steps the page's last edit, which can be another field's: its answer named the focused field, not
+    /// the one it changed, and while the page held the keyboard WebKit moved the focus to the field it changed.
+    @Test(arguments: [false, true], ["other", "rich"])
+    func anUndoNamesTheFieldItChangedAndLeavesTheFocusWhereItWas(holdingTheKeyboard: Bool, focused id: String) async throws {
+        let bed = try await InputVerbBed()
+        await undoFields(bed)
+        if holdingTheKeyboard {
+            await bed.window.setKey(true)
+            bed.window.makeFirstResponder(bed.page.webView)
+        }
+        let property = id == "rich" ? "textContent" : "value"
+        func held() async -> String { await bed.value("document.getElementById('\(id)').\(property)").stringValue ?? "" }
+        func mail() async -> JSONValue { await bed.value("document.getElementById('mail').value") }
+        func active() async -> JSONValue { await bed.value("document.activeElement.id") }
+
+        #expect(await bed.ctl("type", ["selector": .string("#\(id)"), "text": "hello"]).ok)
+        let filled = await bed.ctl("form-input", ["fields": json([field(["selector": "#mail"], "a@b.c")])])
+        #expect(filled.result["filled"] == 1, "\(filled.raw)")
+        #expect(await bed.ctl("click", ["selector": .string("#\(id)")]).ok)
+        for _ in 0..<3 { #expect(await bed.ctl("key", ["key": "ArrowLeft"]).ok) }
+
+        let undo = await bed.ctl("key", ["command": "undo"])
+        #expect(undo.result["element"]?["name"] == "Email", "\(undo.raw)")
+        #expect(await mail() == "")
+        #expect(await active() == .string(id), "the focus stayed where it was")
+        let redo = await bed.ctl("key", ["command": "redo"])
+        #expect(redo.result["element"]?["name"] == "Email", "\(redo.raw)")
+        #expect(await mail() == "a@b.c")
+        #expect(await active() == .string(id))
+        #expect(await bed.ctl("key", ["command": "undo"]).ok)
+        // The next key lands at the caret it was at before the undo, in the field it was in.
+        #expect(await bed.ctl("key", ["key": "z"]).ok)
+        let typed = await held()
+        #expect(typed == "hezllo")
+        #expect(await mail() == "")
+        // A command that changes no text (select all) acted on the focused element, and says so.
+        let selectAll = await bed.ctl("key", ["command": "select-all"])
+        #expect(selectAll.result["element"]?["name"] == (id == "rich" ? "Rich" : "Other"), "\(selectAll.raw)")
+    }
+
+    /// J-17 (#86, N4): a value the field can't hold is refused before anything changes — a number field given "abc"
+    /// keeps its 42, one past its maxlength keeps what it had — and a read-only field set by value says so in its entry.
+    @Test func aFieldThatCannotHoldTheValueIsLeftAsItWasAndAReadOnlyOneSaysSo() async throws {
+        let bed = try await InputVerbBed()
+        bed.server.route(
+            "/kinds",
+            .init(
+                body: """
+                    <!doctype html><html><head><title>Kinds</title></head><body>
+                    <input id=count type=number aria-label="Count" value="42">
+                    <input id=code aria-label="Code" maxlength=4 value="AB">
+                    <input id=day aria-label="Day" readonly value="soon">
+                    <input id=level type=range min=0 max=1000 step=0.5 aria-label="Level">
+                    <input id=paint type=color aria-label="Paint">
+                    <input id=send type=submit aria-label="Send">
+                    </body></html>
+                    """))
+        await bed.load("/kinds")
+        func value(_ id: String) async -> JSONValue { await bed.value("document.getElementById('\(id)').value") }
+
+        let number = await bed.ctl("form-input", ["fields": json([field(["selector": "#count"], "abc")])])
+        #expect(
+            number.result["errors"]?[0]?["error"]
+                == "the field would hold 0 of the 3 characters sent — an <input type=number> rewrites what it is given; nothing was changed",
+            "\(number.raw)")
+        #expect(await value("count") == "42")
+        let long = await bed.ctl("form-input", ["fields": json([field(["selector": "#code"], "ABCDEF")])])
+        #expect(
+            long.result["errors"]?[0]?["error"]
+                == "the field holds at most 4 characters (its maxlength) and the value has 6 — nothing was changed", "\(long.raw)")
+        #expect(await value("code") == "AB")
+
+        let readOnly = await bed.ctl("form-input", ["fields": json([field(["selector": "#day"], "2026-10-16")])])
+        #expect(readOnly.result["filled"] == 1, "\(readOnly.raw)")
+        #expect(readOnly.result["fields"]?[0]?["note"] == "read-only: set by value, since a person couldn't type in it")
+        #expect(await value("day") == "2026-10-16")
+        let number2 = await bed.ctl("form-input", ["fields": json([field(["selector": "#count"], "7")])])
+        #expect(number2.result["fields"]?[0]?["note"] == nil && number2.result["filled"] == 1, "an ordinary field has no note")
+
+        // What the field can hold is judged with the attributes its sanitizing reads: a range's own bounds and step,
+        // and a colour's hex is the same colour in either case.
+        let level = await bed.ctl("form-input", ["fields": json([field(["selector": "#level"], "500.5")])])
+        #expect(level.result["filled"] == 1, "\(level.raw)")
+        #expect(await value("level") == "500.5")
+        let paint = await bed.ctl("form-input", ["fields": json([field(["selector": "#paint"], "#FF0000")])])
+        #expect(paint.result["filled"] == 1, "\(paint.raw)")
+        #expect(await value("paint") == "#ff0000")
+
+        // Focusing a button to type at it rewrites nothing: a submit with no value keeps its default label.
+        _ = await bed.ctl("type", ["selector": "#send", "text": "x"])
+        #expect(await bed.value("document.getElementById('send').hasAttribute('value')") == false)
+    }
+
     /// J-17: multiline values verbatim, read back, and fields that will not hold them refused.
     @Test func formInputSetsMultilineValuesVerbatimReadsThemBackAndRefusesFieldsThatWillNotHoldThem() async throws {
         let bed = try await InputVerbBed()
@@ -606,10 +923,11 @@ import Testing
         let first = refused.result["errors"]?[0]?["error"]?.stringValue
         #expect(first?.contains("11 of the 12 characters") == true, "\(first ?? "")")
         #expect(first?.contains("cannot hold newlines") == true)
+        #expect(first?.hasSuffix("nothing was changed") == true, "\(first ?? "")")
         #expect(refused.result["errors"]?[1]?["index"] == 1)
         #expect(refused.result["errors"]?[1]?["error"]?.stringValue?.contains("not a fillable field") == true)
-        // What the input actually holds is what the error described.
-        #expect(await bed.value("document.getElementById('name').value") == "firstsecond")
+        // Refused before anything changed: the input holds what it held (#86).
+        #expect(await bed.value("document.getElementById('name').value") == "")
 
         // A contenteditable is filled through real editing commands: the preset text is replaced and both lines land.
         let editor = await bed.ctl("form-input", ["fields": json([field(["selector": "#editor"], "alpha\nbeta")])])
@@ -631,6 +949,39 @@ import Testing
         #expect(await bed.value("document.getElementById('name').value") == "abcX")
         _ = await bed.ctl("type", ["selector": "#notes", "text": "!"])
         #expect(await bed.value("document.getElementById('notes').value") == "one\ntwo!")
+    }
+
+    /// J-14 (#86, B1): `type` appends to what a field holds also when nothing ever focused it — WebKit selects all
+    /// of such a field when script focuses it, and the first key would replace the lot — while a field already
+    /// focused keeps its caret where it is.
+    @Test func typeAppendsToAFieldNothingFocusedYetAndKeepsAFocusedFieldsCaret() async throws {
+        let bed = try await InputVerbBed()
+        bed.server.route(
+            "/prefilled",
+            .init(
+                body: """
+                    <!doctype html><html><head><title>Prefilled</title></head><body>
+                    <input id=text aria-label="Full name" value="Pre-filled">
+                    <input id=mail type=email aria-label="Mail" value="a@b.c">
+                    <input id=count type=number aria-label="Count" value="12">
+                    <textarea id=notes aria-label="Notes">stale draft</textarea>
+                    <div id=rich contenteditable=true aria-label="Rich">Editable</div>
+                    </body></html>
+                    """))
+        await bed.load("/prefilled")
+        let fields: [(name: String, id: String, property: String, after: String)] = [
+            ("Full name", "text", "value", "Pre-filled9"), ("Mail", "mail", "value", "a@b.c9"), ("Count", "count", "value", "129"),
+            ("Notes", "notes", "value", "stale draft9"), ("Rich", "rich", "textContent", "Editable9"),
+        ]
+        for field in fields {
+            let typed = await bed.ctl("type", ["name": .string(field.name), "text": "9"])
+            #expect(typed.ok, "\(field.name): \(typed.raw)")
+            let value = await bed.value("document.getElementById('\(field.id)').\(field.property)")
+            #expect(value == .string(field.after), "\(field.name): \(value)")
+        }
+        await bed.value("(() => { const el = document.getElementById('text'); el.focus(); el.setSelectionRange(3, 3); return true })()")
+        _ = await bed.ctl("type", ["name": "Full name", "text": "_"])
+        #expect(await bed.value("document.getElementById('text').value") == "Pre_-filled9", "typed at the caret")
     }
 
     /// J-17: a coordinate target is clicked to focus the field, then filled like any other.

@@ -51,15 +51,18 @@ enum ScriptVerbs {
     ///
     /// Two failures are turned into clean errors rather than escaping: the script throwing (caught
     /// inside the page, so the message and stack are the script's own), and it returning something
-    /// JSON can't represent (a cycle). The value never crosses the bridge as a live object: the page
-    /// serializes it (`JSON.stringify`), so what a caller gets is exactly what JSON makes of it: a
-    /// `Date` an ISO string, a DOM node an empty object, `undefined` null.
+    /// JSON can't represent (a cycle, a BigInt), named in JSON's own words. The value never crosses the
+    /// bridge as a live object: the page serializes it (`JSON.stringify`), so what a caller gets is
+    /// exactly what JSON makes of it: a `Date` an ISO string, a DOM node, a `Map` or a `Set` an empty
+    /// object, `undefined`, `NaN`, a function or a symbol null.
     ///
     /// This runs in the page's *own* world: a hostile page can observe or tamper with what is injected
     /// (the boundary is pane ownership, not the page). See `executeScript`.
     ///
-    /// Budget: unbounded (30 s), the longest of any verb: caller-supplied code with no bound on
-    /// what it does (a fetch, a wait for an animation).
+    /// Budget: `executeTimeoutMs` (30 s), the longest of any verb: caller-supplied code with no bound
+    /// on what it does (a fetch, a wait for an animation). The handler stops waiting at that limit
+    /// itself (`evaluate(_:in:within:)`), saying so, rather than leaving the answer to core's deadline
+    /// (the budget plus headroom, five seconds later, in the wire name).
     private static func executeJavaScript(files: AgentFiles) -> ControlVerbContribution {
         ControlVerbContribution(
             name: "browser.executeJavaScript",
@@ -72,7 +75,7 @@ enum ScriptVerbs {
                         "Write the full result to a file instead of truncating at \(BrowserLimits.executeResultMax) chars; returns {path, bytes, format}. A string result is written raw, anything else as pretty-printed JSON. With a path it is resolved against your shell's cwd and never overwritten; bare --out generates a temp file swept after ~10 minutes.",
                     placeholder: "path", flag: "out"),
             ],
-            target: .ownedPane(ofTypes: ["browser"]), timeout: .seconds(30),
+            target: .ownedPane(ofTypes: ["browser"]), timeout: .milliseconds(BrowserLimits.executeTimeoutMs),
             command: "execute-js", wireType: "executeJavaScript",
             resultShape: ["value": "object", "truncated": "boolean", "path": "string", "bytes": "number", "format": "string"]
         ) { invocation in
@@ -81,19 +84,24 @@ enum ScriptVerbs {
             let toFile = invocation["outPath"] != nil
 
             let answer: [String: JSONValue]
-            switch await pane.page.evaluate(serializingScript(code, toFile: toFile)) {
+            let evaluated = await evaluate(serializingScript(code, toFile: toFile), in: pane.page, within: BrowserLimits.executeTimeoutMs)
+            guard let evaluated else { throw ControlVerbError(scriptTimedOut(BrowserLimits.executeTimeoutMs)) }
+            switch evaluated {
             case .success(.object(let object)): answer = object
             case .success: throw ControlVerbError(VerbSupport.unexpectedAnswer)
-            case .failure(.exception):
-                // Runtime throws are caught inside the page, so the only way to land here is
-                // code that isn't a valid expression.
+            case .failure(.exception(let message)):
+                // Runtime throws are caught inside the page, so landing here is code that isn't a valid
+                // expression, or a promise the engine collected unsettled: nothing in the page could settle it
+                // any more (`new Promise(() => {})`), and WebKit says so in these words as soon as it collects
+                // it, which on a busy page is at once (measured).
+                if message.contains("no longer reachable") { throw ControlVerbError(promiseUnreachable) }
                 throw ControlVerbError(
                     "the code is not a valid expression — wrap a sequence of statements in an IIFE, e.g. (() => { ... })()")
             case .failure(let error): throw ControlVerbError(error.message)
             }
             if answer["ok"]?.boolValue != true {
                 if answer["unserializable"]?.boolValue == true {
-                    throw ControlVerbError("the script returned a value that cannot be serialized (a DOM node, or a cycle)")
+                    throw ControlVerbError(unserializable(answer["reason"]?.stringValue))
                 }
                 throw ControlVerbError("script threw: \(answer["error"]?.stringValue ?? "unknown error")")
             }
@@ -127,6 +135,36 @@ enum ScriptVerbs {
         }
     }
 
+    /// `script`'s answer from `page`, or nil when it hasn't answered within `milliseconds`: the page
+    /// may still be running it (a promise that never settles, a long loop), and its answer, if it ever
+    /// comes, is dropped.
+    static func evaluate(_ script: String, in page: BrowserPage, within milliseconds: Int) async -> Result<JSONValue, PageScriptError>? {
+        let shot = OneShot<Result<JSONValue, PageScriptError>?>()
+        let limit = Task { @MainActor in
+            await delay(milliseconds: milliseconds)
+            shot.resolve(nil)
+        }
+        page.evaluate(script) { shot.resolve($0) }
+        let answer = await shot.wait()
+        limit.cancel()
+        return answer
+    }
+
+    static let promiseUnreachable =
+        "the script returned a promise nothing can settle any more — the page holds no way to resolve it, and the engine let it go, so there is no value to wait for"
+
+    static func scriptTimedOut(_ milliseconds: Int) -> String {
+        "execute-js stopped waiting after \(milliseconds)ms, its limit — the script may still be running in the page"
+    }
+
+    /// Why a value has no JSON form, in JSON's own words (`JSON.stringify cannot serialize BigInt`, a
+    /// cycle), and what to return instead. A DOM node isn't one: it serializes, to `{}`.
+    static func unserializable(_ reason: String?) -> String {
+        let why = reason.map { " (\($0.hasSuffix(".") ? String($0.dropLast()) : $0))" } ?? ""
+        return
+            "the script returned a value JSON can't represent\(why) — return plain data: String(n) for a BigInt, a copy without the cycle"
+    }
+
     /// The caller's code wrapped so the page answers with a string: `executeScript`'s outcome
     /// (`{ok, value}` or `{ok: false, error}`), the value serialized in the page. `JSON.stringify` is
     /// captured before the caller's code runs, so it can't be swapped out from under the read.
@@ -145,7 +183,9 @@ enum ScriptVerbs {
             }
             return { ok: true, serialized: stringify(value) ?? 'null' }
           } catch (error) {
-            return { ok: false, unserializable: true }
+            let reason
+            try { reason = String(error && error.message || error) } catch (inner) {}
+            return { ok: false, unserializable: true, reason }
           }
         })()
         """

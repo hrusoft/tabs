@@ -35,7 +35,9 @@ extension InputVerbs {
         case none
         case unfillable(ElementDescription?)
         case select(matched: Bool, options: [(value: String, label: String)], length: Int?)
-        case set(length: Int, tag: String)
+        case set(length: Int, exact: Bool, tag: String, readOnly: Bool)
+        /// Refused before anything changed: what the field would hold of the value, or its maxlength.
+        case refused(holds: String?, maxLength: Int?, inputType: String?, tag: String)
         case editable(length: Int)
         case error(String)
 
@@ -49,7 +51,14 @@ extension InputVerbs {
                     options = listed.map { ($0["value"]?.stringValue ?? "", $0["label"]?.stringValue ?? "") }
                 }
                 self = .select(matched: fields["matched"] == true, options: options, length: length)
-            case "set": self = .set(length: length ?? 0, tag: fields["tag"]?.stringValue ?? "")
+            case "set":
+                self = .set(
+                    length: length ?? 0, exact: fields["exact"] == true, tag: fields["tag"]?.stringValue ?? "",
+                    readOnly: fields["readOnly"] == true)
+            case "refused":
+                self = .refused(
+                    holds: fields["holds"]?.stringValue, maxLength: fields["maxLength"]?.intValue.map { Int($0) },
+                    inputType: fields["inputType"]?.stringValue, tag: fields["tag"]?.stringValue ?? "")
             case "editable": self = .editable(length: length ?? 0)
             case "error": self = .error(fields["error"]?.stringValue ?? "")
             default: self = .none
@@ -112,7 +121,8 @@ extension InputVerbs {
                 ])
         ], target: .ownedPane(ofTypes: ["browser"]), timeout: read, command: "form-input", wireType: "formInput",
         resultShape: [
-            "filled": "number", "fields": [["index": "number", "length": "number"]], "errors": [["index": "number", "error": "string"]],
+            "filled": "number", "fields": [["index": "number", "length": "number", "note": "string"]],
+            "errors": [["index": "number", "error": "string"]],
         ]
     ) { invocation in
         let pane = try VerbSupport.pane(invocation)
@@ -139,17 +149,22 @@ extension InputVerbs {
                         continue
                     }
                     // The script catches its own throws; an error here means the page couldn't
-                    // run script at all (navigated away mid-fill, an error page).
+                    // run script at all (navigated away mid-fill, an error page). Each field is
+                    // one undo step of its own.
                     let outcome: [String: JSONValue]
-                    switch await VerbSupport.evalOutcomeInGuest(pane.page, fillFocusedScript(value)) {
+                    let fill = await pane.page.asOneUndoStep { await VerbSupport.evalOutcomeInGuest(pane.page, fillFocusedScript(value)) }
+                    switch fill {
                     case .failure(let failure): fail(index, failure.message); continue
                     case .success(let run): outcome = run
                     }
                     let sent = value.utf16.count
-                    func filledField(_ length: Int) {
+                    func filledField(_ length: Int, note: String? = nil) {
                         filled += 1
-                        fields.append(.object(["index": .int(Int64(index)), "length": .int(Int64(length))]))
+                        var entry: [String: JSONValue] = ["index": .int(Int64(index)), "length": .int(Int64(length))]
+                        if let note { entry["note"] = .string(note) }
+                        fields.append(.object(entry))
                     }
+                    let newlines = value.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" })
                     switch FillOutcome(outcome) {
                     case .select(matched: true, _, let length): filledField(length ?? sent)
                     case .select(matched: false, let options, _):
@@ -165,15 +180,37 @@ extension InputVerbs {
                                         ? "\(jsonQuoted(option.label)) (\(option.value))" : jsonQuoted(option.value)
                                 }.joined(separator: ", ") + ")"
                         fail(index, "no option matching \(jsonQuoted(value))\(listed)")
-                    case .set(let length, let tag):
-                        if length == sent {
-                            filledField(length)
+                    case .refused(let holds, let maxLength, let inputType, let tag):
+                        if let maxLength {
+                            fail(
+                                index,
+                                "the field holds at most \(maxLength) characters (its maxlength) and the value has \(sent) — nothing was changed"
+                            )
+                        } else {
+                            let held = holds ?? ""
+                            let what =
+                                held.utf16.count == sent
+                                ? "the field would hold \(jsonQuoted(held)), not the value sent"
+                                : "the field would hold \(held.utf16.count) of the \(sent) characters sent"
+                            let why =
+                                tag == "input" && newlines
+                                ? "a single-line <input> cannot hold newlines; target a <textarea> instead"
+                                : "\(tag == "input" ? "an <input type=\(inputType ?? "text")>" : "a <\(tag)>") rewrites what it is given"
+                            fail(index, "\(what) — \(why); nothing was changed")
+                        }
+                    case .set(let length, let exact, let tag, let readOnly):
+                        if exact {
+                            filledField(length, note: readOnly ? "read-only: set by value, since a person couldn't type in it" : nil)
                         } else {
                             let why =
-                                tag == "input" && value.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" })
+                                tag == "input" && newlines
                                 ? "a single-line <input> cannot hold newlines; target a <textarea> instead"
                                 : "the element rewrote or refused part of the value"
-                            fail(index, "the field holds \(length) of the \(sent) characters sent — \(why)")
+                            let holds =
+                                length == sent
+                                ? "the field holds \(length) characters, not the ones sent"
+                                : "the field holds \(length) of the \(sent) characters sent"
+                            fail(index, "\(holds) — \(why)")
                         }
                     case .editable(let length): filledField(length)
                     case .unfillable(let element):

@@ -90,7 +90,7 @@ final class GitTreeTestBed {
     /// The log read, and unless collapsed, the selected row's details too.
     func settled(_ pane: GitTreePane, sourceLocation: SourceLocation = #_sourceLocation) async -> Bool {
         await eventually(sourceLocation: sourceLocation) {
-            pane.log != nil && !pane.fetchPending
+            pane.log != nil && !pane.fetchPending && !pane.refsPending
                 && (pane.split.collapsed || pane.selectedHash == nil || pane.detail?.hash == pane.selectedHash)
         }
     }
@@ -1101,8 +1101,8 @@ final class GitTreeTestBed {
     /// V-3
     @Test("dragging it previews every move, and saves the split on release") func drag() async throws {
         let (id, pane, view) = try await open()
-        #expect(view.divider.begin(atY: 300))
-        view.divider.move(toY: 200)
+        #expect(view.divider.begin(at: 300))
+        view.divider.move(to: 200)
         #expect(pane.split.fraction == 0.6)
         #expect(bed.config(id)["detailFraction"] == nil)
         view.divider.finish()
@@ -1116,16 +1116,16 @@ final class GitTreeTestBed {
         async throws
     {
         let (id, pane, view) = try await open()
-        view.divider.begin(atY: 300)
-        view.divider.move(toY: 490)
+        view.divider.begin(at: 300)
+        view.divider.move(to: 490)
         view.divider.finish()
         relayout(view)
         #expect(view.detailScroll.isHidden)
         #expect(view.computeLayout().dividerCollapsed)
         #expect(bed.config(id)["detailCollapsed"] == true)
 
-        view.divider.begin(atY: 496)
-        view.divider.move(toY: 296)
+        view.divider.begin(at: 496)
+        view.divider.move(to: 296)
         view.divider.finish()
         relayout(view)
         #expect(!view.computeLayout().dividerCollapsed)
@@ -1136,7 +1136,7 @@ final class GitTreeTestBed {
 
     @Test("a press that moves nothing saves nothing") func stillPress() async throws {
         let (id, _, view) = try await open()
-        view.divider.begin(atY: 300)
+        view.divider.begin(at: 300)
         view.divider.finish()
         #expect(bed.config(id)["detailFraction"] == nil)
         #expect(bed.config(id)["detailCollapsed"] == nil)
@@ -1145,11 +1145,11 @@ final class GitTreeTestBed {
     /// V-6: the release is the last shown frame; later moves do nothing.
     @Test("a release it never saw ends the drag where it was last shown") func unseenRelease() async throws {
         let (id, pane, view) = try await open()
-        view.divider.begin(atY: 300)
-        view.divider.move(toY: 250)
+        view.divider.begin(at: 300)
+        view.divider.move(to: 250)
         view.divider.finish()
         #expect(bed.config(id)["detailFraction"] == 0.5)
-        view.divider.move(toY: 100)
+        view.divider.move(to: 100)
         #expect(pane.split.fraction == 0.5)
     }
 

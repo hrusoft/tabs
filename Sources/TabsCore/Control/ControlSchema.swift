@@ -57,8 +57,9 @@ package enum ControlSchema {
         case .json: schema = [:]
         case .csv: schema = ["type": "array", "items": ["type": "string"]]
         }
-        if let minimum = argument.minimum, argument.kind == .number || argument.kind == .integer {
-            schema["minimum"] = Int64(exactly: minimum).map(JSONValue.int) ?? .double(minimum)
+        if argument.kind == .number || argument.kind == .integer {
+            if let minimum = argument.minimum { schema["minimum"] = Int64(exactly: minimum).map(JSONValue.int) ?? .double(minimum) }
+            if let maximum = argument.maximum { schema["maximum"] = Int64(exactly: maximum).map(JSONValue.int) ?? .double(maximum) }
         }
         return .object(schema)
     }
@@ -108,13 +109,18 @@ package enum ControlSchema {
             if type == "integer" {
                 if !isInteger(value) { return "\(path) must be an integer (got \(value.doubleValue.map(number) ?? typeName(value)))" }
             } else if typeName(value) != type {
-                return "\(path) must be a \(type) (got \(typeName(value)))"
+                return "\(path) must be \(["array", "object"].contains(type) ? "an" : "a") \(type) (got \(typeName(value)))"
             }
         }
         if type == "number" || type == "integer", let minimum = schema["minimum"]?.doubleValue, let actual = value.doubleValue,
             actual < minimum
         {
             return "\(path) must be at least \(number(minimum)) (got \(number(actual)))"
+        }
+        if type == "number" || type == "integer", let maximum = schema["maximum"]?.doubleValue, let actual = value.doubleValue,
+            actual > maximum
+        {
+            return "\(path) must be at most \(number(maximum)) (got \(number(actual)))"
         }
         if type == "object", case .object(let object) = value {
             if case .array(let required)? = schema["required"] {

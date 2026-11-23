@@ -42,6 +42,25 @@ final class GitTreePane: PaneController {
     private(set) var detailRevision = 0
     /// A divider drag in progress: shown, not saved until release.
     private(set) var draftSplit: DetailSplit?
+    /// The sidebar divider's drag in progress, the same way.
+    private(set) var draftSidebar: SidebarSplit?
+    /// Where each divider's drag began.
+    private var detailDragOrigin: DetailSplit?
+    private var sidebarDragOrigin: SidebarSplit?
+
+    /// The branches sidebar's read: nil until the first answers (and while
+    /// a directory or scope change re-reads).
+    private(set) var refs: GitRefsResult?
+    /// The sidebar's tree, built from `refs`.
+    private(set) var branchTree: [BranchNode] = []
+    /// Bumped whenever the tree or what it marks (HEAD's branch) changes: the
+    /// sidebar reloads its rows then, and only then.
+    private(set) var branchRevision = 0
+    /// The sidebar's selected row, by id: chosen there, and cleared when the
+    /// history's selection is moved in the list, or the row is gone.
+    private(set) var selectedBranchID: String?
+    /// Whether the current generation's refs are still outstanding.
+    private(set) var refsPending = false
 
     /// Every first-page read claims a generation; only the read still current
     /// when it answers may commit, so a refresh and a directory change can't
@@ -102,13 +121,20 @@ final class GitTreePane: PaneController {
     var branchScope: GitBranchScope { config["branchScope"]?.stringValue.flatMap(GitBranchScope.init(rawValue:)) ?? .all }
     var savedSplit: DetailSplit { readDetailSplit(.object(config)) }
     var split: DetailSplit { draftSplit ?? savedSplit }
+    var savedSidebar: SidebarSplit { readSidebarSplit(.object(config)) }
+    var sidebar: SidebarSplit { draftSidebar ?? savedSidebar }
+    var branchExpansion: BranchExpansion { readBranchExpansion(.object(config)) }
     var showAuthor: Bool { settings.value.showAuthorColumn }
     var showDate: Bool { settings.value.showDateColumn }
 
     func currentConfig() -> JSONValue { .object(config) }
 
+    /// Writes `changes` into the config (a `.null` removes its key), saves,
+    /// and re-runs what depends on it.
     private func setConfig(_ changes: [String: JSONValue]) {
-        for (key, value) in changes { config[key] = value }
+        for (key, value) in changes {
+            if value == .null { config.removeValue(forKey: key) } else { config[key] = value }
+        }
         pane.configDidChange()
         if changes["cwd"] != nil { offerDirectory() }
         reconcile()
@@ -178,11 +204,17 @@ final class GitTreePane: PaneController {
 
     private func changed() { onChange?() }
 
+    /// The first page, and beside it the sidebar's refs: both claim the same
+    /// generation, and each lands only while it's current.
     private func loadLog(_ dir: String, scope: GitBranchScope, showLoading: Bool = false) {
         fetchGeneration += 1
         let generation = fetchGeneration
         fetchPending = true
-        if showLoading { setLog(nil) }
+        refsPending = true
+        if showLoading {
+            setRefs(nil)
+            setLog(nil)
+        }
         let source = source
         Task { [weak self] in
             let result = await source.log(dir, limit: Self.pageSize, skip: 0, scope: scope)
@@ -190,6 +222,32 @@ final class GitTreePane: PaneController {
             self.fetchPending = false
             self.setLog(result)
         }
+        Task { [weak self] in
+            let result = await source.refs(dir)
+            guard let self, self.fetchGeneration == generation else { return }
+            self.refsPending = false
+            self.setRefs(result)
+        }
+    }
+
+    /// A re-read that finds the same refs keeps the sidebar's rows as they are.
+    private func setRefs(_ next: GitRefsResult?) {
+        refs = next
+        let tree = (try? next?.get()).map(buildBranchTree) ?? []
+        if tree != branchTree {
+            branchTree = tree
+            branchRevision += 1
+        }
+        if let id = selectedBranchID, branchNode(id) == nil { selectedBranchID = nil }
+        changed()
+    }
+
+    /// The sidebar's row with `id`, anywhere in the tree.
+    func branchNode(_ id: String) -> BranchNode? {
+        for source in branchTree {
+            if let node = source.find(id) { return node }
+        }
+        return nil
     }
 
     /// Re-reads the current directory's first page in place, without the
@@ -220,8 +278,11 @@ final class GitTreePane: PaneController {
     }
 
     private func setLog(_ next: GitLogResult?) {
+        let previousHead = head
         log = next
         logVersion += 1
+        // The sidebar marks HEAD's branch.
+        if head != previousHead { branchRevision += 1 }
         // The working tree's own state, folded into the list as a synthetic
         // commit whose parent is the newest real one, so the graph connects it
         // and selection, keys and the detail read treat it like any row.
@@ -414,11 +475,89 @@ final class GitTreePane: PaneController {
 
     // MARK: What the user does
 
+    /// A row chosen in the list (a click, the keys, its menu): the sidebar's
+    /// selection no longer says what's shown, so it goes.
     func select(_ hash: String) {
+        selectedBranchID = nil
+        selectCommit(hash)
+        changed()
+    }
+
+    private func selectCommit(_ hash: String) {
         guard selectedHash != hash else { return }
         selectedHash = hash
         updateDetail()
+    }
+
+    // MARK: The branches sidebar
+
+    /// A sidebar row chosen (a click, its keys): a branch's or tag's tip is
+    /// selected in the history and scrolled to, if it's among the rows read;
+    /// else only the sidebar row is selected.
+    func selectBranch(_ id: String?) {
+        guard id != selectedBranchID else { return }
+        selectedBranchID = id
+        if let ref = id.flatMap(branchNode)?.ref, let index = commits.firstIndex(where: { $0.hash == ref.hash }) {
+            selectCommit(ref.hash)
+            viewIfLoaded?.list.reveal(index)
+        }
         changed()
+    }
+
+    /// A folder or source opened or closed: saved, without the rows the
+    /// tree no longer has.
+    func setBranchExpanded(_ id: String, _ expanded: Bool) {
+        guard let node = branchNode(id) else { return }
+        var next = branchExpansion
+        next.set(node, expanded: expanded)
+        next = next.pruned(to: branchTree)
+        guard next != branchExpansion else { return }
+        setConfig(next.config)
+    }
+
+    /// Whether `ref` is the branch HEAD is on.
+    func isHeadBranch(_ ref: GitRef) -> Bool {
+        ref.kind == .local && head == .branch(name: ref.name)
+    }
+
+    /// Double-click a sidebar branch or tag, or its menu's Checkout. A local
+    /// branch is switched to (nothing, if HEAD is on it already); a
+    /// remote-tracking one is its local branch when one has its name (read
+    /// fresh), else a new branch tracking it; a tag asks before leaving HEAD
+    /// detached at its commit. Failures, the refresh and one-at-a-time are
+    /// the history's checkout's.
+    func checkoutBranch(_ id: String) async {
+        guard let ref = branchNode(id)?.ref, let dir = configuredDir, !checkoutInFlight, !isHeadBranch(ref) else { return }
+        checkoutInFlight = true
+        defer { checkoutInFlight = false }
+        switch ref.kind {
+        case .local:
+            await performCheckout(dir, .branch(name: ref.name))
+        case .remote:
+            switch await source.refs(dir) {
+            case .failure(let error):
+                await reportCheckoutFailure(failureMessage(error.reason))
+            case .success(let fresh):
+                let hasLocal = fresh.refs.contains { $0.kind == .local && $0.name == ref.name }
+                await performCheckout(
+                    dir,
+                    hasLocal
+                        ? .branch(name: ref.name)
+                        : .remoteBranch(RemoteRefInfo(remote: ref.remote ?? "", name: ref.name, ref: ref.shortName)))
+            }
+        case .tag:
+            let confirmed = await pane.confirm(
+                PaneConfirm(
+                    title: "Checkout",
+                    message: "Checking out tag \(ref.name) will leave HEAD detached — it won't be on any branch. Continue?",
+                    confirmLabel: "Checkout"))
+            if confirmed { await performCheckout(dir, .commit(hash: ref.hash)) }
+        }
+    }
+
+    /// Copy Branch Name / Copy Tag Name: git's short name for it.
+    func copyName(_ ref: GitRef) {
+        services.copyText(ref.shortName)
     }
 
     /// Moves the selection by `delta` rows, clamped to the list. Returns the
@@ -449,14 +588,61 @@ final class GitTreePane: PaneController {
         setConfig(["branchScope": .string(scope.rawValue)])
     }
 
-    /// A divider drag's frame: shown only.
-    func previewSplit(_ next: DetailSplit) {
-        draftSplit = next
-        updateDetail()
+    /// A divider's press: remembers the split the drag starts from.
+    func beginResize(_ panel: GitTreePanel) {
+        switch panel {
+        case .details: detailDragOrigin = split
+        case .branches: sidebarDragOrigin = sidebar
+        }
+    }
+
+    /// A divider drag's frame, the panel `length` long in a `bodyLength` body
+    /// (the rules: `resolveDetailDrag`, `resolveSidebarDrag`): shown only.
+    func resize(_ panel: GitTreePanel, toLength length: Double, bodyLength: Double) {
+        switch panel {
+        case .details:
+            guard let origin = detailDragOrigin else { return }
+            let next = resolveDetailDrag(detailHeight: length, bodyHeight: bodyLength, previous: origin)
+            guard next != split else { return }
+            draftSplit = next
+            updateDetail()
+        case .branches:
+            guard let origin = sidebarDragOrigin else { return }
+            let next = resolveSidebarDrag(width: length, bodyWidth: bodyLength, previous: origin)
+            guard next != sidebar else { return }
+            draftSidebar = next
+        }
         changed()
     }
 
-    /// The divider's release: clears the draft and saves, and saves nothing
+    /// A divider's release: saves where the drag was last shown.
+    func endResize(_ panel: GitTreePanel) {
+        switch panel {
+        case .details:
+            guard detailDragOrigin != nil else { return }
+            detailDragOrigin = nil
+            commitSplit(split)
+        case .branches:
+            guard sidebarDragOrigin != nil else { return }
+            sidebarDragOrigin = nil
+            commitSidebar(sidebar)
+        }
+    }
+
+    /// The sidebar's release: as `commitSplit`. A collapse keeps the saved width.
+    private func commitSidebar(_ next: SidebarSplit) {
+        draftSidebar = nil
+        let saved = savedSidebar
+        let unchanged = next.collapsed ? saved.collapsed : !saved.collapsed && next.width == saved.width
+        if unchanged {
+            changed()
+            return
+        }
+        setConfig(
+            next.collapsed ? ["branchesCollapsed": .bool(true)] : ["branchesWidth": .double(next.width), "branchesCollapsed": .bool(false)])
+    }
+
+    /// The details' release: clears the draft and saves, and saves nothing
     /// for a press that moved nothing. A collapse keeps the saved fraction.
     func commitSplit(_ next: DetailSplit) {
         draftSplit = nil
@@ -481,10 +667,10 @@ final class GitTreePane: PaneController {
 
     // MARK: Focus and auto-refresh
 
-    /// Core activated the pane. A press in its own toolbar activates it too,
-    /// and must keep the keyboard there.
+    /// Core activated the pane. A press in its own toolbar or sidebar
+    /// activates it too, and must keep the keyboard there.
     func focus() {
-        guard let view = viewIfLoaded, !view.toolbarHasFocus else { return }
+        guard let view = viewIfLoaded, !view.toolbarHasFocus, !view.sidebarHasFocus else { return }
         view.focusList()
     }
 
@@ -610,6 +796,12 @@ struct FileExpansion: Equatable {
         guard let gaps = shown?.revealableGaps, !gaps.isEmpty else { return false }
         return revealed.isSuperset(of: gaps)
     }
+}
+
+/// What a divider resizes: the details under the list, or the branches
+/// sidebar beside it.
+enum GitTreePanel {
+    case details, branches
 }
 
 struct GitTreeConfigError: Error, CustomStringConvertible {

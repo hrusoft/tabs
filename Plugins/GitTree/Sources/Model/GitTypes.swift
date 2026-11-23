@@ -227,3 +227,35 @@ struct GitError: Error, Equatable, Sendable {
 }
 
 typealias GitCheckoutResult = Result<Void, GitError>
+
+/// One branch or tag the branches sidebar lists, from `for-each-ref`.
+struct GitRef: Equatable, Sendable {
+    enum Kind: String, Equatable, Sendable {
+        case local, remote, tag
+    }
+
+    var kind: Kind
+    /// The full name (`refs/heads/my/branch`, `refs/remotes/origin/my/branch`,
+    /// `refs/tags/v1.0`): the ref's identity, and its row's.
+    var refname: String
+    /// The remote's own name, for a remote-tracking branch; nil otherwise.
+    var remote: String?
+    /// The name within its source: the branch's (on its remote, for a
+    /// remote-tracking one) or the tag's. Its slashes are the sidebar's folders.
+    var name: String
+    /// The commit it names: an annotated tag's peeled one, not the tag object.
+    var hash: String
+
+    /// What Copy Branch Name copies, git's short form: `name`, a
+    /// remote-tracking branch `origin/name`.
+    var shortName: String { remote.map { "\($0)/\(name)" } ?? name }
+}
+
+/// What the branches sidebar shows: the repository's configured remotes
+/// (`git remote`'s order) and its branches and tags.
+struct GitRefs: Equatable, Sendable {
+    var remotes: [String]
+    var refs: [GitRef]
+}
+
+typealias GitRefsResult = Result<GitRefs, GitError>

@@ -37,7 +37,8 @@ sizes, without a window); `GeometryGoldenTests`.
 - **Header/bar controls** (revealed on hover): *Split horizontally* (hover: Split vertically, New
   tab, New unpinned tab, Wrap in tab group) and *Close pane* (hover: Clear pane, disabled on an
   empty pane). Plugin header buttons (`PaneController.headerActions`, e.g. Clear scrollback) come
-  first. Docked root's bar: *New tab* (hover: New unpinned tab) instead of the split group.
+  first. Docked root's bar: *New tab* (hover: New unpinned tab) instead of the split group, and
+  last, before Settings, the mug that opens the Caffeinate dialog ([CAFFEINATE.md](CAFFEINATE.md)).
 - **Context menus.** Header: Edit title (not when a plugin's view fills the title slot; double-click
   neither), Unpin. Group bar: Unpin (not the root), Ungroup (single-tab group, not the root). Tab:
   Edit title, Unpin. A floating pane's own chrome: Pin.

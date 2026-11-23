@@ -73,6 +73,19 @@ import Testing
             build("read-console", ["pane": targetPane, "since-seq": "-1"]).error?.contains("--since-seq must be at least 0") == true)
     }
 
+    /// A ceiling is refused the way a floor is, before anything reaches the socket: never clamped silently.
+    @Test func rejectsAValueOutsideAFlagsBounds() {
+        #expect(
+            build("wait-for", ["pane": targetPane, "text": "x", "timeout": "999999"]).error
+                == "--timeout must be at most 300000 (got 999999)")
+        #expect(build("wait-for", ["pane": targetPane, "text": "x", "timeout": "-5"]).error == "--timeout must be at least 0 (got -5)")
+        let edges = [
+            build("wait-for", ["pane": targetPane, "text": "x", "timeout": "300000"]),
+            build("wait-for", ["pane": targetPane, "text": "x", "timeout": "0"]),
+        ]
+        #expect(edges.allSatisfy { $0.error == nil }, "both bounds are allowed")
+    }
+
     @Test func leavesALegitimateFloorValueAlone() {
         let built = build("read-console", ["pane": targetPane, "since-seq": "0"])
         #expect(built.error == nil)

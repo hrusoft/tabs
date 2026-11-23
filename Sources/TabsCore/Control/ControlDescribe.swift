@@ -30,6 +30,7 @@ package enum ControlDescribe {
             if flag.declaresType { entry["type"] = .string(flag.coercion.rawValue) }
             if let values = flag.enumValues { entry["enum"] = .array(values.map(JSONValue.string)) }
             if let minimum = flag.minimum { entry["min"] = ControlEnvelope.json(minimum) }
+            if let maximum = flag.maximum { entry["max"] = ControlEnvelope.json(maximum) }
             if let defaultValue = flag.defaultValue { entry["default"] = defaultValue }
             if !flag.doc.isEmpty { entry["doc"] = .string(flag.doc) }
             described[flag.name] = .object(entry)

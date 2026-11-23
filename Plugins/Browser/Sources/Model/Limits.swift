@@ -15,6 +15,9 @@ enum BrowserLimits {
     /// the value comes back as a truncated JSON *string* with `truncated: true`.
     /// The opt-out for a result genuinely needed in full is `--out`.
     static let executeResultMax = 50_000
+    /// How long `execute-js` waits for its script's value (a fetch, an animation
+    /// awaited) before saying it stopped waiting; it is also the verb's budget.
+    static let executeTimeoutMs = 30_000
 
     /// Cap on the bytes a single `save-resource` will write, checked before the
     /// file is created: a runaway artifact (a video mistaken for the target) is
@@ -77,6 +80,9 @@ enum BrowserLimits {
 
     /// The console buffer's size: messages retained per pane.
     static let consoleCapacity = 200
+    /// The longest console message kept, in UTF-16 units: one longer is cut there and
+    /// ends in `…` (a logged object can render to any size).
+    static let consoleMessageMax = 10_000
 }
 
 /// The one wait arithmetic, used by *both* ends: the wait runs on exactly this
@@ -111,7 +117,7 @@ func refResolverExpression(_ ref: String) -> String {
 /// because its remedy is an instruction an agent acts on, and two phrasings
 /// would teach two recoveries for one state.
 func staleRefError(_ ref: String) -> String {
-    "no element for ref \(ref) — refs are only valid until the page navigates (a ref from an earlier page never names anything on a later one), so call readPage again"
+    "no element for ref \(ref) — refs are only valid until the page navigates (a ref from an earlier page never names anything on a later one), so call read-page again"
 }
 
 /// A browser pane that exists but has no live page right now (not mounted).

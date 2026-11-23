@@ -264,14 +264,15 @@ extension UITests {
             #expect(keys.isMonitoring, "back on the page, it has the keyboard again")
         }
 
-        /// The page's monitor is a real local monitor: a key the app dispatches reaches it first.
-        @Test func theMonitorGetsTheAppsKeysFirst() throws {
+        /// The page's monitor is a real local monitor: a key the app dispatches reaches it first. The key goes
+        /// through the app's queue, as the keyboard's do (one handed straight to `sendEvent` is dropped:
+        /// `TabsApplication`).
+        @Test func theMonitorGetsTheAppsKeysFirst() async throws {
             let box = try Fixture()
             try box.click("settings-shortcut-tabs.newTab")
             let down = try #require(InputSynthesizer.chordEvent(.keyDown, KeyChord("j", [.command, .option]), in: box.window))
-            NSApp.sendEvent(down)
-            box.settle()
-            #expect(box.stored == ["tabs.newTab": "opt+cmd+j"])
+            NSApp.postEvent(down, atStart: false)
+            #expect(await eventually { box.stored == ["tabs.newTab": "opt+cmd+j"] }, "\(box.stored)")
         }
 
         // MARK: Conflicts

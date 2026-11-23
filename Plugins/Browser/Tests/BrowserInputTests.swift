@@ -191,6 +191,88 @@ import WebKit
         #expect(await eventually { web.undoManager?.canUndo == true })
     }
 
+    /// D-9 (#86, N1): the pane's undo history groups by run-loop pass, not by input event: two edits registered in
+    /// one pass are one step, edits in two passes two, and an undo in the pass that registered closes that group
+    /// first rather than raising.
+    @Test func thePanesUndoHistoryGroupsByPassNotByInputEvent() {
+        let manager = PaneUndoManager()
+        let log = UndoLog()
+        func edit(_ name: String) { manager.registerUndo(withTarget: log, selector: #selector(UndoLog.note(_:)), object: name) }
+        func endPass() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        edit("a")
+        edit("b")
+        manager.undo()
+        #expect(log.notes == ["b", "a"], "one pass, one step")
+        edit("c")
+        endPass()
+        edit("d")
+        endPass()
+        manager.undo()
+        #expect(log.notes == ["b", "a", "d"], "two passes, two steps")
+        manager.undo()
+        #expect(log.notes == ["b", "a", "d", "c"])
+        #expect(!manager.canUndo)
+    }
+
+    /// D-9 (#86, N1): an agent's edit is one step however many passes it spans and whatever registered in the pass
+    /// before it, and a step that registered nothing leaves nothing to undo.
+    @Test func anAgentsEditIsOneStepWhateverThePassesAround() async {
+        let manager = PaneUndoManager()
+        let log = UndoLog()
+        func edit(_ name: String) { manager.registerUndo(withTarget: log, selector: #selector(UndoLog.note(_:)), object: name) }
+        func endPass() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        edit("page")
+        await manager.asOneStep {
+            edit("first")
+            endPass()
+            edit("second")
+        }
+        await manager.asOneStep {}
+        endPass()
+        manager.undo()
+        #expect(log.notes == ["second", "first"], "the step alone, across its passes")
+        manager.undo()
+        #expect(log.notes == ["second", "first", "page"], "the page's own edit before it, a step of its own")
+        #expect(!manager.canUndo, "the empty step left nothing")
+    }
+
+    /// D-9: clearing the whole history with a group open (Foundation's `removeAllActions` ends every group) leaves the
+    /// manager's own ends of its groups with nothing to end, rather than raising; the history works on after.
+    @Test func clearingTheHistoryWithAGroupOpenLeavesNothingToRaise() async {
+        let manager = PaneUndoManager()
+        let log = UndoLog()
+        func edit(_ name: String) { manager.registerUndo(withTarget: log, selector: #selector(UndoLog.note(_:)), object: name) }
+        func endPass() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        edit("pass")
+        manager.removeAllActions()
+        endPass()
+        await manager.asOneStep {
+            edit("step")
+            manager.removeAllActions()
+        }
+        #expect(!manager.canUndo)
+        edit("after")
+        endPass()
+        manager.undo()
+        #expect(log.notes == ["after"])
+    }
+
+    /// D-9: every way of registering an undo opens a group, the block form and the invocation proxy included: with
+    /// automatic grouping off, one that reached the stack outside a group would raise and take the app down.
+    @Test func everyWayOfRegisteringAnUndoIsGroupedRatherThanRaising() {
+        let manager = PaneUndoManager()
+        let log = UndoLog()
+        manager.registerUndo(withTarget: log) { log in log.note("block") }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let proxy = manager.prepare(withInvocationTarget: log) as AnyObject
+        _ = proxy.perform(#selector(UndoLog.note(_:)), with: "proxy")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        manager.undo()
+        manager.undo()
+        #expect(log.notes == ["proxy", "block"])
+        #expect(!manager.canUndo)
+    }
+
     /// The delete key edits (a named key with no character is still a key-down the field acts on).
     @Test func backspaceEditsTheField() async throws {
         let bed = try await bed()
@@ -265,4 +347,11 @@ import WebKit
         #expect(
             bed.window.firstResponder === bed.window, "the page never kept the keyboard: \(String(describing: bed.window.firstResponder))")
     }
+}
+
+/// An undo target that records what each undo handed it.
+@MainActor
+private final class UndoLog: NSObject {
+    private(set) var notes: [String] = []
+    @objc func note(_ value: Any?) { notes.append(value as? String ?? "?") }
 }

@@ -131,10 +131,18 @@ enum PageWait {
         let deadlineAt = startedAt.addingTimeInterval(Double(options.timeoutMs) / 1000)
         func elapsed() -> Int { Int(Date().timeIntervalSince(startedAt) * 1000) }
 
+        // Every wait checks its condition at least once, however short its timeout (0 is one look, as
+        // the URL wait gives too): until the page has answered once, the wait has the time an assert's
+        // check has, if that is longer, and a refused injection (a page mid-load) is retried within it
+        // rather than counted as the look.
+        let firstLookBy = startedAt.addingTimeInterval(Double(max(options.timeoutMs, BrowserLimits.assertCheckBudgetMs)) / 1000)
+        var looked = false
         while true {
             if let invalid = options.invalidReason?() { return .failed(invalid) }
             let remaining = millisecondsLeft(until: deadlineAt)
-            if remaining <= 0 { return .timedOut(elapsedMs: elapsed()) }
+            let firstLookLeft = millisecondsLeft(until: firstLookBy)
+            if remaining <= 0 && (looked || firstLookLeft <= 0) { return .timedOut(elapsedMs: elapsed()) }
+            let answerWithin = looked ? remaining : max(remaining, firstLookLeft)
 
             let shot = OneShot<Race>()
             let subscription = page.events.subscribe { event in
@@ -144,18 +152,19 @@ enum PageWait {
                 }
             }
             let deadline = Task { @MainActor in
-                await delay(milliseconds: remaining)
+                await delay(milliseconds: answerWithin)
                 shot.resolve(.deadline)
             }
             // The page's answer can be orphaned for good, so it only ever
             // *resolves* the race, and an abandoned one is simply ignored.
-            page.evaluate(buildScript(remaining)) { shot.resolve(.guest($0)) }
+            page.evaluate(buildScript(max(remaining, 0))) { shot.resolve(.guest($0)) }
             let raced = await shot.wait()
             subscription.cancel()
             deadline.cancel()
 
             switch raced {
             case .guest(.success(let value)):
+                looked = true
                 if case .object(let object) = value {
                     if let error = object["error"]?.stringValue { return .failed(error) }
                     if object["settled"]?.boolValue == true {

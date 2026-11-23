@@ -1,12 +1,15 @@
 # Git tree
 
-A pane showing a repository's commit graph: a lane-gutter commit list, the selected commit's
-detail below it, a divider between. Plugin `Plugins/GitTree` (id and content type `git-tree`).
+A pane showing a repository's commit graph: a lane-gutter commit list, the branches sidebar left
+of it, the selected commit's detail below both, a divider between each. Plugin `Plugins/GitTree`
+(id and content type `git-tree`).
 
 ## Scope
 
 - Toolbar (path bar, folder button, HEAD label, branch-scope select) = the pane header's title
-  (`PaneController.headerTitle`); the body is list + detail only.
+  (`PaneController.headerTitle`); the body is the sidebar, the list and the detail.
+- The sidebar is AppKit's own outline view (`NSOutlineView`: rows, disclosure triangles, keys,
+  type select), in core's theme tokens; everything else in the body is drawn by the plugin.
 - Chrome is core's, never copied: theme tokens (`PaneContext.theme`,
   `paneAppearanceDidChange`), attention (`paneDidBecomeAttended`; no own active-pane tracking),
   menus (`showContextMenu`), dialogs (`confirm`/`choose`/`alert`: cards in the pane's window),
@@ -15,7 +18,8 @@ detail below it, a divider between. Plugin `Plugins/GitTree` (id and content typ
 - git: the user's, with the pane's `childEnvironment`; always async; never throws (`GitError`
   values); nothing at quit.
 - AX ids: `git-tree`, `git-tree-list`, `git-tree-detail`, `git-tree-divider`,
-  `git-tree-path-input`, `git-tree-browse-button`, `git-tree-branch-scope`.
+  `git-tree-branches` (the outline), `git-tree-branches-divider`, `git-tree-path-input`,
+  `git-tree-browse-button`, `git-tree-branch-scope`.
 
 ## Sources
 
@@ -29,17 +33,20 @@ Paths under `Plugins/GitTree/Sources/` unless rooted.
 | `Model/DiffRows.swift` | A file's diff as rows: its hidden runs (`gaps`), `rows(revealed:)` |
 | `Model/Graph.swift` | `assignLanes` |
 | `Model/CheckoutTargets.swift` | `splitRemoteRef`, `decideCheckout`, `checkoutTargetLabel` |
+| `Model/BranchTree.swift` | The sidebar's tree (`buildBranchTree`, `branchOrder`), what's open (`BranchExpansion`, `readBranchExpansion`), `visibleBranchRows` |
 | `Model/DetailSplit.swift` | `readDetailSplit`, `resolveDetailDrag` |
+| `Model/SidebarSplit.swift` | `readSidebarSplit`, `resolveSidebarDrag`, `shownSidebarWidth` |
 | `Model/Format.swift` | `shortHash`, `formatDate`, `baseName`, `renameLabel` |
 | `Model/GitTreeSettings.swift` | Settings value |
-| `Git/Git.swift`, `Git/GitProcess.swift` | Runner (process rules), parsers (`parsePatch` too), reads, file diffs, `checkout` |
+| `Git/Git.swift`, `Git/GitProcess.swift` | Runner (process rules), parsers (`parsePatch`, `parseRefList` too), reads, file diffs, `checkout` |
 | `Git/GitSource.swift` | `GitSource`: `GitRepositorySource` (reads, default directory); Debug `ScriptedGitSource` |
-| `UI/GitTreePane.swift` | Controller: loads, generations, selection, detail, expanded files, paging, refresh, checkout, config |
-| `UI/GitTreeView.swift` | Loading / list + detail / notice |
+| `UI/GitTreePane.swift` | Controller: loads, generations, selection, detail, expanded files, paging, refresh, checkout, the sidebar's refs, selection and expansion, config |
+| `UI/GitTreeView.swift` | Loading / sidebar + list + detail / notice |
 | `UI/GitTreeToolbar.swift` | The toolbar |
 | `UI/CommitListView.swift` | Rows, gutter, hover, keys, Load more, row menu |
 | `UI/CommitDetailView.swift` | Detail panel: file rows, their diffs, the file menu |
-| `UI/DetailDivider.swift` | Divider drag |
+| `UI/BranchSidebarView.swift` | The branches sidebar: the outline, its rows (cell, row view), double action, menu |
+| `UI/PanelDivider.swift` | Both dividers' drag (the details', the sidebar's) |
 | `UI/GitTreeStyle.swift` | Metrics, text layout (`GitText`), edge snapping (`snap`), `GitTreeColors` |
 | `UI/GitTreeGlyphs.swift` | Pane and folder icons |
 | `UI/GitTreeSettingsPage.swift` | Three toggles |
@@ -68,6 +75,7 @@ U+001F.
 | A commit's file (from the root) | `--literal-pathspecs show --format= <patch args> -m --first-parent <hash> -- [<old path>] <path>` + `cat-file blob <hash>^1:<old path or path>` |
 | A working-tree file (from the root) | `--literal-pathspecs diff <patch args> --no-renames HEAD -- <path>` + `cat-file blob HEAD:<path>`; a file counted off disk (P-6) is read off disk, no git |
 | Refs at a commit | `for-each-ref --format=%(objectname)<U+001F>%(refname) --sort=refname refs/heads refs/remotes` + `remote` |
+| The branches sidebar | `for-each-ref --format=%(objectname)<U+001F>%(refname)<U+001F>%(*objectname) --sort=refname refs/heads refs/remotes refs/tags` + `remote` |
 | Checkout | `switch <name>` / `switch -c <name> --track <remote>/<name>` / `switch --detach <hash>` (git ≥ 2.23) |
 
 - Two `show`s per commit: `%B` holds newlines and would interleave with the numstat block.
@@ -84,6 +92,8 @@ U+001F.
 - Split on the newline scalar (`components(separatedBy:)`), never on `Character("\n")`: Swift
   reads `\r\n` as one Character, so a CRLF file would be one line.
 - `for-each-ref --format` doesn't interpret `%x1f`: the separator byte goes in literally.
+  `%(*objectname)` is an annotated tag's commit (empty for anything else): the sidebar names a
+  tag by the commit it peels to, not the tag object.
 - `-z`: paths verbatim (porcelain quotes a path with a space even with `quotePath=false`).
   `--no-renames`: a staged rename keeps status's path, not `old => new` (else listed twice).
   `--untracked-files=all`: an untracked directory's files, not the directory.
@@ -188,6 +198,37 @@ U+001F.
 | V-7 | A press a core split separator claims is core's (the collapsed bar's lower part yields to a split below) | — (core's separators sit above pane views) |
 | V-8 | Pressing the divider takes no focus from the list, starts no selection | — |
 
+### The branches sidebar
+
+| Id | Case | Test |
+|---|---|---|
+| BR-1 | Left of the commit list and as tall; the details stay the body's width below both. Shown with the list only (not while reading, not on a failure) | `GitTreeSidebarTests/layout`, `GitTreeSidebarTests/onlyWithTheList` |
+| BR-2 | Top level: Local, then each remote (`git remote`'s order, then any a remote-tracking ref names that isn't configured), then Tags; each listed even when empty (no triangle). `<remote>/HEAD` is left out | `BranchTreeTests/sources`, `BranchTreeTests/unconfiguredRemote`, `ParseRefListTests/kinds`, `ReadRefsRealTests/everything`, `UITests.GitTreeUITests/theSidebarsKeysSelectEachBranchsTip` |
+| BR-3 | Names split at `/`, every segment but the last a folder: `my/branch/name` on origin is origin ▸ my ▸ branch ▸ name. A remote-tracking branch splits after its remote's name (`splitRemoteRef`: a remote with a `/` in its name stays whole) | `BranchTreeTests/folders`, `BranchTreeTests/foldersPerSource`, `ParseRefListTests/remoteWithASlash`, `GitTreeSidebarTests/tree` |
+| BR-4 | Each level in Finder's order: by name, numbers by value (`v2` before `v10`), case ignored, folders among the refs | `BranchTreeTests/order` |
+| BR-5 | An annotated tag names the commit it peels to | `ParseRefListTests/kinds`, `ReadRefsRealTests/annotatedTag` |
+| BR-6 | HEAD's branch (a local one) is semibold, its icon in the accent; it follows HEAD on a re-read | `GitTreeSidebarTests/headBranch` |
+| BR-7 | Read beside every first page (opening, ⌘R, auto-refresh, after a checkout, a directory or scope change: then emptied first), never with Load more; it lands only in its generation (F-3). A re-read finding the same refs keeps the rows as they are | `GitTreeSidebarTests/readsWithTheFirstPage`, `GitTreeSidebarTests/directoryChange`, `GitTreeSidebarTests/expansion` |
+| BR-8 | A failed read: its sentence, dim, in place of the tree; the history is unaffected | `GitTreeSidebarTests/failedRead`, `ReadRefsRealTests/notARepo` |
+| BR-9 | Open rows: every source, no folder, until toggled (the triangle, ← →, a double-click). Saved in the config (`branchesCollapsedSources`, `branchesExpandedFolders`; absent while empty), kept across re-reads and a relaunch; a row the tree no longer has is dropped at the next save; a row under a closed one keeps its own state | `BranchExpansionTests`, `GitTreeSidebarTests/expansion`, `GitTreeSidebarTests/savedExpansion` |
+| BR-10 | Selecting a branch or tag (a click, ↑ ↓) selects its tip in the history, brought to the list's middle unless in full view; the details follow. A tip not among the rows read (past Load more, outside the branch scope), or a folder or source, selects only the sidebar's row | `GitTreeSidebarTests/selectsTip`, `GitTreeSidebarTests/selectsOnlyTheRow`, `GitTreeSidebarTests/reveal`, `UITests.GitTreeUITests/theSidebarsKeysSelectEachBranchsTip` |
+| BR-11 | The sidebar's selection goes when the history's is moved in the list (a click, the keys, its menu), or when its row is gone after a re-read | `GitTreeSidebarTests/selectionClears` |
+| BR-12 | Double-click a branch or tag, or its menu's Checkout: a local branch → `git switch <name>` (nothing on HEAD's own); a remote-tracking one → its local branch if one has the name (the refs read fresh), else `switch -c <name> --track <remote>/<name>`; a tag → confirm "Checking out tag <name> will leave HEAD detached — it won't be on any branch. Continue?" (confirm "Checkout") → `switch --detach <commit>`. Failures, one at a time and the refresh are the history's (C-6 – C-9); a failed fresh read is C-8's alert. Double-click a folder or source: it opens or closes | `GitTreeSidebarCheckoutTests` (`local`, `headBranch`, `remote`, `remoteReadFails`, `tag`, `inFlight`, `folder`), `UITests.GitTreeUITests/doubleClickingABranchChecksItOut` |
+| BR-13 | Right-click a branch or tag: selects it (BR-10); core's menu: Checkout (disabled on HEAD's branch), then Copy Branch Name / Copy Tag Name (git's short name: `name`, a remote-tracking branch `origin/name`). No menu on a folder or source | `GitTreeSidebarCheckoutTests/menu`, `GitTreeSidebarCheckoutTests/copy`, `GitTreeSidebarCheckoutTests/noMenu` |
+| BR-14 | A click gives the sidebar the keyboard: the outline's own keys (↑ ↓ move, ← → close and open, typing selects by name). Pane activation leaves it there, else the list takes it (S-6); no focus ring (S-7) | `GitTreeSidebarTests/focus`, `UITests.GitTreeUITests/theSidebarsKeysSelectEachBranchsTip` |
+
+### The sidebar's divider
+
+| Id | Case | Test |
+|---|---|---|
+| SV-1 | Untouched pane: the sidebar 200 wide, open; nothing saved | `GitTreeSidebarDividerTests/untouched`, `ReadSidebarSplitTests/untouched` |
+| SV-2 | Saved `branchesWidth`/`branchesCollapsed` open as saved: a width finite and more than 0, a collapse a literal `true`, else the defaults | `GitTreeSidebarDividerTests/saved`, `ReadSidebarSplitTests/saved`, `ReadSidebarSplitTests/refused` |
+| SV-3 | A drag previews every move and saves on release; a press that moves nothing saves nothing; an unseen release ends where last shown (V-6) | `GitTreeSidebarDividerTests/drag`, `GitTreeSidebarDividerTests/stillPress`, `GitTreeSidebarDividerTests/unseenRelease` |
+| SV-4 | Width < 60 (half the 120 minimum) → collapse, keeping the last open width; 60–120 → hold at 120; the list keeps ≥ 200; a body too narrow for both → the sidebar keeps 120; a zero-width body → unchanged | `ResolveSidebarDragTests`, `GitTreeSidebarDividerTests/collapseAndReopen` |
+| SV-5 | Shown width: the saved one, but none that leaves the list under 200 (at least 120, at most the body); the saved width comes back as the pane widens | `ShownSidebarWidthTests/shown`, `GitTreeSidebarDividerTests/narrowPane` |
+| SV-6 | Collapsed: an 8 pt bar with a grip at the body's left, as tall as the list; dragging it right reopens the sidebar | `GitTreeSidebarDividerTests/collapseAndReopen` |
+| SV-7 | As V-7 and V-8: a press a core split separator claims is core's; pressing it takes no focus, starts no selection | — |
+
 ### Refreshing
 
 | Id | Case | Test |
@@ -276,7 +317,7 @@ U+001F.
 
 | Id | Case | Test |
 |---|---|---|
-| PS-1 | `cwd`, `branchScope`, `detailFraction`, `detailCollapsed` saved in the pane's config; relaunch reopens the same repository, scope and split. Non-object config or non-string `cwd` → refused (no pane) | `GitTreeDirectoryTests/anUnreadableConfigIsRefused`, `GitTreePluginTests/savesItsStateInTheConfigAndKeepsUnknownKeys`, `GitTreeDirectoryTests/restoredScope`, `GitTreeDividerTests/saved` |
+| PS-1 | `cwd`, `branchScope`, `detailFraction`, `detailCollapsed`, `branchesWidth`, `branchesCollapsed`, `branchesCollapsedSources`, `branchesExpandedFolders` saved in the pane's config; relaunch reopens the same repository, scope, split, sidebar and open rows. Non-object config or non-string `cwd` → refused (no pane) | `GitTreeDirectoryTests/anUnreadableConfigIsRefused`, `GitTreePluginTests/savesItsStateInTheConfigAndKeepsUnknownKeys`, `GitTreeDirectoryTests/restoredScope`, `GitTreeDividerTests/saved` |
 | PS-2 | Nothing else kept: no cache, no quit work, no process near quit; unknown config keys survive | `GitTreePluginTests/savesItsStateInTheConfigAndKeepsUnknownKeys` |
 
 ### Disabling
@@ -294,7 +335,7 @@ letter-hyphens, never at `/` (an overlong word breaks where the line is full).
 
 | Id | Element | Box | Text | Colors | States |
 |---|---|---|---|---|---|
-| L-1 | Container | fills the body, clips | system font (SF), `text` | core's pane body | loading / list + detail / notice |
+| L-1 | Container | fills the body, clips | system font (SF), `text` | core's pane body | loading / sidebar + list + detail / notice |
 | L-2 | Toolbar (header title) | header slot after the grip and signal icons, before the controls; 24 tall, items centered, gap 8 | — | the header's surface | — |
 | L-3 | Path bar | fills the rest, height 20, padding 2 6, 1pt `border`, radius 3 | 12 `textDim` (the header's color, not `text`) | fill `bg` | focused: border `accent`, no focus ring |
 | L-4 | HEAD label | padding 0 4, at most 40% of the header's content box, ellipsis | 11 `textDim` | — | absent without a log |
@@ -326,6 +367,12 @@ letter-hyphens, never at `/` (an overlong word breaks where the line is full).
 | L-30 | Diff line | line height 15; old and new number columns (each the widest number in the file + 8, right-aligned, 4 in), a 12 marker column (`+`, `-`), then the text: wraps after a space (never in the indentation) or where full, tabs to 4 | mono 11; numbers `textDim`; `+` `#59b871`, `-` `#e0705a`; text `text`, a note `textDim` | added `#59b871` at 0.15, removed `#e0705a` at 0.15, across the box | — |
 | L-31 | Hidden run | 20 tall, across the box; "⋯" centred in the number columns, "N unchanged lines" at the text's x | 11 `textDim` | `hover` at 0.06 | revealable and hovered: `hover` at 0.12, text `text` |
 | L-32 | Diff note | padding 4 8, wraps | 11 `textDim` | — | — |
+| L-33 | Sidebar | the body's left, as tall as the list; width SV-5; 1 pt `border` on its right (the divider's line while open); scrolls (overlay scroller) | — | the pane body | hidden while collapsed |
+| L-34 | Sidebar row | AppKit's outline in its plain style: no header, its own indentation and disclosure triangles; 22 tall, across the sidebar | — | selected: `accent` at 0.18, focused or not | — |
+| L-35 | Sidebar icon, name | icon 16×16 at the row content's start (SF Symbol at 12 pt: `laptopcomputer` Local, `cloud` a remote, `tag` Tags and a tag, `folder`, `arrow.triangle.branch` a branch); the name 4 after it to the row's end, cut with an ellipsis | 12 `text`; HEAD's branch semibold | icon `textDim`; HEAD's branch's `accent` | tooltip on a branch or tag: its short name |
+| L-36 | Sidebar note | padding 8, wraps | 11 `textDim` | — | a failed read (BR-8) |
+| L-37 | Sidebar divider (open) | 0 wide; hit strip 7 (4 inside the sidebar, its border included; 3 into the list), left-right resize cursor | — | — | — |
+| L-38 | Sidebar divider (collapsed) | 8 wide, 1 pt `border` on its right; grip 2×24, radius 1, centred left of the border | — | grip `textDim` at 0.6 | hit strip from its left to 4 past its right |
 
 ## Checking the look
 
@@ -334,11 +381,14 @@ letter-hyphens, never at `/` (an overlong word breaks where the line is full).
   `git-tree-working-tree`, `git-tree-hover-row`, `git-tree-lanes` (8 lanes, palette cycling),
   `git-tree-notice`, `git-tree-load-more`, `git-tree-load-more-hover`, `git-tree-empty-detail`,
   `git-tree-truncated-files`, `git-tree-narrow`, `git-tree-file-diff` (two files open: a diff
-  with hidden runs, a binary's note), `git-tree-file-diff-light` (one run shown). Each seeds its
-  history; dates pinned to UTC. The scenario format and the capture's plugin hooks:
-  `Visual/README.md`.
-- A git tree leaf's config is `{cwd, branchScope?, detailFraction?, detailCollapsed?}`; the git
-  tree's settings, if any, go in `settings.plugins["git-tree"]`.
+  with hidden runs, a binary's note), `git-tree-file-diff-light` (one run shown),
+  `git-tree-branches` (the sidebar: nested folders, two remotes, one closed, tags, a selected
+  branch, a cut name), `git-tree-branches-light`, `git-tree-branches-collapsed`,
+  `git-tree-branches-failed` (the sidebar's note). Each seeds its history; dates pinned to UTC.
+  The scenario format and the capture's plugin hooks: `Visual/README.md`.
+- A git tree leaf's config is `{cwd, branchScope?, detailFraction?, detailCollapsed?,
+  branchesWidth?, branchesCollapsed?, branchesCollapsedSources?, branchesExpandedFolders?}`; the
+  git tree's settings, if any, go in `settings.plugins["git-tree"]`.
 - The real plugin bundle, its pane answered from the scenario's `content` entry by the Debug verb
   `git-tree.test.stage` (and settled: read, the selection made, its details read); geometry from
   `git-tree.test.visual`.
@@ -359,6 +409,12 @@ The `content` entry:
   one fails to read.
 - `expand`: paths of the selected row's files to open (after it settles, their diffs read), then
   `reveal` `{"<path>": [run index, …] | "all"}`: the hidden runs to show (`"all"`: Show full file).
+- `refs` `{remotes: [name…], refs: [{refname, hash}…]}`: the sidebar's read as git lists it (full
+  names, split against `remotes` as a real read is; `<remote>/HEAD` dropped); unset, the refs the
+  log's decorations name (`tag: x` a tag, `origin/x` a remote-tracking branch, any other a local
+  branch). `refsFailure`: a `GitFailure` the read fails with. `selectBranch`: a sidebar row's id
+  (a full ref name, `local`, `remote:<name>`, `tags`, a folder's `<source id>:<path>/`), chosen
+  after `select`. What's open is the leaf's config.
 - Shapes: `Plugins/GitTree/Sources/Model/GitTypes.swift`. Dates ISO, shown in UTC.
 
 Geometry: `content.<leaf id>`, window coordinates. `git-tree.test.visual` reports the toolbar's keys
@@ -398,6 +454,16 @@ header's title) and the rest in the git tree view's; the capture offsets each to
       }
     },
     "loadMore": R | null,                     // the Load more button box
+    "sidebar": R | null,                      // the open sidebar's box (its right border included)
+    "sidebarDivider": R | null,               // 0 wide while the sidebar is open, 8 collapsed
+    "sidebarCollapsed": bool,
+    "branchesNote": R | null,                 // the failed read's text box
+    "branchRows": [{"id": string,             // every row the outline lists (under open rows), in order
+                    "rect": R, "disclosure": R | null,   // the row; its triangle (null: nothing under it)
+                    "icon": R, "name": R,     // the icon's box, the name label's box
+                    "truncated": bool,        // the name cut with an ellipsis
+                    "level": int, "expanded": bool, "selected": bool,
+                    "current": bool}],        // HEAD's branch
     "divider": R | null,                      // 0 tall while the details are open, 8 collapsed
     "dividerCollapsed": bool,
     "detail": R | null,                       // the detail panel (null while collapsed)
@@ -436,7 +502,11 @@ header's title) and the rest in the git tree view's; the capture offsets each to
   higher than the text the bar draws at rest.
 - **Auto-refresh on toolbar activation** still runs (D-12).
 - **Rows aren't accessibility elements**: the list is one AX element (list, "Commits"); the
-  keys (S-3) still move the selection.
+  keys (S-3) still move the selection. The sidebar is AppKit's outline ("Branches"): its rows are.
+- **The sidebar's mouse is AppKit's**: `NSTableView` takes no mouse in a never-shown window (every
+  UI test), so the tests select rows and send the outline's double action as a click does (the
+  double action acts on the row clicked, or without a click the selected one). A real click, a
+  triangle and Option-click (open a row and everything under it) are hand-checked.
 - **File rows are the mouse's**: the detail panel takes no keyboard focus (the list keeps it), so
   opening a file, a hidden run or Show full file, and the file menu, are clicks only.
 - **The detail's layout is kept** until the pane's detail, an open file or a diff changes

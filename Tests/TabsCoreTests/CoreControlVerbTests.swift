@@ -260,6 +260,8 @@ import Testing
                 "required": false, "type": "number", "min": 0, "doc": "0-based pick among several matches of the strictest tier.",
             ])
         #expect(click["flags"]?["selector"]?["doc"] == "Match by CSS selector, combined with --role/--name.")
+        let wait = try #require(commands.first { $0["command"] == "wait-for" })
+        #expect(wait["flags"]?["timeout"]?["min"] == 0 && wait["flags"]?["timeout"]?["max"] == 300_000, "\(wait["flags"] ?? .null)")
         let navigate = try #require(commands.first { $0["command"] == "navigate" })
         #expect(navigate["result"] == ["loaded": "boolean", "url": "string"])
         #expect(

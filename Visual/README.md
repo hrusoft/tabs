@@ -53,7 +53,7 @@ python3 Visual/compare.py [--baseline DIR] [--current DIR] [--out DIR] [--scenar
 | `pointer` | `{x, y}`: mouse there, no buttons |
 | `drag` | `{from, to}`: left button down at `from`, 10 steps to `to`, captured while held |
 | `fullscreen` | `true`: native fullscreen (the root bar loses its traffic-light gutter and extra height) |
-| `caffeinate` | `true`: caffeinate running → the cup before Settings on the root bar (`PaneAppearance.caffeinateRunning`) |
+| `caffeinate` | `true`: caffeinate running → the cup before Settings on the root bar (`PaneAppearance.caffeinateRunning`); otherwise the mug holds that slot, shown with the bar's hover controls |
 | `contextMenu` | `{x, y}`: right-click there |
 | `palette` | `{step: "type" \| "placement", highlight?, hover?}`: ⌘P palette open; `placement` = first row chosen; `highlight` = that many ArrowDown; `hover` = pointer on that row's center (takes the highlight) |
 | `paletteTypes` | Integer ≥ 0: extra stub types after the stub (`sample-<n>`, "Sample <n>", "New sample <n>", icon ▣, n from 2), for lists over nine rows |
@@ -135,6 +135,8 @@ magenta.
       "newTab": R | null,                     // "+" after the last tab (laid out even while hidden)
       "settings": R | null,                   // gear button, root bar only
       "caffeinate": R,                        // the cup, root bar only, while caffeinate runs; omitted otherwise
+      "caffeinateOpen": R,                    // the mug in the cup's slot, root bar only, while caffeinate doesn't
+                                              //   run (laid out even while hidden); omitted otherwise
       "tabs": {
         "<tab id>": {
           "rect": R,

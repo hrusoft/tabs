@@ -8,7 +8,7 @@ import Testing
 @testable import TabsCore
 
 extension UITests {
-    // MARK: - Caffeinate: the menu item and the title-bar cup (docs/CAFFEINATE.md M-*, B-*)
+    // MARK: - Caffeinate: the menu item, the title-bar cup and mug (docs/CAFFEINATE.md M-*, B-*)
 
     @MainActor
     @Suite struct Caffeinate {
@@ -110,7 +110,7 @@ extension UITests {
             #expect(cup.accessibilityRole() == .button)
         }
 
-        @Test func theCupIsOnlyOnTheDockedRootsBar() throws {  // B-4
+        @Test func theCupIsOnlyOnTheDockedRootsBar() async throws {  // B-4, B-11
             let group = TabGroup(
                 id: "g",
                 tabs: [
@@ -128,6 +128,10 @@ extension UITests {
             let nested = try #require(ui.paneView("g").tabBar)
             #expect(nested.caffeinateButton.isHidden)
             #expect(nested.settingsButton.isHidden)
+            let rootBar = try bar(ui)
+            ui.runtime.caffeinate.stop()
+            #expect(await ui.wait { !rootBar.caffeinateOpenButton.isHidden })
+            #expect(nested.caffeinateOpenButton.isHidden, "nor the mug")  // B-11
         }
 
         @Test func theCupShowsOnEveryWindowsRootBar() throws {  // P-17, B-5
@@ -141,11 +145,90 @@ extension UITests {
             #expect(try !bar(ui, ui.window(second)).caffeinateButton.isHidden, "a window opened while it runs shows it at once")
         }
 
-        @Test func pressingTheCupDoesNotDragTheWindow() throws {  // B-6
+        @Test func pressingTheCupDoesNotDragTheWindow() throws {  // B-6, B-10
             let ui = UIDriver()
-            let cup = try bar(ui).caffeinateButton
-            #expect(!cup.mouseDownCanMoveWindow)
-            #expect(cup.acceptsFirstMouse(for: nil))
+            for button in try [bar(ui).caffeinateButton, bar(ui).caffeinateOpenButton] {
+                #expect(!button.mouseDownCanMoveWindow, "\(button.label)")
+                #expect(button.acceptsFirstMouse(for: nil), "\(button.label)")
+            }
+        }
+
+        @Test func theMugTakesTheCupsSlotWhileNotRunning() async throws {  // B-7
+            let ui = UIDriver()
+            defer { ui.runtime.caffeinate.killNow() }
+            ui.layoutAll()
+            let bar = try bar(ui)
+            #expect(!bar.caffeinateOpenButton.isHidden)
+            #expect(bar.caffeinateButton.isHidden)
+            let mug = bar.caffeinateOpenButton.layoutFrame
+            let controls = bar.controls.layoutFrame
+            let strip = bar.strip.layoutFrame
+            #expect(mug.size == CGSize(width: 23, height: 23))
+            #expect(mug.maxX + 14 == bar.settingsButton.layoutFrame.minX, "the last before Settings")
+            #expect(mug.midY == bar.settingsButton.layoutFrame.midY)
+            #expect(controls.maxX + Metrics.barGap == mug.minX, "after the group's controls")
+            ui.runtime.caffeinate.start(CaffeinateFlags())
+            ui.layoutAll()
+            #expect(bar.caffeinateOpenButton.isHidden, "the cup takes its place")
+            #expect(bar.caffeinateButton.layoutFrame == mug, "in the mug's own slot")
+            #expect(bar.controls.layoutFrame == controls, "the controls stay put")
+            #expect(bar.strip.layoutFrame == strip, "the strip stays put")
+            ui.runtime.caffeinate.stop()
+            #expect(await ui.wait { !bar.caffeinateOpenButton.isHidden }, "back once the exit is noticed")
+            #expect(bar.caffeinateButton.isHidden)
+            #expect(bar.caffeinateOpenButton.layoutFrame == mug)
+        }
+
+        @Test func theMugShowsWithTheBarsControlsAndTheCupAlways() async throws {  // B-8, B-1
+            let ui = UIDriver()
+            defer { ui.runtime.caffeinate.killNow() }
+            let controller = try ui.window
+            ui.layoutAll()
+            let bar = try bar(ui)
+            let mug = bar.caffeinateOpenButton
+            #expect(mug.alphaValue == 0, "hidden at rest, as the controls are")
+            try ui.hover(at: NSPoint(x: 8, y: 8), in: bar.strip)
+            #expect(bar.controls.isRevealed)
+            #expect(await ui.wait { mug.alphaValue == 1 }, "hovering the bar reveals it with the controls")
+            ui.unhover(controller)
+            #expect(await ui.wait { mug.alphaValue == 0 }, "and hides it with them")
+            // A control's menu holds the row open, and the mug with it, until it closes.
+            let newTab = try ui.control(HeaderAction.newTab.accessibilityID, of: bar.pane.nodeID)
+            try ui.hover(at: NSPoint(x: newTab.bounds.midX, y: newTab.bounds.midY), in: newTab)
+            #expect(HeaderMenu.openDropdown != nil)
+            ui.unhover(controller)
+            #expect(mug.alphaValue == 1, "held open with the menu")
+            #expect(await ui.wait { HeaderMenu.openDropdown == nil && mug.alphaValue == 0 }, "gone once the menu closes")
+            ui.runtime.caffeinate.start(CaffeinateFlags())
+            ui.layoutAll()
+            #expect(bar.caffeinateButton.alphaValue == 1, "the cup shows at rest")
+            try ui.hover(at: NSPoint(x: 8, y: 8), in: bar.strip)
+            ui.unhover(controller)
+            #expect(bar.caffeinateButton.alphaValue == 1, "and stays when the pointer leaves")
+        }
+
+        @Test func clickingTheMugOpensTheDialogAndStartsNothing() async throws {  // B-9
+            let ui = UIDriver()
+            ui.layoutAll()
+            let active = ui.activePane
+            let mug = try bar(ui).caffeinateOpenButton
+            try ui.hover(at: NSPoint(x: mug.bounds.midX, y: mug.bounds.midY), in: mug)
+            try ui.click(mug)
+            let dialog = try #require(ui.shell.caffeinateDialog.controller, "File ▸ Caffeinate…'s dialog")
+            defer { dialog.cancel() }
+            #expect(!ui.runtime.caffeinate.isRunning)
+            #expect(ui.activePane == active, "a press on it activates nothing")
+            try ui.click(mug)
+            #expect(ui.shell.caffeinateDialog.controller === dialog, "a second press brings the same dialog forward")
+        }
+
+        @Test func theMugIsNamedCaffeinate() throws {  // B-10
+            let ui = UIDriver()
+            let mug = try bar(ui).caffeinateOpenButton
+            #expect(mug.accessibilityIdentifier() == "caffeinate-open-button")
+            #expect(mug.accessibilityLabel() == "Caffeinate…")
+            #expect(mug.toolTip == "Caffeinate…")
+            #expect(mug.accessibilityRole() == .button)
         }
     }
 

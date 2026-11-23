@@ -63,7 +63,13 @@ import Testing
         // So does one returning something JSON cannot represent.
         let circular = await run("(() => { const a = {}; a.self = a; return a })()")
         #expect(!circular.ok)
-        #expect(circular.error == "the script returned a value that cannot be serialized (a DOM node, or a cycle)")
+        #expect(
+            circular.error
+                == "the script returned a value JSON can't represent (JSON.stringify cannot serialize cyclic structures) — return plain data: String(n) for a BigInt, a copy without the cycle",
+            "\(circular.json)")
+        // A BigInt is named as what it is (#86), not as a DOM node or a cycle.
+        let big = await run("10n")
+        #expect(big.error?.contains("(JSON.stringify cannot serialize BigInt)") == true, "\(big.json)")
 
         // A DOM node does not error: it is an ordinary (useless) object, so the docs' advice to return a
         // property instead of an element stays accurate.
@@ -83,8 +89,42 @@ import Testing
         #expect(await value("[1, 'a', null, { b: true }]") == [1, "a", nil, ["b": true]])
         #expect(await value("'é日😀'") == "é日😀")
         #expect(await value("NaN") == .null)
+        #expect(await value("Symbol('s')") == .null)
+        #expect(await value("new Map([['k', 1]])") == .emptyObject)
         let result = await bed.ctl("execute-js", ["code": "({ a: 1 })"]).result
         #expect(result["truncated"] == false)
+    }
+
+    /// J-19 (#86, N2): a promise nothing in the page can settle (`new Promise(() => {})`) is collected by the engine,
+    /// which then says so; that is not code that failed to parse, and the answer says what it is. A busy page collects at
+    /// once (measured), so the page churns garbage first.
+    @Test func aPromiseNothingCanSettleIsSaidToBeOneNotABadExpression() async throws {
+        let bed = try await ScriptVerbBed.open("/page")
+        let churn = "(setInterval(() => { const a = []; for (let i = 0; i < 50000; i++) a.push({ i }) }, 5), 1)"
+        #expect(await bed.ctl("execute-js", ["code": .string(churn)]).ok)
+        for code in ["new Promise(() => {})", "new Promise((r) => {})"] {
+            let answer = await bed.ctl("execute-js", ["code": .string(code)])
+            #expect(answer.error == ScriptVerbs.promiseUnreachable, "\(code): \(answer.json)")
+        }
+        let statement = await bed.ctl("execute-js", ["code": "const x = 1; x"])
+        #expect(statement.error?.hasPrefix("the code is not a valid expression") == true, "\(statement.json)")
+    }
+
+    /// J-19 (#86, S3): a script that never answers is given up on at the verb's own limit, saying so, before
+    /// core's deadline (five seconds later) would answer in the wire name; `executeTimeoutMs` is in `describe`.
+    @Test func aScriptThatNeverAnswersIsGivenUpOnAtTheLimitSayingSo() async throws {
+        let bed = try await ScriptVerbBed.open("/page")
+        let started = ContinuousClock.now
+        let never = await ScriptVerbs.evaluate("new Promise(() => {})", in: bed.page, within: 200)
+        #expect(never == nil, "\(String(describing: never))")
+        #expect(ContinuousClock.now - started < .seconds(5))
+        let quick = await ScriptVerbs.evaluate("1 + 1", in: bed.page, within: 10_000)
+        #expect(quick == .success(2))
+        #expect(
+            ScriptVerbs.scriptTimedOut(30_000)
+                == "execute-js stopped waiting after 30000ms, its limit — the script may still be running in the page")
+        let verb = try #require(bed.verb("browser.executeJavaScript"))
+        #expect(verb.timeout == .milliseconds(BrowserLimits.executeTimeoutMs), "the budget is the limit, core's deadline later")
     }
 
     /// J-19: page script the app ran can't have its serialization swapped out by the page: the wrapper
@@ -170,7 +210,7 @@ import Testing
     @Test func executeJsOutRefusesAValueThatCannotBeSerialized() async throws {
         let bed = try await ScriptVerbBed.open("/page")
         let answer = await bed.ctl("execute-js", ["code": "(() => { const a = {}; a.self = a; return a })()", "out": true])
-        #expect(answer.error == "the script returned a value that cannot be serialized (a DOM node, or a cycle)")
+        #expect(answer.error?.hasPrefix("the script returned a value JSON can't represent (JSON.stringify cannot serialize cyclic") == true)
         let directory = bed.cacheDirectory.appending(path: "agent-output").path
         #expect((try? FileManager.default.contentsOfDirectory(atPath: directory))?.isEmpty ?? true, "nothing was written")
     }

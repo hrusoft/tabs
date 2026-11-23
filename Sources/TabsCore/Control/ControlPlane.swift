@@ -138,7 +138,9 @@ extension ControlDispatcher {
     /// never answers earns, and it is answered at the deadline even when the
     /// handler ignores cancellation (its late answer is dropped).
     private func run(controlPlane verb: ControlVerbContribution, owner: PluginID, _ invocation: ControlInvocation) async -> JSONValue {
-        let type = verb.wireType ?? verb.name
+        // The verb as an agent spells it (`execute-js`), in a batch step too: the skill and the
+        // guide speak commands, and the wire type is only a batch step's spelling of one.
+        let named = verb.command ?? verb.wireType ?? verb.name
         let budget = Self.budget(of: verb, invocation.arguments)
         let deadline: Duration? = budget >= ControlBudget.unbounded ? nil : budget + headroom
         // While it is being answered, this verb's plugin may name the caller
@@ -149,16 +151,16 @@ extension ControlDispatcher {
         do {
             let result = try await Self.run(verb, invocation, deadline: deadline)
             guard result.isRepresentableInJSON else {
-                return Self.failure("\(type) returned a result that isn't valid JSON (NaN or infinity)")
+                return Self.failure("\(named) returned a result that isn't valid JSON (NaN or infinity)")
             }
             return result == .null ? ["ok": true] : ["ok": true, "result": result]
         } catch let error as ControlVerbError {
             return Self.failure(error.message)
         } catch is TimedOut {
             let milliseconds = budget.components.seconds * 1000 + budget.components.attoseconds / 1_000_000_000_000_000
-            return Self.failure("\(type) timed out after \(milliseconds)ms")
+            return Self.failure("\(named) timed out after \(milliseconds)ms")
         } catch is CancellationError {
-            return Self.failure("\(type) was cancelled")
+            return Self.failure("\(named) was cancelled")
         } catch {
             return Self.failure("\(error)")
         }

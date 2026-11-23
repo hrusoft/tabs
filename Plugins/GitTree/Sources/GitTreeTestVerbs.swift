@@ -31,6 +31,11 @@ enum GitTreeTestVerbs {
                     pane.select(hash)
                     try await pane.settle()
                 }
+                if let id = spec["selectBranch"]?.stringValue {
+                    guard pane.branchNode(id) != nil else { throw ControlVerbError("no row \(id) in the branches sidebar") }
+                    pane.selectBranch(id)
+                    try await pane.settle()
+                }
                 if case .array(let paths)? = spec["expand"] {
                     for path in paths.compactMap(\.stringValue) {
                         guard let file = pane.detail?.files.first(where: { $0.path == path }) else {
@@ -112,6 +117,21 @@ extension ScriptedGitSource {
             default: self.head = .branch(name: head["name"]?.stringValue ?? "main")
             }
         }
+        // The sidebar's refs as git lists them: full names and the commits
+        // they name, split against the remotes as a real read is. Unset, they
+        // are read off the log's decorations.
+        if let refsFailure = fixture["refsFailure"] { self.refsFailure = try GitFailure(json: refsFailure) }
+        if let refs = fixture["refs"] {
+            func array(_ value: JSONValue?) -> [JSONValue] { if case .array(let values)? = value { values } else { [] } }
+            let remotes = array(refs["remotes"]).compactMap(\.stringValue)
+            remoteNames = remotes
+            refsAnswer = GitRefs(
+                remotes: remotes,
+                refs: array(refs["refs"]).compactMap { entry in
+                    guard let refname = entry["refname"]?.stringValue, let hash = entry["hash"]?.stringValue else { return nil }
+                    return Git.ref(refname: refname, hash: hash, remoteNames: remotes)
+                })
+        }
     }
 }
 
@@ -143,7 +163,16 @@ extension GitTreePane {
             "loading": .bool(log == nil),
             "expandedFiles": .array(expandedFiles.keys.sorted().map(JSONValue.string)),
             "diffs": .object(expandedFiles.mapValues(\.testState)),
+            // The sidebar's rows as its open rows list them: their ids, and
+            // their titles indented two spaces a level.
+            "branchRows": .array(visibleBranchRows(branchTree, branchExpansion).map { .string($0.node.id) }),
+            "branches": .array(
+                visibleBranchRows(branchTree, branchExpansion).map { .string(String(repeating: "  ", count: $0.level) + $0.node.title) }),
+            "selectedBranch": selectedBranchID.map(JSONValue.string) ?? .null,
+            "branchesCollapsed": .bool(sidebar.collapsed),
+            "branchesWidth": .double(sidebar.width),
         ]
+        if case .failure(let error)? = refs { state["branchesNotice"] = .string(failureMessage(error.reason)) }
         if case .failure(let error)? = log { state["notice"] = .string(failureMessage(error.reason)) }
         if case .success(let value)? = log {
             state["hasMore"] = .bool(value.hasMore)
@@ -154,6 +183,9 @@ extension GitTreePane {
         }
         if let view = viewIfLoaded {
             state["listFocused"] = .bool(view.window?.firstResponder === view.list)
+            state["branchesFocused"] = .bool(view.sidebarHasFocus)
+            // What the outline itself shows, which must be the pane's rows.
+            state["shownBranchRows"] = .array(view.sidebar.shownRows.map { .string($0.item.node.id) })
             state["pathText"] = .string(view.toolbar.pathValue)
             state["editingPath"] = .bool(view.toolbar.isEditingPath)
         }
@@ -166,7 +198,7 @@ extension GitTreePane {
         for _ in 0..<200 {
             let detailDone = split.collapsed || selectedHash == nil || detail?.hash == selectedHash
             let diffsDone = expandedFiles.values.allSatisfy { if case .reading = $0.diff { false } else { true } }
-            if log != nil && !fetchPending && detailDone && diffsDone { return }
+            if log != nil && !fetchPending && !refsPending && detailDone && diffsDone { return }
             try await Task.sleep(for: .milliseconds(10))
         }
         throw ControlVerbError("the git tree didn't settle")
@@ -271,12 +303,46 @@ extension GitTreeView {
                     })
         }
         // What a pane with no list, or no detail, reports for them.
-        for key in ["list", "loadMore", "divider", "detail", "message", "totals"] { out[key] = .null }
-        for key in ["fields", "files", "detailNotes"] { out[key] = .array([]) }
+        for key in ["list", "loadMore", "divider", "detail", "message", "totals", "sidebar", "sidebarDivider", "branchesNote"] {
+            out[key] = .null
+        }
+        for key in ["fields", "files", "detailNotes", "branchRows"] { out[key] = .array([]) }
         out["rows"] = .object([:])
         out["dividerCollapsed"] = .bool(false)
+        out["sidebarCollapsed"] = .bool(false)
         guard state == .list, let listRect = layout.list else { return .object(out) }
         out["list"] = r(listRect)
+        out["sidebar"] = r(layout.sidebar)
+        out["sidebarDivider"] = r(layout.sidebarDivider)
+        out["sidebarCollapsed"] = .bool(layout.sidebarCollapsed)
+        if !sidebar.isHidden {
+            out["branchesNote"] = r(sidebar.noteRect.map { convert($0, from: sidebar) })
+            let outline = sidebar.outline
+            var branchRows: [JSONValue] = []
+            for (row, item, level) in sidebar.note == nil ? sidebar.shownRows : [] {
+                let cell = outline.frameOfCell(atColumn: 0, row: row)
+                let parts = BranchCellView.parts(in: CGRect(origin: .zero, size: cell.size))
+                let disclosure = outline.frameOfOutlineCell(atRow: row)
+                let current = item.node.ref.map(pane.isHeadBranch) ?? false
+                let font = current ? BranchCellView.currentFont : BranchCellView.font
+                // The label draws its text 2 in from each side.
+                let textWidth = NSAttributedString(string: item.node.title, attributes: [.font: font]).size().width
+                branchRows.append(
+                    .object([
+                        "id": .string(item.node.id),
+                        "rect": r(convert(outline.rect(ofRow: row), from: outline)),
+                        "disclosure": disclosure.isEmpty ? .null : r(convert(disclosure, from: outline)),
+                        "icon": r(convert(parts.icon.offsetBy(dx: cell.minX, dy: cell.minY), from: outline)),
+                        "name": r(convert(parts.name.offsetBy(dx: cell.minX, dy: cell.minY), from: outline)),
+                        "truncated": .bool(textWidth > parts.name.width - 4 + 0.01),
+                        "level": .int(Int64(level)),
+                        "expanded": .bool(sidebar.isExpanded(item)),
+                        "selected": .bool(outline.selectedRow == row),
+                        "current": .bool(current),
+                    ]))
+            }
+            out["branchRows"] = .array(branchRows)
+        }
         var rows: [String: JSONValue] = [:]
         for index in 0..<list.rowCount {
             let row = pane.graph.rows[index]

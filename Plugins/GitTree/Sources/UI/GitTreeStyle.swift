@@ -58,8 +58,16 @@ enum GitTreeMetrics {
     static let noticePadding = 16.0
     static let noticeParagraphGap = 6.0
 
-    static let collapsedDividerHeight = 8.0
+    /// A collapsed panel's bar: its height (the details') or width (the sidebar's).
+    static let collapsedDividerThickness = 8.0
     static let gripSize = CGSize(width: 24, height: 2)
+
+    /// The branches sidebar's rows, and their icon (then a gap, then the name).
+    static let branchRowHeight = 22.0
+    static let branchIconSize = 16.0
+    static let branchIconGap = 4.0
+    /// Around the sidebar's note (a failed read).
+    static let branchNotePadding = 8.0
 }
 
 extension PaneTheme {

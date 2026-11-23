@@ -34,6 +34,8 @@ protocol ChromeHost: AnyObject {
     func rename(tab: NodeID?, pane: NodeID?, from view: NSView)
     /// The docked root's bar is the window's title bar: its background drags the window.
     func dragWindow(with event: NSEvent)
+    /// The title bar's mug (Caffeinate…): opens the Caffeinate dialog.
+    func showCaffeinateDialog()
     /// The title bar's cup (Decaf): stops the managed caffeinate process.
     func stopCaffeinate()
     func resizeFloating(_ floatID: NodeID, edge: ResizeHandle.Edge, with event: NSEvent)
@@ -554,6 +556,10 @@ final class HeaderControlsView: FlippedView {
     /// The pane's plugin's header actions, leftmost.
     private(set) var actionButtons: [PaneActionButton] = []
     private(set) var isRevealed = false
+    /// Views outside the row that show and hide with it (the root bar's mug).
+    var companions: [NSView] = [] {
+        didSet { for view in companions { view.alphaValue = alphaValue } }
+    }
 
     init(pane: PaneView) {
         self.pane = pane
@@ -641,7 +647,7 @@ final class HeaderControlsView: FlippedView {
     func setRevealed(_ revealed: Bool) {
         guard revealed != isRevealed, revealed || !holdOpen else { return }
         isRevealed = revealed
-        ChromeFade.fade(self, to: revealed ? 1 : 0)
+        for view in [self] + companions { ChromeFade.fade(view, to: revealed ? 1 : 0) }
     }
 }
 
@@ -710,8 +716,8 @@ final class PaneActionButton: ChromeIconButton {
 // MARK: - Tab bars
 
 /// A tab group's bar: grip, the tab strip, the group's controls — and, on the
-/// docked root, the window's title bar (traffic-light gutter, the cup while
-/// caffeinate runs, Settings button).
+/// docked root, the window's title bar (traffic-light gutter, the mug or,
+/// while caffeinate runs, the cup, Settings button).
 @MainActor
 final class TabBarView: FlippedView, PointerHover {
     unowned let pane: PaneView
@@ -722,6 +728,9 @@ final class TabBarView: FlippedView, PointerHover {
     /// Only while the managed caffeinate process runs, immediately before
     /// Settings: a press does what File ▸ Decaf does.
     let caffeinateButton: RootIconButton
+    /// The cup's slot while caffeinate isn't running: a mug without steam,
+    /// revealed with the bar's controls; a press does what File ▸ Caffeinate… does.
+    let caffeinateOpenButton: RootIconButton
     private var tracking: NSTrackingArea?
     private(set) var isHovered = false
 
@@ -731,10 +740,14 @@ final class TabBarView: FlippedView, PointerHover {
         controls = HeaderControlsView(pane: pane)
         settingsButton = RootIconButton(pane: pane, icon: .settings, label: "Settings", identifier: "settings-open-button")
         caffeinateButton = RootIconButton(pane: pane, icon: .coffeeCup, label: "Decaf", identifier: "caffeinate-decaf-button")
+        caffeinateOpenButton = RootIconButton(
+            pane: pane, icon: .coffeeMug, label: "Caffeinate…", identifier: "caffeinate-open-button")
         super.init(frame: .zero)
-        for view in [grip, strip, controls, caffeinateButton, settingsButton] as [NSView] { addSubview(view) }
+        for view in [grip, strip, controls, caffeinateOpenButton, caffeinateButton, settingsButton] as [NSView] { addSubview(view) }
+        controls.companions = [caffeinateOpenButton]
         settingsButton.onPress = { NSApp.sendAction(#selector(AppDelegate.showSettings(_:)), to: nil, from: nil) }
         caffeinateButton.onPress = { [unowned pane] in pane.host.stopCaffeinate() }
+        caffeinateOpenButton.onPress = { [unowned pane] in pane.host.showCaffeinateDialog() }
     }
 
     var group: TabGroup? { pane.node.group }
@@ -756,13 +769,17 @@ final class TabBarView: FlippedView, PointerHover {
             x = Metrics.depthIndent(pane.depth) + grip.glyphWidth + Metrics.barGap
         }
         var right = layoutSize.width - Metrics.barPaddingRight
+        let running = pane.host.appearance.caffeinateRunning
         settingsButton.isHidden = !isRoot
-        caffeinateButton.isHidden = !(isRoot && pane.host.appearance.caffeinateRunning)
-        // Right to left: Settings, then the cup before it; each with its margin and the bar's gap.
-        for button in [settingsButton, caffeinateButton] where !button.isHidden {
-            let size = Metrics.rootIconButtonSize
+        caffeinateButton.isHidden = !(isRoot && running)
+        caffeinateOpenButton.isHidden = !(isRoot && !running)
+        // Right to left: Settings, then the cup's slot before it (the cup, or the
+        // mug); each with its margin and the bar's gap.
+        let size = Metrics.rootIconButtonSize
+        for slot in [[settingsButton], [caffeinateButton, caffeinateOpenButton]] {
+            guard let shown = slot.first(where: { !$0.isHidden }) else { continue }
             right -= Metrics.rootIconButtonMarginRight
-            place(button, CGRect(x: right - size.width, y: (height - size.height) / 2, width: size.width, height: size.height))
+            place(shown, CGRect(x: right - size.width, y: (height - size.height) / 2, width: size.width, height: size.height))
             right -= size.width + Metrics.barGap
         }
         let controlsSize = controls.intrinsicSize
@@ -786,7 +803,7 @@ final class TabBarView: FlippedView, PointerHover {
         grip.color = theme.textDim
         strip.refresh()
         controls.refresh()
-        for button in [settingsButton, caffeinateButton] { button.needsDisplay = true }
+        for button in [settingsButton, caffeinateButton, caffeinateOpenButton] { button.needsDisplay = true }
         needsLayout = true
     }
 
@@ -834,8 +851,8 @@ final class TabBarView: FlippedView, PointerHover {
     }
 }
 
-/// The docked root bar's own buttons (the cup, Settings): dimmed at rest, a
-/// 15pt icon that brightens on hover.
+/// The docked root bar's own buttons (the mug or the cup, Settings): dimmed at
+/// rest, a 15pt icon that brightens on hover.
 @MainActor
 final class RootIconButton: ChromeIconButton {
     init(pane: PaneView, icon: ChromeIcon, label: String, identifier: String) {

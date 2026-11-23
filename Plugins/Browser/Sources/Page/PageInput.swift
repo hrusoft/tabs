@@ -218,7 +218,7 @@ struct PageInput {
     /// terminal the user is typing in every time an agent drives the pane. The
     /// page's own idea of what is focused survives the change of first
     /// responder, so later verbs still land where they should (and the caret
-    /// in a field with it: `activeCaret`). A window in which nothing had the
+    /// in a field or a contenteditable with it: `activeCaret`). A window in which nothing had the
     /// keyboard is left that way.
     func withHostFocusRestored<T>(_ action: () async throws -> T) async rethrows -> T {
         let window = webView.window
@@ -241,22 +241,60 @@ struct PageInput {
         return result
     }
 
-    /// The caret (or selection) of the text field the page has focused, as `[start, end, direction]`. WebKit
-    /// throws it away when the page gives up the keyboard (the field's selection reads 0-0 again, so a `type`
-    /// after a `form-input`, or a second `type`, would land in front of what is there); the page's own idea
-    /// of its focus survives the change of first responder, and so must this.
-    private func activeCaret() async -> [JSONValue]? {
-        let script =
-            "(() => { const el = document.activeElement; try { return typeof el.selectionStart === 'number' ? [el.selectionStart, el.selectionEnd, el.selectionDirection] : null } catch (error) { return null } })()"
-        if case .success(.array(let caret)) = await page.evaluate(script) { return caret }
-        return nil
+    /// The caret (or selection) of what the page has focused. WebKit throws the page's selection away when the
+    /// page gives up the keyboard: a text field's then reads 0-0 again, so a `type` after a `form-input`, or a
+    /// second `type`, would land in front of what is there, and a contenteditable has none, so the next key
+    /// landed at its start. The page's own idea of its focus survives the change of first responder, and so
+    /// must this. A text field's comes back as `[start, end, direction]`; a contenteditable's is kept in the
+    /// page, as a range in a world of its own (`caretWorld`), which the page's scripts can't see.
+    private enum Caret {
+        case field([JSONValue])
+        case editable
     }
 
-    private func restoreCaret(_ caret: [JSONValue]?) async {
-        guard let caret, caret.count == 3, caret[0].intValue != nil, caret[1].intValue != nil else { return }
-        _ = await page.evaluate(
-            "(() => { try { document.activeElement.setSelectionRange(\(jsLiteral(caret[0])), \(jsLiteral(caret[1])), \(jsLiteral(caret[2]))) } catch (error) {} return true })()"
-        )
+    /// Where a contenteditable's kept caret waits for the page to have given up the keyboard.
+    private static let caretWorld = WKContentWorld.world(name: "tabs-input-caret")
+
+    private func activeCaret() async -> Caret? {
+        let script = """
+            const el = document.activeElement
+            if (!el) return null
+            try {
+              if (typeof el.selectionStart === 'number') return [el.selectionStart, el.selectionEnd, el.selectionDirection]
+            } catch (error) {}
+            const selection = getSelection()
+            if (!el.isContentEditable || selection.rangeCount === 0) return null
+            globalThis.keptCaret = selection.getRangeAt(0).cloneRange()
+            return true
+            """
+        switch await page.call(script, in: Self.caretWorld) {
+        case .success(.array(let caret)): return .field(caret)
+        case .success(.bool(true)): return .editable
+        default: return nil
+        }
+    }
+
+    private func restoreCaret(_ caret: Caret?) async {
+        switch caret {
+        case .field(let caret):
+            guard caret.count == 3, caret[0].intValue != nil, caret[1].intValue != nil else { return }
+            _ = await page.call(
+                "try { document.activeElement.setSelectionRange(\(jsLiteral(caret[0])), \(jsLiteral(caret[1])), \(jsLiteral(caret[2]))) } catch (error) {} return true",
+                in: Self.caretWorld)
+        case .editable:
+            let script = """
+                const range = globalThis.keptCaret
+                delete globalThis.keptCaret
+                if (!range) return false
+                const selection = getSelection()
+                selection.removeAllRanges()
+                selection.addRange(range)
+                return true
+                """
+            _ = await page.call(script, in: Self.caretWorld)
+        case nil:
+            return
+        }
     }
 
     private func isPageResponder(_ responder: NSResponder?) -> Bool {

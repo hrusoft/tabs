@@ -126,7 +126,7 @@ struct ChromeText {
 /// The chrome's icons, drawn in a 16-unit view box at any size, in the
 /// current color.
 enum ChromeIcon {
-    case newTab, plus, splitHorizontal, splitVertical, newUnpinnedTab, clearPane, closePane, settings, wrapWindow, coffeeCup
+    case newTab, plus, splitHorizontal, splitVertical, newUnpinnedTab, clearPane, closePane, settings, wrapWindow, coffeeMug, coffeeCup
 
     /// Draws the icon into `rect` of a flipped view.
     func draw(in rect: CGRect, color: NSColor) {
@@ -217,9 +217,11 @@ enum ChromeIcon {
                 NSBezierPath(rect: CGRect(x: 7.3, y: 1, width: 1.4, height: 3.6)).fill()
                 context.restoreGState()
             }
-        case .coffeeCup:
-            // A rounded-bottom cup, an open handle, and three short S-curves of
-            // steam rising off the rim.
+        case .coffeeMug, .coffeeCup:
+            // A rounded-bottom cup and an open handle; the cup (caffeinate running)
+            // adds three short S-curves of steam rising off the rim. Without the
+            // steam, the mug is raised to the box's middle.
+            if self == .coffeeMug { context.translateBy(x: 0, y: -2.25) }
             let cup = NSBezierPath()
             cup.move(to: CGPoint(x: 3.5, y: 7))
             cup.line(to: CGPoint(x: 10.5, y: 7))
@@ -237,7 +239,7 @@ enum ChromeIcon {
             // `S`: the first control point reflects the last one about the join.
             handle.curve(to: CGPoint(x: 10.5, y: 12.4), controlPoint1: CGPoint(x: 13.1, y: 11.5), controlPoint2: CGPoint(x: 12.1, y: 12.4))
             stroke(handle, width: 1.2, round: true)
-            for x: CGFloat in [4.5, 7.5, 10.5] {
+            for x: CGFloat in self == .coffeeCup ? [4.5, 7.5, 10.5] : [] {
                 let steam = NSBezierPath()
                 steam.move(to: CGPoint(x: x, y: 6))
                 steam.curve(to: CGPoint(x: x + 0.9, y: 4), controlPoint1: CGPoint(x: x, y: 5), controlPoint2: CGPoint(x: x + 0.9, y: 5))

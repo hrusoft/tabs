@@ -390,6 +390,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, Chr
         window?.performDrag(with: event)
     }
 
+    func showCaffeinateDialog() {
+        renderer.showCaffeinateDialog?()
+    }
+
     func stopCaffeinate() {
         renderer.runtime.caffeinate.stop()
     }

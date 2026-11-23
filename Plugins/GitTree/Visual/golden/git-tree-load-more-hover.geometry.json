@@ -1,6 +1,57 @@
 {
   "content": {
     "leaf-git": {
+      "branchRows": [
+        {
+          "current": false,
+          "disclosure": [3, 57, 12, 22],
+          "expanded": true,
+          "icon": [19, 60, 16, 16],
+          "id": "local",
+          "level": 0,
+          "name": [39, 60, 161, 16],
+          "rect": [1, 57, 199, 22],
+          "selected": false,
+          "truncated": false
+        },
+        {
+          "current": true,
+          "disclosure": null,
+          "expanded": false,
+          "icon": [32, 82, 16, 16],
+          "id": "refs/heads/main",
+          "level": 1,
+          "name": [52, 82, 148, 16],
+          "rect": [1, 79, 199, 22],
+          "selected": false,
+          "truncated": false
+        },
+        {
+          "current": false,
+          "disclosure": null,
+          "expanded": false,
+          "icon": [19, 104, 16, 16],
+          "id": "remote:origin",
+          "level": 0,
+          "name": [39, 104, 161, 16],
+          "rect": [1, 101, 199, 22],
+          "selected": false,
+          "truncated": false
+        },
+        {
+          "current": false,
+          "disclosure": null,
+          "expanded": false,
+          "icon": [19, 126, 16, 16],
+          "id": "tags",
+          "level": 0,
+          "name": [39, 126, 161, 16],
+          "rect": [1, 123, 199, 22],
+          "selected": false,
+          "truncated": false
+        }
+      ],
+      "branchesNote": null,
       "browse": [636.8, 35.5, 23, 17],
       "container": [1, 57, 898, 542],
       "detail": [1, 382.2, 898, 216.8],
@@ -35,8 +86,8 @@
       "head": [667.8, 37.5, 33.03, 13],
       "headBaseline": 48.5,
       "headText": [671.8, 37.5, 25.03, 13],
-      "list": [1, 57, 898, 325.2],
-      "loadMore": [9, 183, 882, 23],
+      "list": [201, 57, 698, 325.2],
+      "loadMore": [209, 183, 682, 23],
       "message": [11, 391.2, 878, 15],
       "notice": null,
       "noticeLines": [],
@@ -46,84 +97,87 @@
         "30e45f0274efb6531a0b81eec13212a87bd442d6": {
           "author": null,
           "date": null,
-          "gutter": [7, 105, 12, 24],
-          "hash": [27, 110.5, 46.36, 13],
+          "gutter": [207, 105, 12, 24],
+          "hash": [227, 110.5, 46.36, 13],
           "hashBaseline": 120.5,
           "phantom": false,
-          "rect": [1, 105, 898, 24],
+          "rect": [201, 105, 698, 24],
           "refs": [],
           "selected": false,
-          "subject": [81.36, 109.5, 809.64, 15],
+          "subject": [281.36, 109.5, 609.64, 15],
           "subjectBaseline": 121.5,
-          "subjectText": [81.36, 109.5, 290.41, 15],
+          "subjectText": [281.36, 109.5, 290.41, 15],
           "truncated": false
         },
         "8e5c07eecb7b6add46432a5201c04be915f8821e": {
           "author": null,
           "date": null,
-          "gutter": [7, 81, 12, 24],
-          "hash": [27, 86.5, 46.36, 13],
+          "gutter": [207, 81, 12, 24],
+          "hash": [227, 86.5, 46.36, 13],
           "hashBaseline": 96.5,
           "phantom": false,
-          "rect": [1, 81, 898, 24],
+          "rect": [201, 81, 698, 24],
           "refs": [],
           "selected": false,
-          "subject": [81.36, 85.5, 809.64, 15],
+          "subject": [281.36, 85.5, 609.64, 15],
           "subjectBaseline": 97.5,
-          "subjectText": [81.36, 85.5, 208.64, 15],
+          "subjectText": [281.36, 85.5, 208.64, 15],
           "truncated": false
         },
         "bdaf1eca33d4619e80e8ca689a1b74a4febbbb29": {
           "author": null,
           "date": null,
-          "gutter": [7, 153, 12, 24],
-          "hash": [27, 158.5, 46.36, 13],
+          "gutter": [207, 153, 12, 24],
+          "hash": [227, 158.5, 46.36, 13],
           "hashBaseline": 168.5,
           "phantom": false,
-          "rect": [1, 153, 898, 24],
+          "rect": [201, 153, 698, 24],
           "refs": [],
           "selected": false,
-          "subject": [81.36, 157.5, 809.64, 15],
+          "subject": [281.36, 157.5, 609.64, 15],
           "subjectBaseline": 169.5,
-          "subjectText": [81.36, 157.5, 164.3, 15],
+          "subjectText": [281.36, 157.5, 164.3, 15],
           "truncated": false
         },
         "c10f5a2e123650c6ab14f7b262c169c9d274acfd": {
           "author": null,
           "date": null,
-          "gutter": [7, 57, 12, 24],
-          "hash": [27, 62.5, 46.36, 13],
+          "gutter": [207, 57, 12, 24],
+          "hash": [227, 62.5, 46.36, 13],
           "hashBaseline": 72.5,
           "phantom": false,
-          "rect": [1, 57, 898, 24],
+          "rect": [201, 57, 698, 24],
           "refs": [
-            [81.36, 61, 39.85, 16],
-            [127.21, 61, 34.99, 16]
+            [281.36, 61, 39.85, 16],
+            [327.21, 61, 34.99, 16]
           ],
           "selected": true,
-          "subject": [81.36, 61, 809.64, 16],
+          "subject": [281.36, 61, 609.64, 16],
           "subjectBaseline": 74,
-          "subjectText": [168.2, 62, 200.45, 15],
+          "subjectText": [368.2, 62, 200.45, 15],
           "truncated": false
         },
         "f0b89ee9977fb93bf3a71343d5a95ac58463bb40": {
           "author": null,
           "date": null,
-          "gutter": [7, 129, 12, 24],
-          "hash": [27, 134.5, 46.36, 13],
+          "gutter": [207, 129, 12, 24],
+          "hash": [227, 134.5, 46.36, 13],
           "hashBaseline": 144.5,
           "phantom": false,
-          "rect": [1, 129, 898, 24],
+          "rect": [201, 129, 698, 24],
           "refs": [],
           "selected": false,
-          "subject": [81.36, 133.5, 809.64, 15],
+          "subject": [281.36, 133.5, 609.64, 15],
           "subjectBaseline": 145.5,
-          "subjectText": [81.36, 133.5, 208.55, 15],
+          "subjectText": [281.36, 133.5, 208.55, 15],
           "truncated": false
         }
       },
       "select": [708.84, 34, 123, 20],
       "selectBaseline": 48.5,
+      "sidebar": [1, 57, 200, 325.2],
+      "sidebarCollapsed": false,
+      "sidebarDivider": [201, 57, 0, 325.2],
       "state": "list",
       "totals": null
     }
@@ -142,12 +196,12 @@
     },
     "root": {
       "buttons": {
-        "pane-close-button": [835, 7.5, 23, 17],
-        "pane-new-tab-button": [803, 7.5, 23, 17]
+        "pane-close-button": [798, 7.5, 23, 17],
+        "pane-new-tab-button": [766, 7.5, 23, 17]
       },
       "dropdown": null,
-      "rect": [803, 7.5, 55, 17],
-      "separator": [830, 10.5, 1, 11],
+      "rect": [766, 7.5, 55, 17],
+      "separator": [793, 10.5, 1, 11],
       "visible": false
     }
   },
@@ -194,12 +248,13 @@
   },
   "tabBars": {
     "root": {
+      "caffeinateOpen": [829, 4.5, 23, 23],
       "grip": null,
       "newTab": [145.85, 13, 20, 14],
       "rect": [1, 1, 898, 30],
       "root": true,
       "settings": [866, 4.5, 23, 23],
-      "strip": [90, 8, 705, 24],
+      "strip": [90, 8, 668, 24],
       "tabs": {
         "tab-git": {
           "active": true,

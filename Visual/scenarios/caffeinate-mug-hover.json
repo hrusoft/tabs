@@ -1,0 +1,35 @@
+{
+  "description": "default (one empty pane), caffeinate not running, the pointer over the root bar's mug: the bar's controls revealed, and last among them, immediately before the Settings gear, the mug without steam (Caffeinate…), washed, its glyph at full strength.",
+  "size": {
+    "width": 1200,
+    "height": 800
+  },
+  "settings": {
+    "colorTheme": "dark"
+  },
+  "layout": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "type": "tabs",
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Tabs",
+          "content": {
+            "id": "leaf-a",
+            "type": "empty",
+            "config": {}
+          }
+        }
+      ],
+      "activeTabId": "tab-a"
+    },
+    "activePaneId": "leaf-a",
+    "floating": []
+  },
+  "pointer": {
+    "x": 1140,
+    "y": 16
+  }
+}

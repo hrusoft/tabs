@@ -82,6 +82,7 @@ import Testing
         #expect(limits["waitDefaultTimeoutMs"] == 10_000 && limits["waitMaxTimeoutMs"] == 300_000)
         #expect(limits["waitIdleQuietMs"] == 500 && limits["waitDefaultPollMs"] == 250)
         #expect(limits["pageTextDefaultMax"] == 50_000 && limits["pageTextHardMax"] == 200_000)
+        #expect(limits["consoleMessageMax"] == 10_000 && limits["executeTimeoutMs"] == 30_000)
     }
 
     /// J-19..J-22 reference: `describe` lists each verb with its flags (docs verbatim), its wire schema and its result shape.
@@ -93,8 +94,11 @@ import Testing
         let waitFor = try #require(command("wait-for"))
         #expect(waitFor["usage"]?.stringValue?.hasPrefix("tabs-ctl wait-for --pane <pane> ") == true, "\(waitFor["usage"] ?? .null)")
         #expect(
-            waitFor["flags"]?["timeout"]?["doc"] == "Default 10000, capped at 300000. Long waits also need the Bash tool timeout raised.")
-        #expect(waitFor["wire"]?["properties"]?["timeoutMs"]?["type"] == "number")
+            waitFor["flags"]?["timeout"]?["doc"]
+                == "Default 10000, at most 300000; 0 checks once. Long waits also need the Bash tool timeout raised.")
+        #expect(waitFor["flags"]?["timeout"]?["min"] == 0 && waitFor["flags"]?["timeout"]?["max"] == 300_000, "describe shows the bounds")
+        #expect(waitFor["flags"]?["poll"]?["min"] == 50 && waitFor["flags"]?["poll"]?["max"] == 300_000)
+        #expect(waitFor["wire"]?["properties"]?["timeoutMs"] == ["type": "number", "minimum": 0, "maximum": 300_000])
         #expect(waitFor["wire"]?["required"] == ["type", "targetPaneId"])
         #expect(waitFor["result"]?["elapsedMs"] == "number")
         let save = try #require(command("save-resource"))

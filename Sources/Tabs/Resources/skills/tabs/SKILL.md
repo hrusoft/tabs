@@ -33,6 +33,8 @@ Run everything via `${CLAUDE_SKILL_DIR}/scripts/tabs-ctl <command> [options]`.
 
 Every command prints one line of JSON and exits 0 on success, or prints `{"ok":false,"error":"..."}` and exits non-zero on failure. Read the error and relay it plainly rather than retrying blindly.
 
+A command that does several things in one call — `batch` (its steps), and a capability's own such commands (the browser's `form-input`, its fields) — answers `"ok": true` once it has run, with what each part did, and **exits non-zero when any part failed**: the failures are in the result (`stoppedAt` and a step's `"ok": false`, or a non-empty `errors`). So `ok` alone doesn't say everything worked; the exit code does.
+
 Flags take a value as `--flag value` or `--flag=value`; use the `=` form for a value that itself starts with `--`.
 
 ## Discovering what's available
